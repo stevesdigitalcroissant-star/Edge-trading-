@@ -21,7 +21,7 @@ const { getBroker } = require("./api/_broker");
 const { syncTrades } = require("./api/_core");
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png" };
-const STATIC = new Set(["/index.html", "/app.js", "/coach.js", "/app.css", "/icon.svg", "/manifest.webmanifest"]);
+const STATIC = new Set(["/index.html", "/app.js", "/coach.js", "/sw.js", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/app.css", "/icon.svg", "/manifest.webmanifest"]);
 
 function wrap(res) {
   res.status = (c) => { res.statusCode = c; return res; };

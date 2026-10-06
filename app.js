@@ -24,6 +24,48 @@
 
   window.Edge = { token: () => token, state: () => S, toast };
 
+  // ---------- notifications on this device (Web Push; iPhone/iPad need Edge on the Home Screen)
+  const TABS = ["now", "coach", "setups", "bias", "journal", "rules"];
+  const fromHash = () => { const h = location.hash.slice(1); if (TABS.includes(h)) { tab = h; try { localStorage.setItem("edge.tab", tab); } catch {} } };
+  fromHash();
+  addEventListener("hashchange", () => { fromHash(); if (S) render(); });
+  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const pushCapable = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  let swReg = null, pushSub = null;
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").then(async (r) => {
+      swReg = r;
+      if (pushCapable) pushSub = await r.pushManager.getSubscription();
+      if (S) render();
+    }).catch(() => {});
+  }
+  const b64 = (s) => { const p = "=".repeat((4 - (s.length % 4)) % 4); const raw = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(raw, (c) => c.charCodeAt(0)); };
+  function pushStatus() {
+    if (pushSub) return { on: true, text: "On for this device" };
+    if (!pushCapable) return isIOS && !standalone
+      ? { on: false, ios: true, text: "On iPhone / iPad: tap Share → Add to Home Screen, open Edge from the new icon, then come back here." }
+      : { on: false, text: "This browser can't receive notifications. Use Chrome, Edge, Firefox or Safari." };
+    if (Notification.permission === "denied") return { on: false, text: "Notifications are blocked for Edge. Allow them in the device settings, then try again." };
+    return { on: false, text: "Off for this device" };
+  }
+  async function enablePush() {
+    try {
+      if (!S.push.publicKey) throw new Error("Push isn't available on the server.");
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error("Notifications weren't allowed.");
+      const reg = swReg || (await navigator.serviceWorker.ready);
+      pushSub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(S.push.publicKey) });
+      const label = isIOS ? (/iPad/.test(navigator.userAgent) || navigator.maxTouchPoints > 1 && !/iPhone/.test(navigator.userAgent) ? "iPad" : "iPhone") : /Android/.test(navigator.userAgent) ? "Android" : "Computer";
+      await api("POST", { action: "pushSubscribe", subscription: pushSub.toJSON(), label });
+      await act({ action: "testAlert" }, "Notifications on. A test alert is on its way.");
+    } catch (e) { toast(e.message, 7000); }
+  }
+  async function disablePush() {
+    try { if (pushSub) { await api("POST", { action: "pushUnsubscribe", endpoint: pushSub.endpoint }); await pushSub.unsubscribe(); } pushSub = null; toast("Notifications off for this device."); render(); }
+    catch (e) { toast(e.message); }
+  }
+
   function showLogin() { $("#app").hidden = true; $("#login").hidden = false; }
   $("#loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -45,6 +87,7 @@
   $("#tabs").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-tab]"); if (!b) return;
     tab = b.dataset.tab; try { localStorage.setItem("edge.tab", tab); } catch {}
+    history.replaceState(null, "", "#" + tab);
     render(); scrollTo(0, 0);
   });
 
@@ -80,7 +123,9 @@
       <div class="stat"><small>Daily loss limit</small><b>−${s.maxDailyLossR}R</b></div>
     </div>`;
     const open = S.open.length ? S.open.map(tradeCard).join("") : `<p class="muted">No open trades.</p>`;
-    return `${banner}${stats}<section class="card"><h2>Open trades</h2>${open}</section>${newsCard(6)}${logCard()}`;
+    const ps = pushStatus();
+    const pushNudge = ps.on ? "" : `<section class="card"><div class="row between"><b>🔔 Get alerts on this ${isIOS ? "device" : "device"}</b>${pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on</button>` : ""}</div><p class="muted" style="margin:6px 0 0">${esc(ps.text)}</p></section>`;
+    return `${banner}${pushNudge}${stats}<section class="card"><h2>Open trades</h2>${open}</section>${newsCard(6)}${logCard()}`;
   }
 
   function tradeCard(t) {
@@ -295,7 +340,16 @@
     const sess = Object.keys(S.markets).map((m) => `<label class="f">${esc(S.markets[m].name)} hours (${esc(s.tz)})<input data-sess="${m}" value="${esc(s.sessions[m].join("-"))}" placeholder="08:00-14:30"></label>`).join("");
     const ok = (b) => (b ? `<span class="pill good">on</span>` : `<span class="pill warn">off</span>`);
     const hook = `${location.origin}/api/hook`;
-    return `<section class="card"><h2>Connections</h2>
+    const ps = pushStatus();
+    const kinds = [["setup", "A+ setups ready to take"], ["action", "Act now: move stop to break-even, take profit, Coach alerts"], ["warn", "Rule checks: stop moved, no stop, structure broke against you"], ["news", "News coming (before the no-trade window)"], ["closed", "Trade closed + result"], ["locked", "Done for the day (limits hit)"], ["skip", "Setups that aren't A+ (to see what you skipped)"], ["info", "Other"]];
+    const notifCard = `<section class="card"><h2>Notifications</h2>
+        <div class="row between"><span class="pill ${ps.on ? "good" : "warn"}">${esc(ps.text)}</span>
+          ${ps.on ? `<span class="row"><button class="btn small" data-testalert>Send a test</button><button class="btn small danger" data-pushoff>Turn off here</button></span>` : pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on for this device</button>` : ""}</div>
+        ${ps.ios ? `<ol class="steps muted" style="margin-top:10px"><li>In Safari, tap <b>Share</b> (the square with the arrow).</li><li>Tap <b>Add to Home Screen</b> → Add.</li><li>Open <b>Edge</b> from your Home Screen, sign in, and tap <b>Turn on</b>.</li></ol>` : ""}
+        <p class="muted">Devices receiving alerts: ${S.push.devices.length ? S.push.devices.map((d) => esc(d.label || "device")).join(", ") : "none yet"}. Turn it on on each phone, iPad or computer you want alerts on.</p>
+        <div class="grid2">${kinds.map(([k, l]) => `<label class="f" style="flex-direction:row;display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" data-notify="${k}" style="width:auto" ${s.notify[k] ? "checked" : ""}> ${l}</label>`).join("")}</div>
+      </section>`;
+    return `${notifCard}<section class="card"><h2>Connections</h2>
         <div class="grid2">
           <div class="stat"><small>TradingView webhook</small><b style="font-size:15px">${ok(S.hookReady)}</b></div>
           <div class="stat"><small>Broker</small><b style="font-size:15px">${esc(S.broker.label)}</b>${S.broker.account && !S.broker.account.error ? `<small>${esc(S.broker.account.currency)} ${Number(S.broker.account.balance).toFixed(2)}</small>` : S.broker.account && S.broker.account.error ? `<small class="err">${esc(S.broker.account.error)}</small>` : ""}</div>
@@ -303,7 +357,7 @@
           <div class="stat"><small>Storage</small><b style="font-size:15px">${S.storage === "memory" ? `<span class="pill bad">not saved</span>` : esc(S.storage)}</b></div>
         </div>
         <p class="muted">Webhook URL for your TradingView alert: <code>${esc(hook)}</code></p>
-        <div class="row"><button class="btn small" id="testAlert">Send a test alert</button></div>
+        <div class="row"><button class="btn small" data-testalert>Send a test alert</button></div>
       </section>
       <section class="card"><h2>Exits</h2><div class="grid2">
         ${n("beAtR", "Stop to break-even at (R)", "0.1")}${n("tpAtR", "Take profit at (R)", "0.1")}${n("beOffsetR", "Break-even buffer (R)", "0.01")}
@@ -348,8 +402,11 @@
       card.querySelectorAll("[data-factor]").forEach((s) => (answers[s.dataset.factor] = Number(s.dataset.v)));
       act({ action: "bias", market: b.dataset.savebias, answers, note: card.querySelector("[data-note]").value }, "Bias saved for the week.");
     }));
+    v.querySelectorAll("[data-pushon]").forEach((b) => b.addEventListener("click", enablePush));
+    v.querySelectorAll("[data-pushoff]").forEach((b) => b.addEventListener("click", disablePush));
+    v.querySelectorAll("[data-notify]").forEach((el) => el.addEventListener("change", () => act({ action: "settings", patch: { notify: { [el.dataset.notify]: el.checked } } }, "Saved.")));
     const lt = $("#logTrade"); if (lt) lt.addEventListener("click", logTradeDialog);
-    const ta = $("#testAlert"); if (ta) ta.addEventListener("click", async () => { const r = await act({ action: "testAlert" }); if (r) toast(r.telegram ? "Sent to your phone." : "Logged. Telegram isn't set up yet."); });
+    v.querySelectorAll("[data-testalert]").forEach((b) => b.addEventListener("click", async () => { const r = await act({ action: "testAlert" }); if (r) toast(r.telegram ? "Sent — check your devices." : "Logged. No device has notifications on yet."); }));
     const so = $("#signOut"); if (so) so.addEventListener("click", () => { try { localStorage.removeItem("edge.token"); } catch {} token = ""; showLogin(); });
     const sr = $("#saveRules"); if (sr) sr.addEventListener("click", () => {
       const patch = { sessions: {} };
@@ -358,6 +415,7 @@
         patch[k] = el.type === "number" ? Number(el.value) : el.value === "true" ? true : el.value === "false" ? false : el.value;
       });
       v.querySelectorAll("[data-sess]").forEach((el) => (patch.sessions[el.dataset.sess] = el.value.split("-").map((x) => x.trim())));
+      patch.notify = {}; v.querySelectorAll("[data-notify]").forEach((el) => (patch.notify[el.dataset.notify] = el.checked));
       act({ action: "settings", patch }, "Rules saved.");
     });
   }

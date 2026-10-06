@@ -4,7 +4,8 @@ const crypto = require("crypto");
 const { MARKETS, marketOf, BIAS_FACTORS, biasFromFactors, mergeSettings, DEFAULT_SETTINGS } = require("./_config");
 const R = require("./_rules");
 const { loadFeed, relevantEvents, blockingEvent } = require("./_news");
-const { notify } = require("./_notify");
+const { notify, subscribe, unsubscribe, vapid } = require("./_notify");
+const { parts } = require("./_time");
 
 const num = (x) => (x == null || x === "" || !Number.isFinite(Number(x)) ? null : Number(x));
 const fx = (x) => (x == null ? "—" : Number(x) >= 100 ? Number(x).toFixed(2) : Number(x).toFixed(3));
@@ -93,6 +94,21 @@ async function pruneSetups(store, now) {
   for (const [k, v] of Object.entries(all)) if (!v || now - v.at > 3 * 864e5) await store.hdel("setups", k);
 }
 
+// ---------- news reminders (sent once per event, ahead of the no-trade window)
+
+async function newsReminders(store, ctx) {
+  const s = ctx.settings;
+  const clock = (t) => { const p = parts(t, s.tz); return `${p.hh}:${String(p.mm).padStart(2, "0")}`; };
+  for (const e of ctx.events) {
+    const lead = e.time - ctx.now;
+    if (!e.block || lead <= 0 || lead > (s.newsBeforeMin + 15) * 60e3) continue;
+    if (await store.hget("newsSent", e.id)) continue;
+    await store.hset("newsSent", e.id, ctx.now);
+    const names = e.markets.map((m) => (MARKETS[m] ? MARKETS[m].name : m)).join(", ");
+    await notify(store, `📰 ${e.title} at ${clock(e.time)} (in ${Math.round(lead / 60e3)} min). No new ${names} trades from ${clock(e.time - s.newsBeforeMin * 60e3)} to ${clock(e.time + s.newsAfterMin * 60e3)}.`, "news");
+  }
+}
+
 // ---------- trade manager
 
 // Runs on every TradingView heartbeat, every dashboard refresh and (locally) on a timer.
@@ -103,6 +119,7 @@ async function syncTrades(store, broker, { now = Date.now(), market = null, mark
   const ctx = await context(store, now);
   const s = ctx.settings;
   const out = { managed: 0, closed: 0, actions: [] };
+  await newsReminders(store, ctx).catch(() => {});
 
   if (broker.kind !== "manual") {
     let live;
@@ -246,6 +263,11 @@ async function recordClose(store, t, exit, closedAt, pnl, s, note = "") {
   const name = MARKETS[t.market] ? MARKETS[t.market].name : t.instrument;
   const mood = resultR == null ? "" : resultR > 0.1 ? "💰" : resultR < -0.1 ? "🩹 Loss taken cleanly — that's the job. Cool-down started." : "🛡️ Break-even — the rule protected you.";
   await notify(store, `${name} ${t.dir} closed: ${resultR == null ? "?" : (resultR > 0 ? "+" : "") + resultR + "R"} (${j.exitReason}). ${mood}`, "closed");
+  // tell the phone when the day is over (trade count or daily loss limit)
+  const ctx = await context(store, closedAt);
+  const g = R.guardrails({ ...ctx, open: ctx.open.filter((x) => x.id !== t.id) });
+  const dayOver = g.reasons.find((r) => /until tomorrow/.test(r));
+  if (dayOver) await notify(store, `🔒 ${dayOver} Close the charts.`, "locked");
 }
 
 // ---------- dashboard
@@ -271,6 +293,7 @@ function stats(journal) {
 async function state(store, broker, now = Date.now()) {
   if (broker.kind !== "manual") await syncTrades(store, broker, { now }).catch(() => {});
   const ctx = await context(store, now);
+  await newsReminders(store, ctx).catch(() => {});
   const setupsH = await store.hgetall("setups");
   const setups = Object.values(setupsH).sort((a, b) => b.at - a.at).slice(0, 25).map((x) => ({ ...x, g: gradeNow(x, ctx) }));
   const prices = {};
@@ -286,6 +309,7 @@ async function state(store, broker, now = Date.now()) {
     news: { ok: ctx.newsOk, error: ctx.newsError, events: ctx.events.filter((e) => e.time > now - 2 * 3600e3) },
     prices, log: await store.lrange("log", 40),
     broker: { kind: broker.kind, label: broker.label, account },
+    push: { publicKey: (await vapid(store).catch(() => null) || {}).publicKey || null, devices: Object.values(await store.hgetall("push")).map((d) => ({ label: d.label, added: d.added })) },
     storage: store.kind, hookReady: !!process.env.EDGE_HOOK_SECRET, telegram: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
   };
 }
@@ -367,6 +391,7 @@ async function action(store, broker, body, now = Date.now()) {
     if (["warn", "close"].includes(p.newsOpenTrade)) cur.newsOpenTrade = p.newsOpenTrade;
     if (["notify", "close", "off"].includes(p.structureExit)) cur.structureExit = p.structureExit;
     if (typeof p.tz === "string" && p.tz) cur.tz = p.tz;
+    if (p.notify) for (const k of Object.keys(cur.notify)) if (typeof p.notify[k] === "boolean") cur.notify[k] = p.notify[k];
     if (p.sessions) for (const m of Object.keys(MARKETS)) if (Array.isArray(p.sessions[m]) && p.sessions[m].every((x) => /^\d{1,2}:\d{2}$/.test(x))) cur.sessions[m] = p.sessions[m].slice(0, 2);
     await store.set("settings", cur);
     return { ok: true, settings: cur };
@@ -427,6 +452,8 @@ async function action(store, broker, body, now = Date.now()) {
     const ok = await notify(store, "👋 Edge is connected. Only A+ from here.", "info");
     return { ok, telegram: ok };
   }
+  if (a === "pushSubscribe") { await subscribe(store, body.subscription, body.label); return { ok: true }; }
+  if (a === "pushUnsubscribe") { await unsubscribe(store, body.endpoint); return { ok: true }; }
   throw new Error(`Unknown action: ${a}`);
 }
 
@@ -449,4 +476,4 @@ function login(password) {
   return sessionToken();
 }
 
-module.exports = { handleHook, syncTrades, state, action, take, login, authorized, context, gradeNow, stats };
+module.exports = { handleHook, syncTrades, newsReminders, state, action, take, login, authorized, context, gradeNow, stats };

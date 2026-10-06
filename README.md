@@ -16,6 +16,31 @@ It takes the emotional decisions away from you:
 | Getting hit by news | No new trades 30 min before or after big news for your market (CPI, NFP, FOMC, EIA crude Wed, EIA gas storage Thu, API Tue, OPEC). If you're in a trade and the stop isn't at break-even yet, you get a warning |
 | Ignoring fundamentals | A weekly bias checklist for each market (dollar, yields, Fed, COT, inventories, OPEC, weather, storage, LNG…). A trade against your bias loses its A+ |
 
+## Edge on your iPhone / iPad (with notifications)
+
+1. Open your Edge address in **Safari**, then tap **Share → Add to Home Screen → Add**.
+2. Open **Edge from the new icon** (it opens full-screen, like an app) and sign in.
+3. Tap **Turn on** (Now tab, or Rules → Notifications) → **Allow**. You'll get a test alert.
+4. Repeat on each device you want alerts on (iPhone, iPad, computer). Needs iOS / iPadOS 16.4 or newer.
+
+What you get, even when the app is closed (you can switch each one off in Rules → Notifications):
+
+| Notification | When |
+|---|---|
+| ✅ A+ setup | The TradingView script found a setup that passed every rule. Tap to open it (it's valid 15 min) |
+| ⚡ Act now (stays on screen until tapped) | +2R → move your stop to break-even · take profit · Coach "act now" alerts |
+| ⚠️ Rule check | Stop moved further away, stop missing, target pushed out, 15m structure broke against you |
+| 📰 News coming | ~45 min before CPI / NFP / FOMC / EIA etc. — with the exact no-trade window |
+| 📒 Trade closed | Result in R, and how it ended (target, break-even, stop, early) |
+| 🔒 Done for today | Max trades or daily loss limit hit |
+| ⛔ Not your setup | *Off by default* — setups that weren't A+, if you want to see what you skipped |
+
+Nothing to configure on the server: the keys that sign notifications are created on first use and saved
+in storage. (To use your own, set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`.) Alerts and
+news reminders are checked on every 5-minute TradingView heartbeat, so keep the TradingView alert running.
+The Coach (screen watching) needs a computer, because iPhone and iPad browsers can't share a screen. Its
+"act now" alerts still arrive on your phone.
+
 ## Coach — Edge watches your chart with you
 
 Open Edge **on your computer** (Chrome or Edge) → **Coach** tab → *Start watching my chart*. Then pick the
@@ -127,6 +152,7 @@ The tests cover grading, the 90% rule, guardrails, news blackout, break-even at 
 | `api/_rules.js` | The rules: grade, guardrails, the 90% rule, trade management. Pure functions, all tested |
 | `api/_core.js` | Webhook handling, trade manager, journal |
 | `api/_coach.js`, `api/coach.js`, `coach.js` | The Coach: screen sharing in the browser, the chart read by Claude, the rules applied after it |
+| `sw.js`, `api/_notify.js` | Notifications: phone/iPad/computer push (Web Push), Telegram, and the event log |
 | `api/_news.js` | Economic calendar plus the weekly EIA / API / Baker Hughes schedule |
 | `api/_broker.js` | OANDA connection (manual mode without it) |
 | `index.html`, `app.js`, `app.css` | The dashboard (works on a phone) |
