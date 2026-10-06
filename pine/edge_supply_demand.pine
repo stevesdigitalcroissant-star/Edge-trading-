@@ -1,0 +1,319 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0
+//
+// EDGE — Supply & Demand, 4H trend · 15m confirmation · 5m entry
+// ---------------------------------------------------------------------------
+// Put it on a 5-minute chart of Gold, Crude oil or Natural gas.
+//
+//   1. 4H  : trend from break of structure (a CLOSE beyond the last swing).
+//            The candle the move started from becomes the demand (uptrend)
+//            or supply (downtrend) zone.
+//   2. 4H  : wait for price to come back into that zone (first touch = fresh).
+//   3. 15m : wait for a break of structure in the trend's direction (closed candle).
+//   4. 5m  : enter on the close of the 5m candle that breaks structure again
+//            (or the first 5m close after the 15m break — see settings).
+//   Stop   : beyond the reaction low/high since the zone touch (+ small buffer).
+//   Exits  : stop to break-even at +2R, full exit at +3.2R.
+//
+// It is a strategy, so the Strategy Tester shows how these exact rules did on
+// past data. For the Edge app, create ONE alert on this chart:
+//   Condition: this script → "alert() function calls only"
+//   Webhook URL: https://<your-edge-app>/api/hook
+//   Message: leave as is (the script writes its own JSON)
+// ---------------------------------------------------------------------------
+//@version=6
+strategy("Edge — Supply & Demand (4H · 15m · 5m)", shorttitle = "Edge S&D", overlay = true,
+     initial_capital = 10000, default_qty_type = strategy.fixed, default_qty_value = 1,
+     pyramiding = 0, process_orders_on_close = true, commission_type = strategy.commission.percent,
+     commission_value = 0.0, slippage = 2, max_boxes_count = 50, max_lines_count = 300, max_labels_count = 300)
+
+// ---------- Settings
+grpS = "Strategy"
+htfTf      = input.timeframe("240", "Trend & zones timeframe", group = grpS)
+mtfTf      = input.timeframe("15", "Confirmation timeframe", group = grpS)
+htfLen     = input.int(3, "4H swing size (candles each side)", minval = 1, group = grpS)
+mtfLen     = input.int(2, "15m swing size", minval = 1, group = grpS)
+ltfLen     = input.int(2, "5m swing size", minval = 1, group = grpS)
+entryMode  = input.string("5m break of structure", "5m entry trigger", options = ["5m break of structure", "First 5m close after 15m BOS"], group = grpS)
+maxWait    = input.int(48, "Max 5m candles from zone touch to entry", minval = 6, group = grpS)
+zoneCap    = input.float(1.5, "Max zone height (× 4H ATR)", minval = 0.2, step = 0.1, group = grpS)
+
+grpR = "Risk & exits"
+beR        = input.float(2.0, "Move stop to break-even at (R)", minval = 0.5, step = 0.1, group = grpR)
+tpR        = input.float(3.2, "Take profit at (R)", minval = 1.0, step = 0.1, group = grpR)
+beOffR     = input.float(0.05, "Break-even buffer (R)", minval = 0.0, step = 0.01, group = grpR)
+slBufAtr   = input.float(0.2, "Stop buffer beyond the reaction low/high (× 5m ATR)", minval = 0.0, step = 0.05, group = grpR)
+minStopAtr = input.float(0.5, "Smallest normal stop (× 5m ATR)", minval = 0.0, step = 0.1, group = grpR)
+maxStopAtr = input.float(6.0, "Largest normal stop (× 5m ATR)", minval = 0.5, step = 0.5, group = grpR)
+riskPct    = input.float(1.0, "Backtest: risk per trade (% of equity)", minval = 0.1, maxval = 5, step = 0.1, group = grpR)
+
+grpF = "Filters (backtest)"
+useSess    = input.bool(true, "Only trade inside the session", group = grpF)
+sess       = input.session("0300-1200", "Session (New York time) — gold 0300-1200, oil & gas 0800-1430", group = grpF)
+needFresh  = input.bool(true, "Only the first touch of a zone (fresh)", group = grpF)
+needRoom   = input.bool(true, "Need room to the take-profit before the opposing zone", group = grpF)
+
+grpA = "Edge app alerts"
+secret     = input.string("change-me", "Webhook secret (same as EDGE_HOOK_SECRET)", group = grpA)
+sendBars   = input.bool(true, "Send a price heartbeat every candle (lets Edge manage your stop)", group = grpA)
+
+// ---------- Market structure
+// Returns (shifted by `off` bars so higher-timeframe values never repaint):
+// trend (1 up / -1 down / 0), demand zone, supply zone, time of last BOS up / down.
+structure(int len, float cap, int off) =>
+    float ph = ta.pivothigh(high, len, len)
+    float pl = ta.pivotlow(low, len, len)
+    float atr = ta.atr(14)
+    var float swingHigh = na
+    var float swingLow = na
+    var float phHigh = na
+    var float phBodyBot = na
+    var float plLow = na
+    var float plBodyTop = na
+    var int trend = 0
+    var float demTop = na
+    var float demBot = na
+    var float supTop = na
+    var float supBot = na
+    var int upT = 0
+    var int dnT = 0
+    if not na(ph)
+        swingHigh := ph
+        phHigh := high[len]
+        phBodyBot := math.min(open[len], close[len])
+    if not na(pl)
+        swingLow := pl
+        plLow := low[len]
+        plBodyTop := math.max(open[len], close[len])
+    if not na(swingHigh) and close > swingHigh
+        trend := 1
+        upT := time
+        swingHigh := na
+        if not na(plLow)
+            demBot := plLow
+            demTop := math.max(math.min(plBodyTop, plLow + atr * cap), plLow + atr * 0.25)
+    if not na(swingLow) and close < swingLow
+        trend := -1
+        dnT := time
+        swingLow := na
+        if not na(phHigh)
+            supTop := phHigh
+            supBot := math.min(math.max(phBodyBot, phHigh - atr * cap), phHigh - atr * 0.25)
+    [trend[off], demTop[off], demBot[off], supTop[off], supBot[off], upT[off], dnT[off]]
+
+[hTrend, hDemTop, hDemBot, hSupTop, hSupBot, hUpT, hDnT] = request.security(syminfo.tickerid, htfTf, structure(htfLen, zoneCap, 1), lookahead = barmerge.lookahead_on)
+[mTrend, mDemTop, mDemBot, mSupTop, mSupBot, mUpT, mDnT] = request.security(syminfo.tickerid, mtfTf, structure(mtfLen, zoneCap, 1), lookahead = barmerge.lookahead_on)
+[lTrend, lDemTop, lDemBot, lSupTop, lSupBot, lUpT, lDnT] = structure(ltfLen, zoneCap, 0)
+
+bool newHtfDem = hUpT != hUpT[1] and not na(hDemTop)
+bool newHtfSup = hDnT != hDnT[1] and not na(hSupTop)
+bool mtfBosUp = mUpT != mUpT[1] and mUpT != 0
+bool mtfBosDn = mDnT != mDnT[1] and mDnT != 0
+bool ltfBosUp = lUpT != lUpT[1] and lUpT != 0
+bool ltfBosDn = lDnT != lDnT[1] and lDnT != 0
+float atr5 = ta.atr(14)
+bool inSess = not useSess or not na(time(timeframe.period, sess, "America/New_York"))
+
+// ---------- Zones (tracked on this chart: touches and invalidation)
+var float dTop = na
+var float dBot = na
+var int dTouches = 0
+var bool dValid = false
+var bool dWasIn = false
+var float sTop = na
+var float sBot = na
+var int sTouches = 0
+var bool sValid = false
+var bool sWasIn = false
+var box dBox = na
+var box sBox = na
+
+if newHtfDem
+    dTop := hDemTop
+    dBot := hDemBot
+    dTouches := 0
+    dValid := true
+    dWasIn := false
+    box.delete(dBox)
+    dBox := box.new(bar_index, dTop, bar_index + 1, dBot, border_color = color.new(color.teal, 40), bgcolor = color.new(color.teal, 82), extend = extend.right)
+if newHtfSup
+    sTop := hSupTop
+    sBot := hSupBot
+    sTouches := 0
+    sValid := true
+    sWasIn := false
+    box.delete(sBox)
+    sBox := box.new(bar_index, sTop, bar_index + 1, sBot, border_color = color.new(color.red, 40), bgcolor = color.new(color.red, 82), extend = extend.right)
+
+bool dIn = dValid and low <= dTop and high >= dBot
+bool sIn = sValid and high >= sBot and low <= sTop
+bool dTouchNow = dIn and not dWasIn
+bool sTouchNow = sIn and not sWasIn
+if dTouchNow
+    dTouches += 1
+if sTouchNow
+    sTouches += 1
+dWasIn := dIn
+sWasIn := sIn
+if dValid and close < dBot
+    dValid := false
+    box.set_bgcolor(dBox, color.new(color.gray, 90))
+    box.set_extend(dBox, extend.none)
+    box.set_right(dBox, bar_index)
+if sValid and close > sTop
+    sValid := false
+    box.set_bgcolor(sBox, color.new(color.gray, 90))
+    box.set_extend(sBox, extend.none)
+    box.set_right(sBox, bar_index)
+
+// ---------- Setup state machines (0 idle → 1 zone touched → 2 15m confirmed)
+var int lState = 0
+var int lBar = 0
+var float lLow = na
+var int lTouch = 0
+var int sState = 0
+var int sBar = 0
+var float sHigh = na
+var int sTouch = 0
+
+bool trigger5 = entryMode == "First 5m close after 15m BOS"
+bool longSig = lState == 2 and (trigger5 ? close > open : ltfBosUp) and barstate.isconfirmed
+bool shortSig = sState == 2 and (trigger5 ? close < open : ltfBosDn) and barstate.isconfirmed
+
+// trade plan for a signal on this candle
+float lSL = math.min(lLow, low) - slBufAtr * atr5
+float lRisk = close - lSL
+float lRoom = sValid and sBot > close and lRisk > 0 ? (sBot - close) / lRisk : na
+bool lFresh = lTouch == 1
+bool lRoomOk = na(lRoom) or lRoom >= tpR
+bool lStopOk = lRisk > 0 and lRisk / atr5 >= minStopAtr and lRisk / atr5 <= maxStopAtr
+float sSL = math.max(sHigh, high) + slBufAtr * atr5
+float sRisk = sSL - close
+float sRoom = dValid and dTop < close and sRisk > 0 ? (close - dTop) / sRisk : na
+bool sFresh = sTouch == 1
+bool sRoomOk = na(sRoom) or sRoom >= tpR
+bool sStopOk = sRisk > 0 and sRisk / atr5 >= minStopAtr and sRisk / atr5 <= maxStopAtr
+
+// state transitions (after the signal check, so tap → 15m → 5m happen in order)
+if lState > 0
+    lLow := math.min(lLow, low)
+    if hTrend != 1 or not dValid or bar_index - lBar > maxWait or longSig
+        lState := 0
+if lState == 1 and mtfBosUp
+    lState := 2
+if lState == 0 and hTrend == 1 and dTouchNow and not longSig
+    lState := 1
+    lBar := bar_index
+    lLow := low
+    lTouch := dTouches
+
+if sState > 0
+    sHigh := math.max(sHigh, high)
+    if hTrend != -1 or not sValid or bar_index - sBar > maxWait or shortSig
+        sState := 0
+if sState == 1 and mtfBosDn
+    sState := 2
+if sState == 0 and hTrend == -1 and sTouchNow and not shortSig
+    sState := 1
+    sBar := bar_index
+    sHigh := high
+    sTouch := sTouches
+
+// ---------- Alerts for the Edge app
+f(float x) => str.tostring(x, "#.#####")
+b(bool x) => x ? "true" : "false"
+
+setupJson(string dir, float entry, float sl, bool fresh, float room, bool stopOk, float zTop, float zBot) =>
+    float risk = math.abs(entry - sl)
+    float tp = dir == "long" ? entry + tpR * risk : entry - tpR * risk
+    '{"secret":"' + secret + '","type":"setup","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + dir +
+     '","entry":' + f(entry) + ',"sl":' + f(sl) + ',"tp":' + f(tp) + ',"trend4h":' + str.tostring(hTrend) +
+     ',"zoneFresh":' + b(fresh) + ',"bos15":true,"close5":true,"stopOk":' + b(stopOk) +
+     ',"roomR":' + (na(room) ? "null" : f(room)) + ',"zoneTop":' + f(zTop) + ',"zoneBot":' + f(zBot) + '}'
+
+if longSig and lRisk > 0
+    alert(setupJson("long", close, lSL, lFresh, lRoom, lStopOk, dTop, dBot), alert.freq_once_per_bar_close)
+if shortSig and sRisk > 0
+    alert(setupJson("short", close, sSL, sFresh, sRoom, sStopOk, sTop, sBot), alert.freq_once_per_bar_close)
+if sendBars and barstate.isconfirmed
+    string bos = mtfBosUp ? "up" : mtfBosDn ? "down" : ""
+    alert('{"secret":"' + secret + '","type":"bar","symbol":"' + syminfo.ticker + '","price":' + f(close) + ',"high":' + f(high) + ',"low":' + f(low) + ',"bos15":"' + bos + '"}', alert.freq_once_per_bar_close)
+
+// ---------- Drawing
+drawPlan(bool isLong, float entry, float sl, string grade) =>
+    float risk = math.abs(entry - sl)
+    float k = isLong ? 1.0 : -1.0
+    float be = entry + k * beR * risk
+    float tp = entry + k * tpR * risk
+    int r = bar_index + 30
+    line.new(bar_index, entry, r, entry, color = color.gray, width = 1)
+    line.new(bar_index, sl, r, sl, color = color.red, width = 2)
+    line.new(bar_index, be, r, be, color = color.orange, style = line.style_dashed)
+    line.new(bar_index, tp, r, tp, color = color.green, width = 2)
+    label.new(r, be, "BE at " + str.tostring(beR) + "R", style = label.style_label_left, color = color.new(color.orange, 70), textcolor = color.white, size = size.tiny)
+    label.new(r, tp, "TP " + str.tostring(tpR) + "R", style = label.style_label_left, color = color.new(color.green, 60), textcolor = color.white, size = size.tiny)
+    label.new(bar_index, isLong ? low : high, (isLong ? "LONG " : "SHORT ") + grade, style = isLong ? label.style_label_up : label.style_label_down,
+         color = grade == "A+" ? color.new(color.green, 0) : color.new(color.gray, 0), textcolor = color.white, size = size.small)
+
+bool lTechA = lFresh and lRoomOk and lStopOk
+bool sTechA = sFresh and sRoomOk and sStopOk
+if longSig and lRisk > 0
+    drawPlan(true, close, lSL, lTechA ? "A+" : "check")
+if shortSig and sRisk > 0
+    drawPlan(false, close, sSL, sTechA ? "A+" : "check")
+
+plotshape(ltfBosUp, "5m BOS up", shape.triangleup, location.belowbar, color.new(color.teal, 70), size = size.tiny)
+plotshape(ltfBosDn, "5m BOS down", shape.triangledown, location.abovebar, color.new(color.red, 70), size = size.tiny)
+
+// ---------- Backtest with the same rules
+bool lOk = (not needFresh or lFresh) and (not needRoom or lRoomOk) and lStopOk and inSess
+bool sOk = (not needFresh or sFresh) and (not needRoom or sRoomOk) and sStopOk and inSess
+var float tEntry = na
+var float tRisk = na
+var int tDir = 0
+var bool tBE = false
+bool enterL = longSig and lRisk > 0 and lOk and strategy.position_size == 0
+bool enterS = shortSig and sRisk > 0 and sOk and strategy.position_size == 0 and not enterL
+
+if strategy.position_size == 0 and not enterL and not enterS
+    tDir := 0
+if enterL
+    float qty = strategy.equity * riskPct / 100 / (lRisk * syminfo.pointvalue)
+    strategy.entry("L", strategy.long, qty = qty)
+    tEntry := close
+    tRisk := lRisk
+    tDir := 1
+    tBE := false
+if enterS
+    float qty = strategy.equity * riskPct / 100 / (sRisk * syminfo.pointvalue)
+    strategy.entry("S", strategy.short, qty = qty)
+    tEntry := close
+    tRisk := sRisk
+    tDir := -1
+    tBE := false
+
+if tDir != 0 and strategy.position_size != 0 and not tBE
+    tBE := tDir == 1 ? high >= tEntry + beR * tRisk : low <= tEntry - beR * tRisk
+if tDir == 1
+    strategy.exit("LX", from_entry = "L", stop = tBE ? tEntry + beOffR * tRisk : tEntry - tRisk, limit = tEntry + tpR * tRisk)
+if tDir == -1
+    strategy.exit("SX", from_entry = "S", stop = tBE ? tEntry - beOffR * tRisk : tEntry + tRisk, limit = tEntry - tpR * tRisk)
+
+// ---------- Status panel
+var table panel = table.new(position.top_right, 2, 6, bgcolor = color.new(color.black, 20), border_width = 1)
+if barstate.islast
+    string st = lState == 1 ? "Long: zone touched — wait for 15m BOS" : lState == 2 ? "Long: 15m confirmed — wait for 5m entry" :
+         sState == 1 ? "Short: zone touched — wait for 15m BOS" : sState == 2 ? "Short: 15m confirmed — wait for 5m entry" : "Waiting for price to reach a zone"
+    table.cell(panel, 0, 0, "4H trend", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 0, hTrend == 1 ? "UP" : hTrend == -1 ? "DOWN" : "—", text_color = hTrend == 1 ? color.lime : hTrend == -1 ? color.red : color.silver, text_size = size.small)
+    table.cell(panel, 0, 1, "Demand", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 1, dValid ? f(dBot) + " – " + f(dTop) + (dTouches == 0 ? "  fresh" : "  touched " + str.tostring(dTouches) + "×") : "none", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 2, "Supply", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 2, sValid ? f(sBot) + " – " + f(sTop) + (sTouches == 0 ? "  fresh" : "  touched " + str.tostring(sTouches) + "×") : "none", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 3, "Now", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 3, st, text_color = color.yellow, text_size = size.small)
+    table.cell(panel, 0, 4, "Session", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 4, inSess ? "open" : "closed — no trades", text_color = inSess ? color.lime : color.gray, text_size = size.small)
+    table.cell(panel, 0, 5, "Exits", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 5, "BE at " + str.tostring(beR) + "R · TP " + str.tostring(tpR) + "R", text_color = color.white, text_size = size.small)
+    if timeframe.period != "5"
+        table.cell(panel, 1, 3, "Use a 5-minute chart", text_color = color.orange, text_size = size.small)

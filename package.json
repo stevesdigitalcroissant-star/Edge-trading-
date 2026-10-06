@@ -1,0 +1,12 @@
+{
+  "name": "edge-trading-copilot",
+  "private": true,
+  "description": "Edge — a rules-first trading co-pilot: grades supply & demand setups from TradingView, blocks emotional trades, and manages the stop (break-even at 2R, exit at 3.2R).",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

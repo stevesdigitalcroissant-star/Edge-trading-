@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0d1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Edge</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="login" class="login" hidden>
+  <form id="loginForm" class="card login-card">
+    <div class="brand"><img src="icon.svg" alt="" width="36" height="36"><span>Edge</span></div>
+    <p class="muted">Only A+ setups. Rules decide, not emotions.</p>
+    <input id="pw" type="password" placeholder="Password" autocomplete="current-password" required>
+    <button class="btn primary" type="submit">Sign in</button>
+    <p id="loginErr" class="err"></p>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header class="top">
+    <div class="brand"><img src="icon.svg" alt="" width="26" height="26"><span>Edge</span></div>
+    <div id="topStatus" class="pill"></div>
+  </header>
+  <main id="view"></main>
+  <nav class="tabs" id="tabs">
+    <button data-tab="now" class="on"><span>◉</span>Now</button>
+    <button data-tab="setups"><span>◎</span>Setups<i id="setupBadge" hidden></i></button>
+    <button data-tab="bias"><span>⚖</span>Bias</button>
+    <button data-tab="journal"><span>▤</span>Journal</button>
+    <button data-tab="rules"><span>⚙</span>Rules</button>
+  </nav>
+</div>
+
+<dialog id="modal"><form method="dialog" id="modalBody" class="modal"></form></dialog>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
