@@ -59,6 +59,9 @@ const DEFAULT_SETTINGS = {
     natgas: ["08:00", "14:30"],
   },
   lots: { gold: 100, crude: 1000, natgas: 10000 },
+  coachIdleSec: 60, // Coach: seconds between chart checks while waiting for a setup
+  coachTradeSec: 20, // …and while a trade is open
+  coachDailyChecks: 600, // cost guard: max Coach checks per day
 };
 
 // Weekly fundamentals: each factor is answered +1 (bullish), -1 (bearish) or 0 (neutral/unclear).

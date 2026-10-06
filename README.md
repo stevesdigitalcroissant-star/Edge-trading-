@@ -16,6 +16,26 @@ It takes the emotional decisions away from you:
 | Getting hit by news | No new trades 30 min before or after big news for your market (CPI, NFP, FOMC, EIA crude Wed, EIA gas storage Thu, API Tue, OPEC). If you're in a trade and the stop isn't at break-even yet, you get a warning |
 | Ignoring fundamentals | A weekly bias checklist for each market (dollar, yields, Fed, COT, inventories, OPEC, weather, storage, LNG…). A trade against your bias loses its A+ |
 
+## Coach — Edge watches your chart with you
+
+Open Edge **on your computer** (Chrome or Edge) → **Coach** tab → *Start watching my chart*. Then pick the
+window with your chart: TradingView, **FX Replay**, Tradovate or NinjaTrader. Nothing to type.
+
+- Every 60 s while you wait, and every 20 s while in a trade, Edge takes a screenshot of that window (only if
+  the chart changed). Claude reads the symbol, timeframe, zones, structure and your position lines, then
+  Edge **says out loud** the one thing to do now: *"No setup, hands off"*,
+  *"Zone touched — wait for the 15-minute candle to close"*, *"Plus 2 R. Move your stop to break-even, now."*
+- Claude only reads the chart. The hard rules are applied in code afterwards: break-even at 2R, exit at 3.2R,
+  target moved back, stop widened, no stop, A+ only, daily limits and news. A good mood or a bad read can't
+  talk you out of your plan.
+- **⧉ Float over my chart** keeps a small always-on-top window with the instruction over your platform.
+- **Practice (FX Replay) mode** ignores the real clock and news. Trades it sees open and close are logged
+  automatically as *practice*, kept apart from your real stats. Practise there until the A+ trades prove themselves.
+- **Live mode** also sends the urgent instructions to your phone (Telegram).
+- Needs `ANTHROPIC_API_KEY` (console.anthropic.com → API keys). Each check is one Claude request (Claude Opus 5.5,
+  low effort), roughly a cent or two. A 3-hour session is typically a few dollars. There's a daily cap in Rules.
+  Only the shared window is sent, never the rest of your screen.
+
 ## The strategy, as rules
 
 All of it is in `pine/edge_supply_demand.pine` (TradingView, Pine Script v6). You use it on a **5-minute chart**:
@@ -61,6 +81,7 @@ You open Edge → say how you feel → Confirm
 | `EDGE_HOOK_SECRET` | Any long random word. The TradingView script must use the same one |
 | `APP_URL` | Your app's address, e.g. `https://edge-xyz.vercel.app` (it's added to phone alerts) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | *Optional, recommended.* Phone alerts. In Telegram, message **@BotFather** → `/newbot` → copy the token. Send your bot a message, then open `https://api.telegram.org/bot<token>/getUpdates` and copy `chat.id` |
+| `ANTHROPIC_API_KEY` | Turns on the Coach (the screen-watching mode). From console.anthropic.com |
 | `OANDA_TOKEN`, `OANDA_ACCOUNT_ID`, `OANDA_ENV` | *Optional.* Lets Edge place orders and move your stop by itself. OANDA → Manage API Access → generate a token. Start with `OANDA_ENV=practice` (demo), and switch to `live` only after a few weeks of clean demo trading |
 
 4. Redeploy. Open the app on your phone → Share → **Add to Home Screen**.
@@ -83,7 +104,8 @@ A bias older than 7 days stops counting.
 ```bash
 cd edge
 cp .env.example .env    # fill it in
-node server.js          # http://localhost:3000  (Node 18+, nothing to install)
+npm install             # one dependency: the Anthropic SDK (for the Coach)
+node server.js          # http://localhost:3000  (Node 18+)
 ```
 Running it yourself, Edge checks open trades **every 10 seconds** on its own. On Vercel,
 it checks on every 5m candle (the TradingView heartbeat) and whenever the dashboard is open.
@@ -104,6 +126,7 @@ The tests cover grading, the 90% rule, guardrails, news blackout, break-even at 
 | `api/app.js` | The dashboard's API (password-protected) |
 | `api/_rules.js` | The rules: grade, guardrails, the 90% rule, trade management. Pure functions, all tested |
 | `api/_core.js` | Webhook handling, trade manager, journal |
+| `api/_coach.js`, `api/coach.js`, `coach.js` | The Coach: screen sharing in the browser, the chart read by Claude, the rules applied after it |
 | `api/_news.js` | Economic calendar plus the weekly EIA / API / Baker Hughes schedule |
 | `api/_broker.js` | OANDA connection (manual mode without it) |
 | `index.html`, `app.js`, `app.css` | The dashboard (works on a phone) |

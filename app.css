@@ -28,7 +28,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .top { position: sticky; top: 0; z-index: 5; display: flex; justify-content: space-between; align-items: center; padding: calc(10px + env(safe-area-inset-top)) 16px 10px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 main { max-width: 760px; margin: 0 auto; padding: 14px 16px calc(90px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }
 
-.tabs { position: fixed; bottom: 0; left: 0; right: 0; z-index: 5; display: grid; grid-template-columns: repeat(5, 1fr); background: var(--panel); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+.tabs { position: fixed; bottom: 0; left: 0; right: 0; z-index: 5; display: grid; grid-template-columns: repeat(6, 1fr); background: var(--panel); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
 .tabs button { position: relative; background: none; border: 0; padding: 8px 0 10px; color: var(--muted); display: grid; justify-items: center; gap: 2px; font-size: 12px; cursor: pointer; }
 .tabs button span { font-size: 18px; line-height: 1; }
 .tabs button.on { color: var(--accent); }

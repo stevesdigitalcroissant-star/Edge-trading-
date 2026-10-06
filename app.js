@@ -22,6 +22,8 @@
     catch (e) { toast(e.message, 7000); return null; }
   }
 
+  window.Edge = { token: () => token, state: () => S, toast };
+
   function showLogin() { $("#app").hidden = true; $("#login").hidden = false; }
   $("#loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -57,6 +59,10 @@
     const g = S.guard;
     $("#topStatus").className = `pill ${g.ok ? "good" : "bad"}`;
     $("#topStatus").textContent = g.ok ? "Ready" : "Locked";
+    const coachTab = tab === "coach";
+    $("#view").hidden = coachTab;
+    if (window.EdgeCoach) window.EdgeCoach.show(coachTab);
+    if (coachTab) return;
     $("#view").innerHTML = ({ now: viewNow, setups: viewSetups, bias: viewBias, journal: viewJournal, rules: viewRules })[tab]();
     bind();
   }
@@ -231,12 +237,13 @@
   function viewJournal() {
     const st = S.stats;
     const grp = (x, l) => `<div class="stat"><small>${l} (${x.n})</small><b class="${cls(x.totalR)}">${rs(x.totalR)}</b><small>${x.winRate == null ? "" : `${x.winRate}% wins`}</small></div>`;
-    const rows = S.journal.map((t) => `<div class="jrow" data-j="${esc(t.id)}">
+    const jrow = (t) => `<div class="jrow" data-j="${esc(t.id)}">
         <span><b>${esc(mname(t.market))} ${t.dir}</b> <span class="pill ${t.grade === "A+" ? "good" : "warn"}">${esc(t.grade)}</span>${t.emotion ? ` <small class="muted">${esc(t.emotion)}</small>` : ""}</span>
         <b class="r ${cls(t.resultR)}">${rs(t.resultR)}</b>
         <small class="muted">${day(t.closedAt)} · ${esc(t.exitReason)}${(t.ruleBreaks || []).length ? " · ⚠ rule break" : ""}</small>
         <small class="muted">${t.maxR != null ? `best ${rs(t.maxR)}` : ""}</small>
-        ${t.note ? `<small style="grid-column:1/-1">${esc(t.note)}</small>` : ""}</div>`).join("");
+        ${t.note ? `<small style="grid-column:1/-1">${esc(t.note)}</small>` : ""}</div>`;
+    const rows = S.journal.map(jrow).join("");
     return `<section class="card"><h2>Results</h2><div class="grid2">
         <div class="stat"><small>Total</small><b class="${cls(st.totalR)}">${rs(st.totalR)}</b><small>${st.n} trades</small></div>
         <div class="stat"><small>Win rate</small><b>${st.winRate == null ? "—" : st.winRate + "%"}</b><small>avg ${rs(st.avgR)}</small></div>
@@ -245,15 +252,20 @@
         ${grp(st.aPlus, "A+ trades")}${grp(st.other, "A / B")}${grp(st.unplanned, "Unplanned")}
         <div class="stat"><small>Trades with a rule break</small><b class="${st.ruleBreaks ? "neg" : ""}">${st.ruleBreaks}</b></div>
       </div></section>
+      ${S.practice.length ? `<section class="card"><h2>Practice (FX Replay) — not counted above</h2><div class="grid2">
+        <div class="stat"><small>Practice total</small><b class="${cls(S.practiceStats.totalR)}">${rs(S.practiceStats.totalR)}</b><small>${S.practiceStats.n} trades</small></div>
+        <div class="stat"><small>Win rate</small><b>${S.practiceStats.winRate == null ? "—" : S.practiceStats.winRate + "%"}</b><small>avg ${rs(S.practiceStats.avgR)}</small></div>
+        ${grp(S.practiceStats.aPlus, "A+ practice")}${grp(S.practiceStats.unplanned, "Unplanned practice")}</div>
+        ${S.practice.slice(0, 30).map(jrow).join("")}</section>` : ""}
       <section class="card"><div class="row between"><h2 style="margin:0">Journal</h2><button class="btn small" id="logTrade">＋ Log a trade I took</button></div>${rows || `<p class="muted">Closed trades appear here.</p>`}</section>`;
   }
 
   function noteDialog(id) {
-    const t = S.journal.find((y) => y.id === id);
+    const t = [...S.journal, ...S.practice].find((y) => y.id === id);
     const body = $("#modalBody");
     body.innerHTML = `<h3>${esc(mname(t.market))} ${t.dir} · ${rs(t.resultR)}</h3>
       <p class="muted">Entry ${fx(t.entry)} · stop ${fx(t.initialSL)} · exit ${fx(t.exit)} · ${esc(t.exitReason)}</p>
-      ${t.source === "manual" ? `<label class="f">Exit price (fix if different)<input id="jExit" inputmode="decimal" value="${t.exit ?? ""}"></label>` : ""}
+      ${t.source === "manual" || /^coach/.test(t.source || "") ? `<label class="f">Exit price (fix if different)<input id="jExit" inputmode="decimal" value="${t.exit ?? ""}"></label>` : ""}
       <label class="f">What did you learn? Did you follow the plan?<textarea id="jNote" rows="4">${esc(t.note || "")}</textarea></label>
       <div class="row"><button class="btn primary" type="button" id="jSave">Save</button><button class="btn" value="cancel">Cancel</button></div>`;
     $("#jSave").addEventListener("click", async () => { await act({ action: "note", tradeId: id, note: $("#jNote").value, exit: $("#jExit") ? $("#jExit").value : undefined }, "Saved."); $("#modal").close(); });
@@ -307,6 +319,11 @@
         ${n("maxChaseR", "Refuse entry if price ran past it by (R)", "0.1")}
         ${n("newsBeforeMin", "No trades before news (min)", "5")}${n("newsAfterMin", "No trades after news (min)", "5")}
       </div></section>
+      <section class="card"><h2>Coach</h2><div class="grid2">
+        ${n("coachIdleSec", "Check the chart every (s) while waiting", "5")}${n("coachTradeSec", "…and while in a trade (s)", "5")}
+        ${n("coachDailyChecks", "Max checks per day (cost guard)", "50")}
+        <div class="stat"><small>Claude connection</small><b style="font-size:15px">${S.coach.ready ? `<span class="pill good">on</span>` : `<span class="pill warn">add ANTHROPIC_API_KEY</span>`}</b></div>
+      </div></section>
       <section class="card"><h2>Trading hours</h2><div class="grid2">${sess}
         <label class="f">Time zone<input data-set="tz" value="${esc(s.tz)}"></label></div>
         <div class="row" style="margin-top:12px"><button class="btn primary" id="saveRules">Save rules</button></div>
@@ -347,6 +364,6 @@
 
   if (token) refresh(); else showLogin();
   // no auto-refresh on Bias / Rules: it would wipe what you are typing
-  setInterval(() => { if (token && !document.hidden && !$("#modal").open && !["bias", "rules"].includes(tab)) refresh(); }, 15000);
+  setInterval(() => { if (token && !document.hidden && !$("#modal").open && !["bias", "rules", "coach"].includes(tab)) refresh(); }, 15000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && token) refresh(); });
 })();

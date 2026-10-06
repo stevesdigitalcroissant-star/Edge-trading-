@@ -29,8 +29,10 @@
     <div id="topStatus" class="pill"></div>
   </header>
   <main id="view"></main>
+  <main id="coach" hidden></main>
   <nav class="tabs" id="tabs">
     <button data-tab="now" class="on"><span>◉</span>Now</button>
+    <button data-tab="coach"><span>👁</span>Coach</button>
     <button data-tab="setups"><span>◎</span>Setups<i id="setupBadge" hidden></i></button>
     <button data-tab="bias"><span>⚖</span>Bias</button>
     <button data-tab="journal"><span>▤</span>Journal</button>
@@ -41,5 +43,6 @@
 <dialog id="modal"><form method="dialog" id="modalBody" class="modal"></form></dialog>
 <div id="toast" class="toast" hidden></div>
 <script src="app.js"></script>
+<script src="coach.js"></script>
 </body>
 </html>

@@ -20,9 +20,11 @@ async function context(store, now = Date.now()) {
   ]);
   const settings = mergeSettings(saved);
   const open = Object.values(tradesH || {});
-  const journal = Object.values(journalH || {}).sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0));
+  const all = Object.values(journalH || {}).sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0));
+  const journal = all.filter((t) => !t.practice); // practice (replay) trades never count toward real limits or stats
+  const practice = all.filter((t) => t.practice);
   const events = relevantEvents(newsDoc, now);
-  return { now, settings, bias: bias || {}, open, journal, cooldownUntil: cooldownUntil || 0, events, newsOk: newsDoc.ok !== false, newsError: newsDoc.error };
+  return { now, settings, bias: bias || {}, open, journal, practice, cooldownUntil: cooldownUntil || 0, events, newsOk: newsDoc.ok !== false, newsError: newsDoc.error };
 }
 
 function gradeNow(setup, ctx) {
@@ -279,6 +281,7 @@ async function state(store, broker, now = Date.now()) {
   return {
     now, settings: ctx.settings, defaults: DEFAULT_SETTINGS, markets: Object.fromEntries(Object.entries(MARKETS).map(([k, v]) => [k, { name: v.name, unit: v.unit }])),
     biasFactors: BIAS_FACTORS, bias: ctx.bias, setups, open, journal: ctx.journal.slice(0, 200), stats: stats(ctx.journal),
+    practice: ctx.practice.slice(0, 200), practiceStats: stats(ctx.practice), coach: { ready: !!process.env.ANTHROPIC_API_KEY, session: await store.get("coach") },
     share: R.aPlusShare([...ctx.journal, ...ctx.open]), guard: R.guardrails(ctx),
     news: { ok: ctx.newsOk, error: ctx.newsError, events: ctx.events.filter((e) => e.time > now - 2 * 3600e3) },
     prices, log: await store.lrange("log", 40),
@@ -356,7 +359,7 @@ async function action(store, broker, body, now = Date.now()) {
   if (a === "settings") {
     const cur = mergeSettings(await store.get("settings"));
     const p = body.patch || {};
-    const nums = ["riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "minAPlusShare", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR"];
+    const nums = ["riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "minAPlusShare", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR", "coachIdleSec", "coachTradeSec", "coachDailyChecks"];
     for (const k of nums) if (p[k] != null && Number.isFinite(Number(p[k]))) cur[k] = Number(p[k]);
     if (cur.riskPct > 3) throw new Error("Risk per trade above 3% isn't allowed here. That's the greed talking.");
     if (cur.beAtR <= 0 || cur.tpAtR <= cur.beAtR) throw new Error("Take-profit must be beyond the break-even trigger.");
@@ -412,7 +415,7 @@ async function action(store, broker, body, now = Date.now()) {
     const j = await store.hget("journal", body.tradeId);
     if (!j) throw new Error("Trade not found");
     j.note = String(body.note || "").slice(0, 1000);
-    if (body.exit != null && num(body.exit) != null && j.source === "manual") {
+    if (body.exit != null && num(body.exit) != null && (j.source === "manual" || /^coach/.test(j.source || ""))) {
       j.exit = num(body.exit);
       j.resultR = R.round(R.rAt(j, j.exit));
       j.exitReason = R.exitReason(j, j.exit, mergeSettings(await store.get("settings")));
