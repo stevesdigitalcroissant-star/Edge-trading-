@@ -30,8 +30,8 @@ const SCHEMA = {
     direction: { type: "string", enum: ["long", "short", "none"] },
     checklist: {
       type: "object",
-      properties: { trend4h: CHECK, freshZone: CHECK, bos15: CHECK, close5: CHECK, room: CHECK, stop: CHECK },
-      required: ["trend4h", "freshZone", "bos15", "close5", "room", "stop"],
+      properties: { trend4h: CHECK, freshZone: CHECK, liquidity: CHECK, bos15: CHECK, close5: CHECK, room: CHECK, stop: CHECK },
+      required: ["trend4h", "freshZone", "liquidity", "bos15", "close5", "room", "stop"],
       additionalProperties: false,
     },
     grade: { type: "string", enum: ["A+", "A", "B", "C", "none"] },
@@ -53,6 +53,7 @@ const SCHEMA = {
 const CHECK_LABELS = {
   trend4h: "4H trend (break of structure)",
   freshZone: "Fresh 4H supply/demand zone reached",
+  liquidity: "Liquidity taken first (stops swept)",
   bos15: "15m break of structure, candle closed",
   close5: "5m entry candle closed",
   room: "Room to the target before the opposing zone",
@@ -67,6 +68,7 @@ The trader's history: greedy and impatient. They entered before confirmation, to
 THE STRATEGY (supply & demand, trend following) — gold, crude oil, natural gas:
 1. 4H trend: set by a break of structure — a candle CLOSE beyond the last swing high (uptrend) or swing low (downtrend).
 2. Zone: the demand zone (uptrend) or supply zone (downtrend) is the base candle(s) where the impulsive move that broke structure started. Only a FRESH zone (first return) counts.
+2b. Liquidity: before the entry, price must take liquidity — trade beyond a level where stops sit (previous day high/low, Asian session high/low, an obvious swing or equal highs/lows) and then close back. For a buy: a sweep of lows; for a sell: a sweep of highs. No sweep yet = price may come back for it, so it's not A+.
 3. 15m: after price reaches the zone, a break of structure in the trend's direction on a CLOSED candle.
 4. 5m: entry on the CLOSE of the 5m candle that breaks structure in the trend's direction. Never on an open candle.
 5. Stop beyond the reaction low (long) / high (short) since the zone touch. There must be room to ${s.tpAtR}R before the opposing zone.

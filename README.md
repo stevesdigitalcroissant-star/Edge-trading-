@@ -30,6 +30,35 @@ Below it are four short lines (one per step) and the plan in one sentence. The c
 only if you want to. The TradingView chart uses the **same colours** (zone boxes, a BOS line per timeframe, the plan
 lines), so what you see on the phone matches the chart.
 
+## Liquidity: no sweep, no A+
+
+Before the entry, price must **take liquidity**: trade beyond a level where stops sit, then come back. For a buy that
+means a sweep of a low; for a sell, a sweep of a high. The script checks, in this order:
+
+1. the **previous day** low/high
+2. the **Asian session** low/high (18:00–02:00 New York, adjustable)
+3. the last **15m swing** low/high from before price reached the zone
+
+If one was swept between the zone touch and the entry, the setup says which one ("Asian low 2645.90 taken"). The
+picture shows it as a white dashed **$$$** line, and the TradingView chart marks it the same way. With no sweep yet, the
+setup is graded A (not A+), because price often comes back for those stops. The backtest uses the same rule
+(setting *Only after liquidity is taken*).
+
+## Taking the trade from the app (TradersPost, optional)
+
+Instead of typing the order in TradingView, Edge can send it for you:
+
+1. Make a TradersPost account, connect your prop firm's **Tradovate** account, create a strategy, and copy its
+   **webhook URL**.
+2. Add it to Vercel as `TRADERSPOST_WEBHOOK_URL` and redeploy.
+3. Now **"Take it — send the order"** sends a market order with the stop and the target attached, for the exact
+   contracts Edge worked out. At +2R, Edge sends the **break-even** move by itself. *Close trade* sends an exit.
+
+Check your prop firm's rules first. Tradeify allows automation through TradersPost. Phidias isn't listed by
+TradersPost, and its rules call for actively monitoring trades that use semi-automated tools, so ask them before using
+it there. Test on a demo/evaluation account first. TradersPost maps continuous symbols like `MGC1!` to the front-month
+contract. Watch the roll dates.
+
 ## Placing trades in TradingView (prop firm via Tradovate)
 
 1. In TradingView, open the **Trading Panel** (bottom) → **Tradovate** → log in with the login your prop firm gave you.
@@ -133,6 +162,7 @@ You open Edge → say how you feel → Confirm
 | `EDGE_HOOK_SECRET` | Any long random word. The TradingView script must use the same one |
 | `APP_URL` | Your app's address, e.g. `https://edge-xyz.vercel.app` (it's added to phone alerts) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | *Optional, recommended.* Phone alerts. In Telegram, message **@BotFather** → `/newbot` → copy the token. Send your bot a message, then open `https://api.telegram.org/bot<token>/getUpdates` and copy `chat.id` |
+| `TRADERSPOST_WEBHOOK_URL` | *Optional.* Lets "Take it" send the order (and the break-even move) to your Tradovate account through TradersPost |
 | `ANTHROPIC_API_KEY` | Turns on the Coach (the screen-watching mode). From console.anthropic.com |
 | `OANDA_TOKEN`, `OANDA_ACCOUNT_ID`, `OANDA_ENV` | *Optional.* Lets Edge place orders and move your stop by itself. OANDA → Manage API Access → generate a token. Start with `OANDA_ENV=practice` (demo), and switch to `live` only after a few weeks of clean demo trading |
 

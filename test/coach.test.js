@@ -11,7 +11,7 @@ const IMG = "data:image/jpeg;base64,AAAA";
 
 const read = (o = {}) => ({
   chartReadable: true, platform: "TradingView", symbol: "MGC1!", market: "gold", timeframe: "5m", phase: "no_setup", direction: "none",
-  checklist: Object.fromEntries(["trend4h", "freshZone", "bos15", "close5", "room", "stop"].map((k) => [k, { status: "pass", note: "" }])),
+  checklist: Object.fromEntries(["trend4h", "freshZone", "liquidity", "bos15", "close5", "room", "stop"].map((k) => [k, { status: "pass", note: "" }])),
   grade: "none", position: { open: false, dir: "none", entry: null, stop: null, target: null, price: null },
   instruction: "No setup. Wait.", urgency: "info", reasoning: "", memory: "", ...o,
 });

@@ -133,6 +133,7 @@
     const lo = -1, hi = s.tpAtR, span = hi - lo, pct = (r) => `${Math.max(0, Math.min(100, ((r - lo) / span) * 100))}%`;
     const r = t.r ?? 0;
     const manual = t.source === "manual";
+    const routed = t.source === "traderspost";
     const beAdvised = manual && !t.beMoved && (t.maxR || 0) >= s.beAtR;
     return `<div class="card" style="background:var(--panel2);margin-bottom:10px">
       <div class="row between"><h3>${esc(mname(t.market))} · ${t.dir.toUpperCase()}</h3>
@@ -161,7 +162,7 @@
         ${manual && !t.beMoved ? `<button class="btn small ${beAdvised ? "primary" : ""}" data-be="${esc(t.id)}">I moved my stop to break-even</button>` : ""}
         <button class="btn small danger" data-close="${esc(t.id)}">Close trade</button>
       </div>
-      <p class="muted" style="margin:8px 0 0;font-size:13px">${manual ? "Manual: Edge tells you when to act, you click in TradingView." : "Edge is managing this trade. Hands off."}${t.lastPriceAt ? ` · price ${time(t.lastPriceAt)}` : ""}</p>
+      <p class="muted" style="margin:8px 0 0;font-size:13px">${manual ? "Manual: Edge tells you when to act, you click in TradingView." : routed ? "Sent to Tradovate. Edge moves the stop to break-even at +" + s.beAtR + "R. Hands off." : "Edge is managing this trade. Hands off."}${t.lastPriceAt ? ` · price ${time(t.lastPriceAt)}` : ""}</p>
     </div>`;
   }
 
@@ -189,7 +190,7 @@
     return `<div class="setup-list">${S.setups.map(setupCard).join("")}</div>`;
   }
   // ---------- Trade map: the setup as a picture (same colours as the TradingView chart)
-  const TF = { c4h: "var(--c4h)", c15: "var(--c15)", c5: "var(--c5)" };
+  const TF = { c4h: "var(--c4h)", c15: "var(--c15)", c5: "var(--c5)", liq: "var(--liq)" };
   function tradeMap(x) {
     const s = S.settings, k = x.dir === "short" ? -1 : 1, R = Math.abs(x.entry - x.sl);
     const be = x.entry + k * s.beAtR * R, tp = x.entry + k * s.tpAtR * R;
@@ -198,7 +199,8 @@
     const l15 = x.lvl15 ?? x.entry - k * 0.35 * R, l5 = x.lvl5 ?? x.entry - k * 0.1 * R;
     const l4 = x.lvl4h ?? zNear + k * 2.2 * R;
     const oppIn = x.opp != null && k * (x.opp - tp) <= 1.2 * R; // only draw the opposing zone if it's close
-    const prices = [x.sl, x.entry, be, tp, zTop, zBot, l4, l15, l5, ...(oppIn ? [x.opp] : [])];
+    const liq = x.sweep && x.sweepLvl != null && k * (x.sweepLvl - x.sl) > 0 ? x.sweepLvl : null;
+    const prices = [x.sl, x.entry, be, tp, zTop, zBot, l4, l15, l5, ...(oppIn ? [x.opp] : []), ...(liq != null ? [liq] : [])];
     let lo = Math.min(...prices), hi = Math.max(...prices); const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
     const W = 360, H = 300, L = 8, X = 250, y = (p) => 10 + (H - 20) * (1 - (p - lo) / (hi - lo));
     const react = x.sl + k * 0.2 * R;
@@ -222,6 +224,7 @@
       ${hline(l4, 58, 150, "var(--c4h)", "", 2.5)}${hline(l15, 58, 205, "var(--c15)", "6 4", 2)}${hline(l5, 58, X, "var(--c5)", "2 3", 2)}
       ${left.map((t) => `<text x="${L + 2}" y="${t.y + 4}" font-size="10" font-weight="800" fill="${t.c}">${t.t}</text>`).join("")}
       ${hline(be, 205, X, "var(--warn)", "4 3")}${hline(tp, 205, X, "var(--good)")}${hline(x.sl, 100, X, "var(--bad)")}${hline(x.entry, 205, X, "var(--text)")}
+      ${liq != null ? `${hline(liq, 100, 205, "var(--liq)", "3 3", 1.5)}<text x="${150}" y="${y(liq) + (k > 0 ? -4 : 12)}" font-size="10" font-weight="800" fill="var(--liq)">$$$ taken</text>` : ""}
       <path d="${path}" fill="none" stroke="var(--text)" stroke-width="2.2" stroke-linejoin="round" opacity=".85"/>
       <path d="M214,${y(x.entry)} L246,${y(tp)}" stroke="var(--good)" stroke-width="2" stroke-dasharray="4 3" fill="none"/>
       ${dot(pts[1], 1, "var(--c4h)")}${dot(pts[2], 2, "var(--c4h)")}${dot(pts[3], 3, "var(--c15)")}${dot(pts[5], 4, "var(--c5)")}
@@ -232,7 +235,7 @@
     const st = x.story; if (!st) return "";
     return `<details class="story" open><summary><b>${esc(st.headline)}</b></summary>
       ${tradeMap(x)}
-      <div class="legend"><span><i style="background:var(--c4h)"></i>4H</span><span><i style="background:var(--c15)"></i>15m</span><span><i style="background:var(--c5)"></i>5m</span><span class="muted">same colours on your TradingView chart</span></div>
+      <div class="legend"><span><i style="background:var(--c4h)"></i>4H</span><span><i style="background:var(--c15)"></i>15m</span><span><i style="background:var(--c5)"></i>5m</span>${x.sweep ? `<span><i style="background:var(--liq)"></i>liquidity</span>` : ""}<span class="muted">same colours on your TradingView chart</span></div>
       <ol class="tfsteps">${st.steps.map((p) => `<li style="--c:${TF[p.color]}"><b>${esc(p.tf)} · ${esc(p.title)}</b><br><span class="muted">${esc(p.text)}</span></li>`).join("")}</ol>
       <p class="plan">🎯 ${esc(st.plan.text)}</p></details>`;
   }
@@ -273,9 +276,9 @@
       <details class="checkwrap"><summary>Checklist — ${g.checks.filter((c) => c.pass).length}/${g.checks.length} passed</summary>
       <ul class="checks">${g.checks.map((c) => `<li class="${c.pass ? "" : "no"}"><span>${esc(c.label)}${c.note ? ` <small>(${esc(c.note)})</small>` : ""}</span></li>`).join("")}</ul></details>
       ${live && !g.take.ok ? `<div class="blocks">${g.take.why.map((w) => `<div>⛔ ${esc(w)}</div>`).join("")}</div>` : ""}
-      ${live && S.broker.kind === "manual" ? ticket(x, tp) : ""}
-      ${live ? `<div class="row">${(() => { const tooBig = x.size && x.size.kind === "futures" && x.size.qty < 1 && S.broker.kind === "manual"; const ok = g.take.ok && !tooBig;
-        return `<button class="btn ${ok ? "good" : ""}" data-take="${esc(x.id)}" ${ok ? "" : "disabled"}>${ok ? (S.broker.kind === "manual" ? "I'm taking it" : "Take it — place the order") : tooBig ? "Too big for your risk" : "Not allowed"}</button>`; })()}
+      ${live && S.broker.kind !== "oanda" ? ticket(x, tp) : ""}
+      ${live ? `<div class="row">${(() => { const tooBig = x.size && x.size.kind === "futures" && x.size.qty < 1 && S.broker.kind !== "oanda"; const ok = g.take.ok && !tooBig;
+        return `<button class="btn ${ok ? "good" : ""}" data-take="${esc(x.id)}" ${ok ? "" : "disabled"}>${ok ? (S.broker.kind === "manual" ? "I'm taking it" : S.broker.kind === "traderspost" ? "Take it — send the order" : "Take it — place the order") : tooBig ? "Too big for your risk" : "Not allowed"}</button>`; })()}
         <button class="btn" data-skip="${esc(x.id)}">Skip</button></div>` : ""}
     </div>`;
   }
@@ -288,7 +291,8 @@
     body.innerHTML = `<h3>${esc(mname(x.market))} ${x.dir.toUpperCase()} · ${x.g.grade}</h3>
       <p>Before you click: how do you feel <b>right now</b>? Be honest — this is your journal.</p>
       <div class="moods">${moods.map(([k, l]) => `<button type="button" data-mood="${k}">${l}</button>`).join("")}</div>
-      ${manual ? `<label class="f">Your fill price (leave empty if ${fx(x.entry)})<input id="fill" inputmode="decimal" placeholder="${fx(x.entry)}"></label>
+      ${S.broker.kind === "traderspost" ? `<p>Edge sends <b>${x.dir === "long" ? "BUY" : "SELL"} ${x.size && x.size.qty} ${esc(x.size && x.size.contract || "")}</b> at market to your Tradovate account, with the stop at <b>${fx(x.sl)}</b> and the target at <b>${fx(x.entry + (x.dir === "short" ? -1 : 1) * S.settings.tpAtR * Math.abs(x.entry - x.sl))}</b>. At +${S.settings.beAtR}R it moves the stop to break-even for you.</p>`
+        : manual ? `<label class="f">Your fill price (leave empty if ${fx(x.entry)})<input id="fill" inputmode="decimal" placeholder="${fx(x.entry)}"></label>
         <p class="muted">Place it in TradingView with stop <b>${fx(x.sl)}</b> and take-profit at ${S.settings.tpAtR}R. Edge will tell you when to move the stop.</p>`
         : `<p class="muted">Edge places a market order with your stop at <b>${fx(x.sl)}</b> and take-profit at ${S.settings.tpAtR}R, sized at ${S.settings.riskPct}% risk. At +${S.settings.beAtR}R the stop moves to break-even by itself.</p>`}
       <p class="muted">I accept the stop. I won't move it further away. I won't move the target.</p>
@@ -308,7 +312,7 @@
 
   function closeDialog(id) {
     const t = S.open.find((y) => y.id === id);
-    const manual = t.source === "manual";
+    const manual = t.source === "manual" || t.source === "traderspost";
     const early = (t.r ?? 0) < S.settings.tpAtR - 0.1 && !t.beMoved;
     const body = $("#modalBody");
     body.innerHTML = `<h3>Close ${esc(mname(t.market))} ${t.dir}?</h3>

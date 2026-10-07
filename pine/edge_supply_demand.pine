@@ -51,6 +51,8 @@ useSess    = input.bool(true, "Only trade inside the session", group = grpF)
 sess       = input.session("0300-1200", "Session (New York time) — gold 0300-1200, oil & gas 0800-1430", group = grpF)
 needFresh  = input.bool(true, "Only the first touch of a zone (fresh)", group = grpF)
 needRoom   = input.bool(true, "Need room to the take-profit before the opposing zone", group = grpF)
+needSweep  = input.bool(true, "Only after liquidity is taken (stops swept, then reclaimed)", group = grpF)
+asiaSess   = input.session("1800-0200", "Asian session (New York time) — its high/low is liquidity", group = grpF)
 
 grpC = "Colours (one per timeframe)"
 c4h = input.color(#9b5de5, "4H — zones & break of structure", group = grpC)
@@ -116,11 +118,11 @@ structure(int len, float cap, int off) =>
         if not na(phHigh)
             supTop := phHigh
             supBot := math.min(math.max(phBodyBot, phHigh - atr * cap), phHigh - atr * 0.25)
-    [trend[off], demTop[off], demBot[off], supTop[off], supBot[off], upT[off], dnT[off], upLvl[off], upFrom[off], dnLvl[off], dnFrom[off]]
+    [trend[off], demTop[off], demBot[off], supTop[off], supBot[off], upT[off], dnT[off], upLvl[off], upFrom[off], dnLvl[off], dnFrom[off], phHigh[off], plLow[off]]
 
-[hTrend, hDemTop, hDemBot, hSupTop, hSupBot, hUpT, hDnT, hUpLvl, hUpFrom, hDnLvl, hDnFrom] = request.security(syminfo.tickerid, htfTf, structure(htfLen, zoneCap, 1), lookahead = barmerge.lookahead_on)
-[mTrend, mDemTop, mDemBot, mSupTop, mSupBot, mUpT, mDnT, mUpLvl, mUpFrom, mDnLvl, mDnFrom] = request.security(syminfo.tickerid, mtfTf, structure(mtfLen, zoneCap, 1), lookahead = barmerge.lookahead_on)
-[lTrend, lDemTop, lDemBot, lSupTop, lSupBot, lUpT, lDnT, lUpLvl, lUpFrom, lDnLvl, lDnFrom] = structure(ltfLen, zoneCap, 0)
+[hTrend, hDemTop, hDemBot, hSupTop, hSupBot, hUpT, hDnT, hUpLvl, hUpFrom, hDnLvl, hDnFrom, hPH, hPL] = request.security(syminfo.tickerid, htfTf, structure(htfLen, zoneCap, 1), lookahead = barmerge.lookahead_on)
+[mTrend, mDemTop, mDemBot, mSupTop, mSupBot, mUpT, mDnT, mUpLvl, mUpFrom, mDnLvl, mDnFrom, mPH, mPL] = request.security(syminfo.tickerid, mtfTf, structure(mtfLen, zoneCap, 1), lookahead = barmerge.lookahead_on)
+[lTrend, lDemTop, lDemBot, lSupTop, lSupBot, lUpT, lDnT, lUpLvl, lUpFrom, lDnLvl, lDnFrom, lPH, lPL] = structure(ltfLen, zoneCap, 0)
 
 bool newHtfDem = hUpT != hUpT[1] and not na(hDemTop)
 bool newHtfSup = hDnT != hDnT[1] and not na(hSupTop)
@@ -130,6 +132,23 @@ bool ltfBosUp = lUpT != lUpT[1] and lUpT != 0
 bool ltfBosDn = lDnT != lDnT[1] and lDnT != 0
 float atr5 = ta.atr(14)
 bool inSess = not useSess or not na(time(timeframe.period, sess, "America/New_York"))
+
+// ---------- Liquidity: where stops sit — previous day high/low, Asian session high/low, 15m swing high/low
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+bool inAsia = not na(time(timeframe.period, asiaSess, "America/New_York"))
+var float aHi = na
+var float aLo = na
+var float asiaHi = na
+var float asiaLo = na
+if inAsia and not inAsia[1]
+    aHi := high
+    aLo := low
+else if inAsia
+    aHi := math.max(aHi, high)
+    aLo := math.min(aLo, low)
+if not inAsia and inAsia[1]
+    asiaHi := aHi
+    asiaLo := aLo
 
 // ---------- Zones (tracked on this chart: touches and invalidation)
 var float dTop = na
@@ -226,10 +245,12 @@ var int lState = 0
 var int lBar = 0
 var float lLow = na
 var int lTouch = 0
+var float lLiq15 = na
 var int sState = 0
 var int sBar = 0
 var float sHigh = na
 var int sTouch = 0
+var float sLiq15 = na
 
 bool trigger5 = entryMode == "First 5m close after 15m BOS"
 bool longSig = lState == 2 and (trigger5 ? close > open : ltfBosUp) and barstate.isconfirmed
@@ -249,6 +270,38 @@ bool sFresh = sTouch == 1
 bool sRoomOk = na(sRoom) or sRoom >= tpR
 bool sStopOk = sRisk > 0 and sRisk / atr5 >= minStopAtr and sRisk / atr5 <= maxStopAtr
 
+// liquidity taken? price traded beyond a level where stops sit, and is now back on the right side of it
+sweepLong(float lowest) =>
+    string nm = ""
+    float lv = na
+    if not na(pdl) and lowest < pdl and close > pdl
+        nm := "previous day low"
+        lv := pdl
+    else if not na(asiaLo) and lowest < asiaLo and close > asiaLo
+        nm := "Asian low"
+        lv := asiaLo
+    else if not na(lLiq15) and lowest < lLiq15 and close > lLiq15
+        nm := "15m swing low"
+        lv := lLiq15
+    [nm, lv]
+sweepShort(float highest) =>
+    string nm = ""
+    float lv = na
+    if not na(pdh) and highest > pdh and close < pdh
+        nm := "previous day high"
+        lv := pdh
+    else if not na(asiaHi) and highest > asiaHi and close < asiaHi
+        nm := "Asian high"
+        lv := asiaHi
+    else if not na(sLiq15) and highest > sLiq15 and close < sLiq15
+        nm := "15m swing high"
+        lv := sLiq15
+    [nm, lv]
+[lSwName, lSwLvl] = sweepLong(math.min(lLow, low))
+[sSwName, sSwLvl] = sweepShort(math.max(sHigh, high))
+bool lSwept = lSwName != ""
+bool sSwept = sSwName != ""
+
 // state transitions (after the signal check, so tap → 15m → 5m happen in order)
 if lState > 0
     lLow := math.min(lLow, low)
@@ -261,6 +314,7 @@ if lState == 0 and hTrend == 1 and dTouchNow and not longSig
     lBar := bar_index
     lLow := low
     lTouch := dTouches
+    lLiq15 := mPL
 
 if sState > 0
     sHigh := math.max(sHigh, high)
@@ -273,24 +327,26 @@ if sState == 0 and hTrend == -1 and sTouchNow and not shortSig
     sBar := bar_index
     sHigh := high
     sTouch := sTouches
+    sLiq15 := mPH
 
 // ---------- Alerts for the Edge app
 f(float x) => str.tostring(x, "#.#####")
 b(bool x) => x ? "true" : "false"
 
-setupJson(string dir, float entry, float sl, bool fresh, float room, bool stopOk, float zTop, float zBot, float l4, float l15, float l5, float opp) =>
+setupJson(string dir, float entry, float sl, bool fresh, float room, bool stopOk, float zTop, float zBot, float l4, float l15, float l5, float opp, string swName, float swLvl) =>
     float risk = math.abs(entry - sl)
     float tp = dir == "long" ? entry + tpR * risk : entry - tpR * risk
     '{"secret":"' + secret + '","type":"setup","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + dir +
      '","entry":' + f(entry) + ',"sl":' + f(sl) + ',"tp":' + f(tp) + ',"trend4h":' + str.tostring(hTrend) +
      ',"zoneFresh":' + b(fresh) + ',"bos15":true,"close5":true,"stopOk":' + b(stopOk) +
      ',"roomR":' + (na(room) ? "null" : f(room)) + ',"zoneTop":' + f(zTop) + ',"zoneBot":' + f(zBot) +
-     ',"lvl4h":' + (na(l4) ? "null" : f(l4)) + ',"lvl15":' + (na(l15) ? "null" : f(l15)) + ',"lvl5":' + (na(l5) ? "null" : f(l5)) + ',"opp":' + (na(opp) ? "null" : f(opp)) + '}'
+     ',"lvl4h":' + (na(l4) ? "null" : f(l4)) + ',"lvl15":' + (na(l15) ? "null" : f(l15)) + ',"lvl5":' + (na(l5) ? "null" : f(l5)) + ',"opp":' + (na(opp) ? "null" : f(opp)) +
+     ',"sweep":' + b(swName != "") + ',"sweepName":"' + swName + '","sweepLvl":' + (na(swLvl) ? "null" : f(swLvl)) + '}'
 
 if longSig and lRisk > 0
-    alert(setupJson("long", close, lSL, lFresh, lRoom, lStopOk, dTop, dBot, hUpLvl, mUpLvl, lUpLvl, sValid and sBot > close ? sBot : na), alert.freq_once_per_bar_close)
+    alert(setupJson("long", close, lSL, lFresh, lRoom, lStopOk, dTop, dBot, hUpLvl, mUpLvl, lUpLvl, sValid and sBot > close ? sBot : na, lSwName, lSwLvl), alert.freq_once_per_bar_close)
 if shortSig and sRisk > 0
-    alert(setupJson("short", close, sSL, sFresh, sRoom, sStopOk, sTop, sBot, hDnLvl, mDnLvl, lDnLvl, dValid and dTop < close ? dTop : na), alert.freq_once_per_bar_close)
+    alert(setupJson("short", close, sSL, sFresh, sRoom, sStopOk, sTop, sBot, hDnLvl, mDnLvl, lDnLvl, dValid and dTop < close ? dTop : na, sSwName, sSwLvl), alert.freq_once_per_bar_close)
 if sendBars and barstate.isconfirmed
     string bos = mtfBosUp ? "up" : mtfBosDn ? "down" : ""
     alert('{"secret":"' + secret + '","type":"bar","symbol":"' + syminfo.ticker + '","price":' + f(close) + ',"high":' + f(high) + ',"low":' + f(low) + ',"bos15":"' + bos + '"}', alert.freq_once_per_bar_close)
@@ -311,8 +367,15 @@ drawPlan(bool isLong, float entry, float sl, string grade) =>
     label.new(bar_index, isLong ? low : high, (isLong ? "LONG " : "SHORT ") + grade, style = isLong ? label.style_label_up : label.style_label_down,
          color = grade == "A+" ? color.new(color.green, 0) : color.new(color.gray, 0), textcolor = color.white, size = size.small)
 
-bool lTechA = lFresh and lRoomOk and lStopOk
-bool sTechA = sFresh and sRoomOk and sStopOk
+drawSweep(float lv, string nm, int fromBar) =>
+    line.new(fromBar, lv, bar_index, lv, color = color.new(color.white, 30), style = line.style_dashed)
+    label.new(fromBar, lv, "$$$ " + nm + " taken", style = label.style_label_right, color = color.new(color.white, 80), textcolor = color.white, size = size.tiny)
+if longSig and lSwept
+    drawSweep(lSwLvl, lSwName, lBar)
+if shortSig and sSwept
+    drawSweep(sSwLvl, sSwName, sBar)
+bool lTechA = lFresh and lRoomOk and lStopOk and lSwept
+bool sTechA = sFresh and sRoomOk and sStopOk and sSwept
 if longSig and lRisk > 0
     drawPlan(true, close, lSL, lTechA ? "A+" : "check")
 if shortSig and sRisk > 0
@@ -320,8 +383,8 @@ if shortSig and sRisk > 0
 
 
 // ---------- Backtest with the same rules
-bool lOk = (not needFresh or lFresh) and (not needRoom or lRoomOk) and lStopOk and inSess
-bool sOk = (not needFresh or sFresh) and (not needRoom or sRoomOk) and sStopOk and inSess
+bool lOk = (not needFresh or lFresh) and (not needRoom or lRoomOk) and (not needSweep or lSwept) and lStopOk and inSess
+bool sOk = (not needFresh or sFresh) and (not needRoom or sRoomOk) and (not needSweep or sSwept) and sStopOk and inSess
 var float tEntry = na
 var float tRisk = na
 var int tDir = 0

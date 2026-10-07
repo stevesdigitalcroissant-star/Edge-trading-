@@ -70,6 +70,7 @@ async function handleHook(store, broker, body, now = Date.now()) {
       stopOk: msg.stopOk !== false && msg.stopOk !== "false",
       roomR: num(msg.roomR), zoneTop: num(msg.zoneTop), zoneBot: num(msg.zoneBot),
       lvl4h: num(msg.lvl4h), lvl15: num(msg.lvl15), lvl5: num(msg.lvl5), opp: num(msg.opp),
+      sweep: msg.sweep === undefined ? undefined : msg.sweep === true || msg.sweep === "true", sweepName: String(msg.sweepName || "").slice(0, 40), sweepLvl: num(msg.sweepLvl),
       at: now, expires: now + s.setupExpiryMin * 60e3, status: "open",
     };
     if (setup.entry == null || setup.sl == null || setup.entry === setup.sl) return { status: 400, json: { error: "setup needs entry and sl" } };
@@ -123,7 +124,7 @@ async function syncTrades(store, broker, { now = Date.now(), market = null, mark
   const out = { managed: 0, closed: 0, actions: [] };
   await newsReminders(store, ctx).catch(() => {});
 
-  if (broker.kind !== "manual") {
+  if (broker.kind === "oanda") {
     let live;
     try { live = await broker.openTrades(); } catch (e) { return { error: e.message }; }
     const liveIds = new Set(live.map((t) => t.brokerId));
@@ -163,7 +164,7 @@ async function syncTrades(store, broker, { now = Date.now(), market = null, mark
   }
 
   // manual mode: prices come from the TradingView heartbeat
-  for (const t of ctx.open.filter((x) => x.source === "manual")) {
+  for (const t of ctx.open.filter((x) => x.source === "manual" || x.source === "traderspost")) {
     const m = market === t.market && mark ? mark : await store.get(`price:${t.market}`);
     if (!m || now - m.time > 15 * 60e3) continue;
     const k = R.sign(t.dir);
@@ -196,13 +197,26 @@ async function manage(store, broker, t, mark, ctx, out, bos15) {
   const ev = R.evaluateTrade(t, mark, s);
   t.r = ev.r; t.maxR = ev.maxR; t.lastPrice = mark.price; t.lastPriceAt = ctx.now;
   if (ev.beDone && !t.beMoved && t.currentSL != null) t.beMoved = true;
-  const manual = broker.kind === "manual";
+  const routed = t.source === "traderspost" && broker.kind === "traderspost"; // Edge sends the changes to Tradovate
+  const manual = !routed && t.source !== "oanda";
   const k = R.sign(t.dir);
+  const ticker = t.ticker || t.symbol;
 
   for (const a of ev.actions) {
     if (a.ruleBreak && !(t.ruleBreaks || []).includes(a.code || a.type)) t.ruleBreaks = [...(t.ruleBreaks || []), a.code || a.type];
     if (a.type === "warn") { await once(store, t, a.code, `⚠️ ${name}: ${a.text}`); continue; }
     if (a.type === "moveSL") {
+      if (routed) {
+        if (t.notified && t.notified.be) continue;
+        try {
+          await broker.breakeven(ticker);
+          t.currentSL = t.entry; t.beMoved = true;
+          await once(store, t, "be", `🔒 ${name}: +${s.beAtR}R reached — stop moved to break-even (${fx(t.entry)}) on Tradovate. This trade can't lose now.`, "action");
+        } catch (e) {
+          await once(store, t, "be", `❗ ${name}: +${s.beAtR}R reached but the break-even order failed (${e.message}). Move your stop to ${fx(t.entry)} yourself NOW.`, "action");
+        }
+        continue;
+      }
       if (manual) {
         await once(store, t, "be", `🔒 ${name}: +${s.beAtR}R reached. Move your stop to ${fx(a.price)} (break-even) NOW, then tap "Done" in Edge.`, "action");
         continue;
@@ -222,7 +236,7 @@ async function manage(store, broker, t, mark, ctx, out, bos15) {
       continue;
     }
     if (a.type === "setTP") {
-      if (manual) { await once(store, t, `tp${a.ruleBreak ? "w" : ""}`, `🎯 ${name}: ${a.text} Set it at ${fx(a.price)}.`, "action"); continue; }
+      if (manual || routed) { await once(store, t, `tp${a.ruleBreak ? "w" : ""}`, `🎯 ${name}: ${a.text} Set it at ${fx(a.price)}.`, "action"); continue; }
       try {
         await broker.setOrders(t.brokerId, t.instrument, { tp: a.price });
         t.tp = a.price;
@@ -236,7 +250,7 @@ async function manage(store, broker, t, mark, ctx, out, bos15) {
   const against = (t.dir === "long" && bos15 === "down") || (t.dir === "short" && bos15 === "up");
   if (against && s.structureExit !== "off") {
     if (s.structureExit === "close" && !manual) {
-      await broker.close(t.brokerId).catch(() => {});
+      await (routed ? broker.exit(ticker) : broker.close(t.brokerId)).catch(() => {});
       await notify(store, `🧱 ${name}: 15m structure broke against you at ${ev.r}R — closed, as your settings say.`, "action");
     } else {
       await once(store, t, `bos${Math.floor(ctx.now / 9e5)}`, `🧱 ${name}: 15m structure just broke AGAINST your ${t.dir} (${ev.r}R now). Your plan: ${t.beMoved ? "stop is at break-even, let it work" : "consider closing — the reason for the trade is gone"}.`);
@@ -248,7 +262,7 @@ async function manage(store, broker, t, mark, ctx, out, bos15) {
     const soon = ctx.events.find((e) => e.block && e.markets.includes(t.market) && e.time > ctx.now && e.time - ctx.now <= s.newsBeforeMin * 60e3);
     if (soon) {
       if (s.newsOpenTrade === "close" && !manual) {
-        if (await once(store, t, `news:${soon.id}`, `📰 ${name}: ${soon.title} in ${Math.round((soon.time - ctx.now) / 60e3)} min — closing before it (${ev.r}R).`, "action")) await broker.close(t.brokerId).catch(() => {});
+        if (await once(store, t, `news:${soon.id}`, `📰 ${name}: ${soon.title} in ${Math.round((soon.time - ctx.now) / 60e3)} min — closing before it (${ev.r}R).`, "action")) await (routed ? broker.exit(ticker) : broker.close(t.brokerId)).catch(() => {});
       } else {
         await once(store, t, `news:${soon.id}`, `📰 ${name}: ${soon.title} in ${Math.round((soon.time - ctx.now) / 60e3)} min and your stop isn't at break-even yet (${ev.r}R). Decide now: close or accept the risk.`);
       }
@@ -293,7 +307,7 @@ function stats(journal) {
 }
 
 async function state(store, broker, now = Date.now()) {
-  if (broker.kind !== "manual") await syncTrades(store, broker, { now }).catch(() => {});
+  if (broker.kind === "oanda") await syncTrades(store, broker, { now }).catch(() => {});
   const ctx = await context(store, now);
   await newsReminders(store, ctx).catch(() => {});
   const setupsH = await store.hgetall("setups");
@@ -301,7 +315,7 @@ async function state(store, broker, now = Date.now()) {
   const prices = {};
   for (const m of Object.keys(MARKETS)) prices[m] = await store.get(`price:${m}`);
   let account = null;
-  if (broker.kind !== "manual") account = await broker.account().catch((e) => ({ error: e.message }));
+  if (broker.kind === "oanda") account = await broker.account().catch((e) => ({ error: e.message }));
   const open = ctx.open.map((t) => ({ ...t, plan: t.initialSL != null ? R.plan(t, ctx.settings) : null }));
   return {
     now, settings: ctx.settings, defaults: DEFAULT_SETTINGS, markets: Object.fromEntries(Object.entries(MARKETS).map(([k, v]) => [k, { name: v.name, unit: v.unit }])),
@@ -331,15 +345,24 @@ async function take(store, broker, { setupId, emotion, entry: myEntry }, now = D
   const k = R.sign(setup.dir);
   const base = { id: "", market: setup.market, dir: setup.dir, grade: g.grade, setupId, emotion: emotion || "calm", maxR: 0, ruleBreaks: [], notified: {}, openedAt: now };
 
-  if (broker.kind === "manual") {
-    const entry = num(myEntry) ?? setup.entry;
+  if (broker.kind === "manual" || broker.kind === "traderspost") {
+    const routed = broker.kind === "traderspost";
+    // routed: the order goes out at market now — check the latest chart price for chasing
+    const hb = routed ? await store.get(`price:${setup.market}`) : null;
+    const entry = num(myEntry) ?? (hb && now - hb.time < 6 * 60e3 ? hb.price : setup.entry);
     if (k * (entry - setup.sl) <= 0) throw new Error("That entry is on the wrong side of the stop.");
     const risk = Math.abs(entry - setup.sl);
     if (k * (entry - setup.entry) / Math.abs(setup.entry - setup.sl) > s.maxChaseR) throw new Error(`Price ran more than ${s.maxChaseR}R past the entry. No chasing — wait for the next setup.`);
     const size = R.orderSize(setup, s, entry);
     if (size.kind === "futures" && size.qty < 1) throw new Error(`One ${size.contract} contract would risk $${size.riskPerContract}, more than your $${size.riskUSD} limit. Skip this one${size.contract === "GC" || size.contract === "CL" || size.contract === "NG" || size.contract === "QG" ? " — or trade the micro contract" : ""}.`);
     const riskUSD = size.totalRisk;
-    const t = { ...base, id: `manual:${id()}`, source: "manual", symbol: setup.symbol, entry, initialSL: setup.sl, currentSL: setup.sl, tp: entry + k * s.tpAtR * risk, units: size.qty, unitLabel: size.unit, contract: size.contract || null, riskUSD };
+    const tp = entry + k * s.tpAtR * risk;
+    if (routed) {
+      if (size.kind !== "futures") throw new Error("Sending orders through TradersPost is set up for futures (MGC, MCL, QG…). Use a futures chart.");
+      await broker.order({ ticker: setup.symbol, dir: setup.dir, qty: size.qty, sl: setup.sl, tp, price: entry, ref: setupId });
+    }
+    const t = { ...base, id: `${routed ? "tp" : "manual"}:${id()}`, source: routed ? "traderspost" : "manual", symbol: setup.symbol, ticker: setup.symbol, entry, initialSL: setup.sl, currentSL: setup.sl, tp, units: size.qty, unitLabel: size.unit, contract: size.contract || null, riskUSD };
+    if (routed) await notify(store, `▶️ Order sent: ${setup.dir === "long" ? "BUY" : "SELL"} ${size.qty} ${size.contract} · SL ${fx(setup.sl)} · TP ${fx(tp)}. Hands off — Edge moves the stop to break-even at +${s.beAtR}R.`, "action");
     await store.hset("trades", t.id, t);
     await store.hset("setups", setupId, { ...setup, status: "taken" });
     return { trade: t };
@@ -429,10 +452,11 @@ async function action(store, broker, body, now = Date.now()) {
   if (a === "close") {
     const t = await store.hget("trades", body.tradeId);
     if (!t) throw new Error("Trade not found");
-    if (t.source === "manual") {
-      const exit = num(body.exit);
+    if (t.source === "manual" || t.source === "traderspost") {
+      if (t.source === "traderspost" && broker.kind === "traderspost") await broker.exit(t.ticker || t.symbol);
+      const exit = num(body.exit) ?? (t.source === "traderspost" ? t.lastPrice : null);
       if (exit == null) throw new Error("Enter your exit price");
-      await recordClose(store, t, exit, now, null, mergeSettings(await store.get("settings")));
+      await recordClose(store, t, exit, now, null, mergeSettings(await store.get("settings")), t.source === "traderspost" ? " (sent to Tradovate — correct the exit price if needed)" : "");
     } else {
       await broker.close(t.brokerId);
       await syncTrades(store, broker, { now, force: true });

@@ -2,7 +2,7 @@
   --bg: #0d1117; --panel: #151b23; --panel2: #1c2430; --line: #2a3441;
   --text: #e6edf3; --muted: #8b98a8; --accent: #e8b54b;
   --good: #2ec27e; --bad: #f0545c; --warn: #f2a33a; --info: #5aa9ff;
-  --c4h: #9b5de5; --c15: #2f80ed; --c5: #f2c94c; /* one colour per timeframe — same as the TradingView script */
+  --c4h: #9b5de5; --c15: #2f80ed; --c5: #f2c94c; --liq: #c9d1d9; /* one colour per timeframe — same as the TradingView script */
   --radius: 14px;
   color-scheme: dark;
 }
@@ -11,6 +11,7 @@
     --bg: #f5f6f8; --panel: #ffffff; --panel2: #eef1f5; --line: #dde2e8;
     --text: #141a21; --muted: #5d6875; --accent: #b98318;
     --good: #138a52; --bad: #d23a43; --warn: #c27a10; --info: #2a74d6;
+    --liq: #57606a;
     color-scheme: light;
   }
 }

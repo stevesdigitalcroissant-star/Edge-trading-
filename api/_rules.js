@@ -22,6 +22,10 @@ function gradeSetup(setup, ctx) {
   const checks = [
     { id: "trend", label: "4H trend points your way (break of structure)", pass: Number(setup.trend4h) === sign(dir) },
     { id: "zone", label: "Fresh 4H supply/demand zone (first touch)", pass: setup.zoneFresh !== false },
+    {
+      id: "liquidity", label: "Liquidity taken first (stops swept, then reclaimed)", pass: setup.sweep !== false,
+      note: setup.sweepName ? `${setup.sweepName}${setup.sweepLvl != null ? " " + setup.sweepLvl : ""}` : setup.sweep === false ? "no sweep yet — price may come back for it" : "",
+    },
     { id: "bos15", label: "15m broke structure your way on a closed candle", pass: setup.bos15 !== false },
     { id: "close5", label: "5m entry candle closed — no anticipating", pass: setup.close5 !== false },
     {
