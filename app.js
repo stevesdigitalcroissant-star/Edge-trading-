@@ -101,7 +101,7 @@
     $("#setupBadge").hidden = !live; $("#setupBadge").textContent = live;
     const g = S.guard;
     $("#topStatus").className = `pill ${g.ok ? "good" : "bad"}`;
-    $("#topStatus").textContent = g.ok ? "Ready" : "Locked";
+    $("#topStatus").innerHTML = `<span class="dot ${g.ok ? "live" : ""}"></span>${g.ok ? "Ready" : "Locked"}`;
     const coachTab = tab === "coach";
     $("#view").hidden = coachTab;
     if (window.EdgeCoach) window.EdgeCoach.show(coachTab);
@@ -113,24 +113,37 @@
   // ---------- NOW
   function viewNow() {
     const g = S.guard, s = S.settings;
-    const banner = g.ok
-      ? `<div class="banner good">Ready — waiting for an A+ setup.<p class="muted">No setup = no trade. Patience is the position.</p></div>`
-      : `<div class="banner bad">Not trading right now.<p>${g.reasons.map(esc).join("<br>")}</p></div>`;
-    const stats = `<div class="grid2">
-      <div class="stat"><small>Trades today</small><b>${g.tradesToday} / ${s.maxTradesPerDay}</b></div>
-      <div class="stat"><small>Today</small><b class="${cls(g.rToday)}">${rs(g.rToday)}</b></div>
-      <div class="stat"><small>A+ share (last ${S.share.taken || 0})</small><b class="${S.share.share >= s.minAPlusShare ? "pos" : "neg"}">${S.share.share}%</b></div>
-      <div class="stat"><small>Daily loss limit</small><b>−${s.maxDailyLossR}R</b></div>
+    const live = S.setups.filter((x) => x.status === "open" && x.g.take.ok).length;
+    const inTrade = S.open.length;
+    const [stateTxt, stateColor, headline, sub] = !g.ok
+      ? ["Locked", "var(--bad)", "Not trading right now.", g.reasons.map(esc).join("<br>")]
+      : live ? ["Setup ready", "var(--accent)", `${live} A+ setup${live > 1 ? "s" : ""} waiting for you.`, `<a href="#setups" style="color:var(--accent);font-weight:600">Open it →</a> it's only valid for ${s.setupExpiryMin} minutes.`]
+      : inTrade ? ["In a trade", "var(--info)", "Hands off. The rules manage it.", `Stop to break-even at +${s.beAtR}R · exit at +${s.tpAtR}R.`]
+      : ["Ready", "var(--good)", "Waiting for an A+ setup.", "No setup, no trade. Patience is the position."];
+    const share = S.share.share, C = 2 * Math.PI * 40, okShare = share >= s.minAPlusShare;
+    const hero = `<section class="card hero" style="--state:${stateColor}">
+      <div><div class="state"><span class="dot ${g.ok ? "live" : ""}"></span>${stateTxt}</div>
+        <div class="headline">${headline}</div><p class="sub">${sub}</p></div>
+      <div class="ring" title="A+ share of your last ${S.share.taken || 0} trades">
+        <svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="7"/>
+          <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="${okShare ? "url(#goldGrad)" : "var(--bad)"}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - share / 100)}"/></svg>
+        <div class="lbl"><b>${share}%</b><small>A+ share</small></div></div>
+    </section>`;
+    const stats = `<div class="kpis">
+      <div><small>Trades</small><b>${g.tradesToday}<small class="muted"> / ${s.maxTradesPerDay}</small></b></div>
+      <div><small>Today</small><b class="${cls(g.rToday)}">${rs(g.rToday)}</b></div>
+      <div><small>Loss limit</small><b>−${s.maxDailyLossR}R</b></div>
     </div>`;
-    const open = S.open.length ? S.open.map(tradeCard).join("") : `<p class="muted">No open trades.</p>`;
+    const open = S.open.length ? S.open.map(tradeCard).join("")
+      : `<div class="empty"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-8"/><path d="M15 8h5v5"/></svg><b>No open trades</b><span>When you take an A+ setup, it shows up here with its plan.</span></div>`;
     const ps = pushStatus();
-    const pushNudge = ps.on ? "" : `<section class="card"><div class="row between"><b>🔔 Get alerts on this ${isIOS ? "device" : "device"}</b>${pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on</button>` : ""}</div><p class="muted" style="margin:6px 0 0">${esc(ps.text)}</p></section>`;
+    const pushNudge = ps.on ? "" : `<section class="card"><div class="row between"><b>🔔 Get alerts on this device</b>${pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on</button>` : ""}</div><p class="muted" style="margin:6px 0 0">${esc(ps.text)}</p></section>`;
     const ce = S.closeOut || {}, n = S.open.length;
     const ceBanner = n && (ce.warn || ce.due) ? `<div class="banner bad">⏰ ${ce.due ? `Close-out time (${esc(s.flatBy)}) — get out now.` : `${ce.minutesLeft} min to the close-out (${esc(s.flatBy)}).`}
         <p>You're in ${n} trade${n > 1 ? "s" : ""}. Your prop firm closes you if you don't.</p>
         <button class="btn danger closeall" data-closeall style="margin-top:8px">⛔ Close everything</button></div>` : "";
-    const head = `<div class="row between"><h2 style="margin:0">Open trades</h2>${n ? `<button class="btn small danger" data-closeall>⛔ Close everything</button>` : ""}</div>`;
-    return `${ceBanner}${banner}${pushNudge}${stats}<section class="card">${head}${open}</section>${newsCard(6)}${logCard()}`;
+    const head = `<div class="card-head"><h2>Open trades</h2>${n ? `<button class="btn small closeall" data-closeall>Close everything</button>` : ""}</div>`;
+    return `${ceBanner}${hero}${stats}${pushNudge}<section class="card">${head}${open}</section>${newsCard(6)}${logCard()}`;
   }
 
   function tradeCard(t) {
@@ -157,7 +170,7 @@
       <div class="levels">
         <div><small>Entry</small><b>${fx(t.entry)}</b></div>
         <div><small>Stop</small><b>${fx(t.currentSL ?? t.initialSL)}</b></div>
-        <div><small>BE trigger</small><b>${fx(t.plan && t.plan.beTrigger)}</b></div>
+        <div><small>BE at</small><b>${fx(t.plan && t.plan.beTrigger)}</b></div>
         <div><small>Target</small><b>${fx(t.tp)}</b></div>
       </div>
       ${t.units ? `<p class="muted">Size: ${t.unitLabel === "contracts" ? `<b>${t.units} ${esc(t.contract || "")} contract${t.units > 1 ? "s" : ""}</b> · risk $${t.riskUSD}` : `${Number(t.units).toFixed(t.units < 10 ? 2 : 0)} ${esc(S.markets[t.market]?.unit || "units")}${manual ? ` ≈ ${(t.units / (s.lots[t.market] || 1)).toFixed(2)} lots (1 lot = ${s.lots[t.market]})` : ""}`}</p>` : ""}
@@ -191,7 +204,7 @@
 
   // ---------- SETUPS
   function viewSetups() {
-    if (!S.setups.length) return `<section class="card"><h2>Setups</h2><p class="muted">No setups yet. When the TradingView script spots one, it shows up here, graded.</p><p class="muted">Waiting is the strategy. Most of trading is not trading.</p></section>`;
+    if (!S.setups.length) return `<section class="card"><div class="empty"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/></svg><b>No setups yet</b><span>TradingView is watching gold, oil and gas for you. When an A+ setup appears, it lands here with its picture and your phone buzzes.</span><span style="margin-top:6px">Waiting is the strategy.</span></div></section>`;
     return `<div class="setup-list">${S.setups.map(setupCard).join("")}</div>`;
   }
   // ---------- Trade map: the setup as a picture (same colours as the TradingView chart)
