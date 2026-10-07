@@ -6,6 +6,7 @@ const R = require("./_rules");
 const { loadFeed, relevantEvents, blockingEvent } = require("./_news");
 const { notify, subscribe, unsubscribe, vapid } = require("./_notify");
 const { story } = require("./_story");
+const fundamentals = require("./_fundamentals");
 const { parts } = require("./_time");
 
 const num = (x) => (x == null || x === "" || !Number.isFinite(Number(x)) ? null : Number(x));
@@ -97,6 +98,46 @@ async function pruneSetups(store, now) {
   for (const [k, v] of Object.entries(all)) if (!v || now - v.at > 3 * 864e5) await store.hdel("setups", k);
 }
 
+// ---------- session close-out: warn before it, and (if switched on) get out by itself
+
+async function closeOutCheck(store, broker, ctx) {
+  const s = ctx.settings, ce = R.closeOut(ctx.now, s);
+  if (!ctx.open.length) return;
+  const today = require("./_time").dayKey(ctx.now, s.tz);
+  if (ce.warn && (await store.get("closeoutWarned")) !== today) {
+    await store.set("closeoutWarned", today);
+    await notify(store, `⏰ ${ce.minutesLeft} min to the close-out (${s.flatBy}). You have ${ctx.open.length} open trade${ctx.open.length > 1 ? "s" : ""}. Open Edge → Close everything.`, "action");
+  }
+  if (ce.due && (await store.get("closeoutDone")) !== today) {
+    await store.set("closeoutDone", today);
+    if (s.autoFlat) { await closeAll(store, broker, { now: ctx.now, reason: "close-out time", auto: true }); return true; }
+    else await notify(store, `⛔ Close-out time (${s.flatBy}) and you're still in ${ctx.open.length} trade${ctx.open.length > 1 ? "s" : ""}. Close everything NOW — your prop firm will.`, "action");
+  }
+}
+
+// One button to get out of everything.
+// auto: only the trades Edge can actually close (TradersPost / OANDA); hand-placed ones get a loud reminder instead.
+async function closeAll(store, broker, { now = Date.now(), reason = "Close everything", auto = false } = {}) {
+  const ctx = await context(store, now);
+  const s = ctx.settings, sentTickers = new Set(), out = { closed: 0, failed: [], manual: 0 };
+  for (const t of ctx.open) {
+    try {
+      if (t.source === "oanda" && broker.kind === "oanda") { await broker.close(t.brokerId); out.closed++; continue; }
+      if (t.source === "traderspost" && broker.kind === "traderspost") {
+        const tk = t.ticker || t.symbol;
+        if (!sentTickers.has(tk)) { await broker.exit(tk); sentTickers.add(tk); }
+      } else { out.manual++; if (auto) continue; }
+      const hb = await store.get(`price:${t.market}`);
+      const exit = hb && now - hb.time < 10 * 60e3 ? hb.price : t.lastPrice ?? t.entry;
+      await recordClose(store, t, exit, now, null, s, t.source === "manual" ? ` (${reason} — make sure it's closed in TradingView)` : ` (${reason})`);
+      out.closed++;
+    } catch (e) { out.failed.push(`${t.market}: ${e.message}`); }
+  }
+  if (broker.kind === "oanda") await syncTrades(store, broker, { now, force: true }).catch(() => {});
+  await notify(store, `🧹 ${reason}: ${out.closed} trade${out.closed === 1 ? "" : "s"} closed${out.manual ? ` — ${out.manual} ${out.manual === 1 ? "was" : "were"} placed by hand: close ${out.manual === 1 ? "it" : "them"} in TradingView too (Positions → Close all)` : ""}${out.failed.length ? `. ❗ Failed: ${out.failed.join("; ")} — close by hand NOW` : ""}.`, out.failed.length ? "action" : "closed");
+  return out;
+}
+
 // ---------- news reminders (sent once per event, ahead of the no-trade window)
 
 async function newsReminders(store, ctx) {
@@ -123,6 +164,7 @@ async function syncTrades(store, broker, { now = Date.now(), market = null, mark
   const s = ctx.settings;
   const out = { managed: 0, closed: 0, actions: [] };
   await newsReminders(store, ctx).catch(() => {});
+  if (await closeOutCheck(store, broker, ctx).catch(() => false)) return { ...out, closedAll: true };
 
   if (broker.kind === "oanda") {
     let live;
@@ -310,6 +352,7 @@ async function state(store, broker, now = Date.now()) {
   if (broker.kind === "oanda") await syncTrades(store, broker, { now }).catch(() => {});
   const ctx = await context(store, now);
   await newsReminders(store, ctx).catch(() => {});
+  await closeOutCheck(store, broker, ctx).catch(() => {});
   const setupsH = await store.hgetall("setups");
   const setups = Object.values(setupsH).sort((a, b) => b.at - a.at).slice(0, 25).map((x) => ({ ...x, g: gradeNow(x, ctx), size: R.orderSize(x, ctx.settings), story: story(x, ctx.settings) }));
   const prices = {};
@@ -325,6 +368,8 @@ async function state(store, broker, now = Date.now()) {
     news: { ok: ctx.newsOk, error: ctx.newsError, events: ctx.events.filter((e) => e.time > now - 2 * 3600e3) },
     prices, log: await store.lrange("log", 40),
     broker: { kind: broker.kind, label: broker.label, account },
+    fundamentals: await store.get("fundamentals"),
+    closeOut: R.closeOut(now, ctx.settings),
     push: { publicKey: (await vapid(store).catch(() => null) || {}).publicKey || null, devices: Object.values(await store.hgetall("push")).map((d) => ({ label: d.label, added: d.added })) },
     storage: store.kind, hookReady: !!process.env.EDGE_HOOK_SECRET, telegram: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
   };
@@ -402,19 +447,23 @@ async function action(store, broker, body, now = Date.now()) {
     const answers = {};
     for (const f of BIAS_FACTORS[body.market]) answers[f.id] = Math.max(-1, Math.min(1, Number((body.answers || {})[f.id]) || 0));
     const b = (await store.get("bias")) || {};
-    b[body.market] = { ...biasFromFactors(answers), answers, note: String(body.note || "").slice(0, 500), updated: now };
+    const evidence = {};
+    for (const [k, v] of Object.entries(body.evidence || {})) if (answers[k] !== undefined) evidence[k] = String(v).slice(0, 200);
+    b[body.market] = { ...biasFromFactors(answers), answers, evidence, note: String(body.note || "").slice(0, 500), updated: now };
     await store.set("bias", b);
     return { ok: true, bias: b[body.market] };
   }
   if (a === "settings") {
     const cur = mergeSettings(await store.get("settings"));
     const p = body.patch || {};
-    const nums = ["riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "minAPlusShare", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR", "coachIdleSec", "coachTradeSec", "coachDailyChecks"];
+    const nums = ["riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "minAPlusShare", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR", "coachIdleSec", "coachTradeSec", "coachDailyChecks", "flatWarnMin", "noNewTradesMin"];
     for (const k of nums) if (p[k] != null && Number.isFinite(Number(p[k]))) cur[k] = Number(p[k]);
     if (cur.riskPct > 3) throw new Error("Risk per trade above 3% isn't allowed here. That's the greed talking.");
     if (cur.beAtR <= 0 || cur.tpAtR <= cur.beAtR) throw new Error("Take-profit must be beyond the break-even trigger.");
     for (const k of ["enforceTP"]) if (typeof p[k] === "boolean") cur[k] = p[k];
     if (["warn", "close"].includes(p.newsOpenTrade)) cur.newsOpenTrade = p.newsOpenTrade;
+    if (typeof p.flatBy === "string" && /^\d{1,2}:\d{2}$/.test(p.flatBy)) cur.flatBy = p.flatBy;
+    if (typeof p.autoFlat === "boolean") cur.autoFlat = p.autoFlat;
     if (["notify", "close", "off"].includes(p.structureExit)) cur.structureExit = p.structureExit;
     if (typeof p.tz === "string" && p.tz) cur.tz = p.tz;
     if (p.notify) for (const k of Object.keys(cur.notify)) if (typeof p.notify[k] === "boolean") cur.notify[k] = p.notify[k];
@@ -475,6 +524,8 @@ async function action(store, broker, body, now = Date.now()) {
     await store.hset("journal", j.id, j);
     return { ok: true };
   }
+  if (a === "closeAll") return closeAll(store, broker, { now });
+  if (a === "autoBias") return fundamentals.load(store, { force: true, now });
   if (a === "testAlert") {
     const ok = await notify(store, "👋 Edge is connected. Only A+ from here.", "info");
     return { ok, telegram: ok };
@@ -503,4 +554,4 @@ function login(password) {
   return sessionToken();
 }
 
-module.exports = { handleHook, syncTrades, newsReminders, state, action, take, login, authorized, context, gradeNow, stats };
+module.exports = { handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, login, authorized, context, gradeNow, stats };

@@ -76,6 +76,10 @@ const DEFAULT_SETTINGS = {
     natgas: ["08:00", "14:30"],
   },
   lots: { gold: 100, crude: 1000, natgas: 10000 },
+  flatBy: "16:40", // be out of every trade by this time (your prop firm's close-out, New York time)
+  flatWarnMin: 15, // warn this many minutes before
+  noNewTradesMin: 30, // no new trades this close to the close-out
+  autoFlat: false, // at the close-out, close Edge-managed trades by itself (TradersPost / OANDA)
   coachIdleSec: 60, // Coach: seconds between chart checks while waiting for a setup
   coachTradeSec: 20, // …and while a trade is open
   coachDailyChecks: 600, // cost guard: max Coach checks per day

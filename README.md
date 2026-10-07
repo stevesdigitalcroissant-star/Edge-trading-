@@ -30,6 +30,32 @@ Below it are four short lines (one per step) and the plan in one sentence. The c
 only if you want to. The TradingView chart uses the **same colours** (zone boxes, a BOS line per timeframe, the plan
 lines), so what you see on the phone matches the chart.
 
+## End of the session: "Close everything"
+
+- Rules → **Session close-out**: the time you must be out of every trade (default 16:40 New York time; set it a few
+  minutes before your prop firm's close-out).
+- **No new trades** in the last 30 minutes before it.
+- **15 minutes before**, your phone gets "⏰ 15 min to the close-out". The Now tab shows a red banner with one big
+  **⛔ Close everything** button. The button is always there while you're in a trade.
+- Close everything sends the exit for trades Edge placed (TradersPost/OANDA) and logs every trade in the journal. For
+  trades you placed by hand in TradingView, it reminds you to close them there too (Trading Panel → Positions).
+- At the close-out time itself, Edge warns you loudly. Or, if you switch it on, it closes Edge-placed trades by itself.
+
+## Weekly fundamentals from free data
+
+Bias → **↻ Fill from free data**. Edge reads free official sources and suggests an answer for each line it can measure,
+showing the numbers (📊). You check the rest (Fed tone, OPEC, weather, LNG, news) and tap Save.
+
+| Line | Source (free) | Rule |
+|---|---|---|
+| US dollar | FRED, broad dollar index (no key) | −0.5% or more in 4 weeks → bullish gold/oil; +0.5% → bearish |
+| Real yields | FRED, 10-year TIPS yield (no key) | −10 bp in 4 weeks → bullish gold; +10 bp → bearish |
+| COT big speculators | CFTC public API (no key) | net position up/down by 3%+ of open interest in 4 weeks |
+| Crude inventories | EIA (free key) | last week's change vs the usual for that week (5-year) ±1M bbl |
+| Gas storage | EIA (free key) | level vs 5-year average ±3%, and last injection vs usual ±5 Bcf |
+
+For inventories and storage, get a free key at eia.gov/opendata and add it as `EIA_API_KEY`. Everything else needs nothing.
+
 ## Liquidity: no sweep, no A+
 
 Before the entry, price must **take liquidity**: trade beyond a level where stops sit, then come back. For a buy that
@@ -162,6 +188,7 @@ You open Edge → say how you feel → Confirm
 | `EDGE_HOOK_SECRET` | Any long random word. The TradingView script must use the same one |
 | `APP_URL` | Your app's address, e.g. `https://edge-xyz.vercel.app` (it's added to phone alerts) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | *Optional, recommended.* Phone alerts. In Telegram, message **@BotFather** → `/newbot` → copy the token. Send your bot a message, then open `https://api.telegram.org/bot<token>/getUpdates` and copy `chat.id` |
+| `EIA_API_KEY` | *Optional, free.* Oil inventories and gas storage for the weekly fundamentals (eia.gov/opendata) |
 | `TRADERSPOST_WEBHOOK_URL` | *Optional.* Lets "Take it" send the order (and the break-even move) to your Tradovate account through TradersPost |
 | `ANTHROPIC_API_KEY` | Turns on the Coach (the screen-watching mode). From console.anthropic.com |
 | `OANDA_TOKEN`, `OANDA_ACCOUNT_ID`, `OANDA_ENV` | *Optional.* Lets Edge place orders and move your stop by itself. OANDA → Manage API Access → generate a token. Start with `OANDA_ENV=practice` (demo), and switch to `live` only after a few weeks of clean demo trading |
@@ -210,6 +237,7 @@ The tests cover grading, the 90% rule, guardrails, news blackout, break-even at 
 | `api/_core.js` | Webhook handling, trade manager, journal |
 | `api/_coach.js`, `api/coach.js`, `coach.js` | The Coach: screen sharing in the browser, the chart read by Claude, the rules applied after it |
 | `sw.js`, `api/_notify.js` | Notifications: phone/iPad/computer push (Web Push), Telegram, and the event log |
+| `api/_fundamentals.js` | Weekly fundamentals from free data: CFTC COT, FRED dollar and real yields, EIA inventories and storage |
 | `api/_news.js` | Economic calendar plus the weekly EIA / API / Baker Hughes schedule |
 | `api/_broker.js` | OANDA connection (manual mode without it) |
 | `index.html`, `app.js`, `app.css` | The dashboard (works on a phone) |

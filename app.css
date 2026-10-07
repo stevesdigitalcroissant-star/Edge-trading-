@@ -99,6 +99,7 @@ label.f input, label.f select { color: var(--text); }
 .log div { padding: 6px 0; border-bottom: 1px solid var(--line); }
 .log time { color: var(--muted); font-size: 12px; margin-right: 6px; }
 
+.evidence { display: block; color: var(--text); background: var(--panel2); border-radius: 8px; padding: 6px 8px; font-size: 12.5px; }
 .factor { display: grid; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .seg button { background: var(--panel2); border: 0; padding: 8px 0; cursor: pointer; font-size: 13px; }
@@ -117,6 +118,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .moods { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
 .moods button { padding: 12px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); cursor: pointer; font-weight: 600; }
 .moods button.on { outline: 2px solid var(--accent); }
+.btn.closeall { font-size: 17px; padding: 12px 18px; background: var(--bad); color: #fff; border-color: var(--bad); }
 .toast { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-weight: 600; z-index: 20; max-width: calc(100vw - 32px); }
 .setup-list { display: grid; gap: 10px; }
 code { background: var(--panel2); padding: 1px 5px; border-radius: 5px; font-size: 13px; word-break: break-all; }

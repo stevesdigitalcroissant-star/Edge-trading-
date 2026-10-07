@@ -125,7 +125,12 @@
     const open = S.open.length ? S.open.map(tradeCard).join("") : `<p class="muted">No open trades.</p>`;
     const ps = pushStatus();
     const pushNudge = ps.on ? "" : `<section class="card"><div class="row between"><b>🔔 Get alerts on this ${isIOS ? "device" : "device"}</b>${pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on</button>` : ""}</div><p class="muted" style="margin:6px 0 0">${esc(ps.text)}</p></section>`;
-    return `${banner}${pushNudge}${stats}<section class="card"><h2>Open trades</h2>${open}</section>${newsCard(6)}${logCard()}`;
+    const ce = S.closeOut || {}, n = S.open.length;
+    const ceBanner = n && (ce.warn || ce.due) ? `<div class="banner bad">⏰ ${ce.due ? `Close-out time (${esc(s.flatBy)}) — get out now.` : `${ce.minutesLeft} min to the close-out (${esc(s.flatBy)}).`}
+        <p>You're in ${n} trade${n > 1 ? "s" : ""}. Your prop firm closes you if you don't.</p>
+        <button class="btn danger closeall" data-closeall style="margin-top:8px">⛔ Close everything</button></div>` : "";
+    const head = `<div class="row between"><h2 style="margin:0">Open trades</h2>${n ? `<button class="btn small danger" data-closeall>⛔ Close everything</button>` : ""}</div>`;
+    return `${ceBanner}${banner}${pushNudge}${stats}<section class="card">${head}${open}</section>${newsCard(6)}${logCard()}`;
   }
 
   function tradeCard(t) {
@@ -310,6 +315,23 @@
     $("#modal").showModal();
   }
 
+  function closeAllDialog() {
+    const manual = S.open.filter((t) => t.source === "manual");
+    const body = $("#modalBody");
+    body.innerHTML = `<h3>Close all ${S.open.length} trade${S.open.length > 1 ? "s" : ""}?</h3>
+      <p>${S.open.map((t) => `${esc(mname(t.market))} ${t.dir} (${rs(t.r)})`).join("<br>")}</p>
+      ${S.broker.kind === "traderspost" || S.broker.kind === "oanda" ? `<p class="muted">Edge sends the exit orders to your account now.</p>` : ""}
+      ${manual.length ? `<p class="err">Edge can't reach trades you placed by hand: also close them in TradingView — Trading Panel → Positions → close all (or right-click the position → Close).</p>` : ""}
+      <div class="row"><button class="btn danger closeall" type="button" id="doCloseAll">⛔ Close everything</button><button class="btn" value="cancel">Cancel</button></div>`;
+    $("#doCloseAll").addEventListener("click", async () => {
+      $("#doCloseAll").disabled = true;
+      const r = await act({ action: "closeAll" });
+      $("#modal").close();
+      if (r) toast(r.failed && r.failed.length ? `Some failed — close them by hand: ${r.failed.join("; ")}` : `${r.closed} closed.${r.manual ? " Close the hand-placed ones in TradingView too." : ""}`, 8000);
+    });
+    $("#modal").showModal();
+  }
+
   function closeDialog(id) {
     const t = S.open.find((y) => y.id === id);
     const manual = t.source === "manual" || t.source === "traderspost";
@@ -324,9 +346,15 @@
   }
 
   // ---------- BIAS
+  let fillApplied = false; // after "Fill from free data", show the suggestions until saved
   function viewBias() {
-    return Object.keys(S.markets).map((m) => {
-      const b = S.bias[m], f = S.biasFactors[m];
+    const fd = S.fundamentals, sug = (fd && fd.suggestions) || {};
+    const head = `<section class="card"><div class="row between"><h2 style="margin:0">Weekly fundamentals</h2>
+        <button class="btn small primary" id="fillBias">↻ Fill from free data</button></div>
+        <p class="muted" style="margin:8px 0 0">Edge reads the COT report (CFTC), the dollar and real yields (FRED) and oil & gas inventories (EIA), and suggests an answer for each line it can measure, with the numbers. You check the rest and save.${fd ? ` Last read ${day(fd.at)} ${time(fd.at)}.` : ""}</p>
+        ${fd && fd.errors && fd.errors.length ? `<p class="err" style="margin:6px 0 0">Not available: ${fd.errors.map(esc).join(" · ")}</p>` : ""}</section>`;
+    return head + Object.keys(S.markets).map((m) => {
+      const b = S.bias[m], f = S.biasFactors[m], ms = sug[m] || {};
       const age = b ? Math.floor((S.now - b.updated) / 864e5) : null;
       const stale = !b || age > 7;
       const label = b ? (b.dir === "long" ? "Bullish" : b.dir === "short" ? "Bearish" : "Neutral") : "Not set";
@@ -335,8 +363,11 @@
           <span class="pill ${stale ? "warn" : b.dir === "long" ? "good" : b.dir === "short" ? "bad" : ""}">${label}${b ? ` · score ${b.score > 0 ? "+" : ""}${b.score}` : ""}${b ? ` · ${age === 0 ? "today" : `${age}d ago`}` : ""}</span></div>
         <p class="muted">Every Sunday (or after a big report): answer each line. Score ≥ +2 = bullish, ≤ −2 = bearish. Trades against your bias lose their A+.</p>
         ${f.map((x) => {
-          const v = b && b.answers ? b.answers[x.id] || 0 : 0;
-          return `<div class="factor"><b>${esc(x.label)}</b><small class="muted">${esc(x.hint)}</small>
+          const auto = ms[x.id];
+          const v = fillApplied && auto ? auto.value : b && b.answers ? b.answers[x.id] || 0 : 0;
+          const ev = auto ? auto.text : b && b.evidence && b.evidence[x.id];
+          return `<div class="factor"><b>${esc(x.label)}${auto ? ` <span class="pill" style="font-size:11px;padding:1px 7px">auto</span>` : ""}</b><small class="muted">${esc(x.hint)}</small>
+            ${ev ? `<small class="evidence">📊 ${esc(ev)}</small>` : ""}
             <div class="seg" data-factor="${x.id}" data-v="${v}">
               <button type="button" class="m1 ${v === -1 ? "on" : ""}" data-val="-1">Bearish</button>
               <button type="button" class="z ${v === 0 ? "on" : ""}" data-val="0">Neutral</button>
@@ -443,6 +474,11 @@
         ${n("maxChaseR", "Refuse entry if price ran past it by (R)", "0.1")}
         ${n("newsBeforeMin", "No trades before news (min)", "5")}${n("newsAfterMin", "No trades after news (min)", "5")}
       </div></section>
+      <section class="card"><h2>Session close-out</h2><div class="grid2">
+        <label class="f">Be out of every trade by (${esc(s.tz)})<input data-set="flatBy" value="${esc(s.flatBy)}" placeholder="16:40"></label>
+        ${n("flatWarnMin", "Warn me this many minutes before", "5")}${n("noNewTradesMin", "No new trades this close to it (min)", "5")}
+        <label class="f">At the close-out<select data-set="autoFlat"><option value="false" ${s.autoFlat ? "" : "selected"}>Warn me loudly</option><option value="true" ${s.autoFlat ? "selected" : ""}>Close Edge-managed trades for me</option></select></label>
+      </div><p class="muted">Set this a few minutes before your prop firm's own close-out time (check their rules).</p></section>
       <section class="card"><h2>Coach</h2><div class="grid2">
         ${n("coachIdleSec", "Check the chart every (s) while waiting", "5")}${n("coachTradeSec", "…and while in a trade (s)", "5")}
         ${n("coachDailyChecks", "Max checks per day (cost guard)", "50")}
@@ -461,6 +497,7 @@
     v.querySelectorAll("[data-take]").forEach((b) => b.addEventListener("click", () => takeDialog(b.dataset.take)));
     v.querySelectorAll("[data-skip]").forEach((b) => b.addEventListener("click", () => act({ action: "skip", setupId: b.dataset.skip }, "Skipped. Good.")));
     v.querySelectorAll("[data-be]").forEach((b) => b.addEventListener("click", () => act({ action: "beDone", tradeId: b.dataset.be }, "🔒 Break-even. This trade can't hurt you now.")));
+    v.querySelectorAll("[data-closeall]").forEach((b) => b.addEventListener("click", closeAllDialog));
     v.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => closeDialog(b.dataset.close)));
     v.querySelectorAll("[data-j]").forEach((b) => b.addEventListener("click", () => noteDialog(b.dataset.j)));
     v.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
@@ -470,11 +507,18 @@
     v.querySelectorAll("[data-savebias]").forEach((b) => b.addEventListener("click", () => {
       const card = b.closest("[data-biascard]"), answers = {};
       card.querySelectorAll("[data-factor]").forEach((s) => (answers[s.dataset.factor] = Number(s.dataset.v)));
-      act({ action: "bias", market: b.dataset.savebias, answers, note: card.querySelector("[data-note]").value }, "Bias saved for the week.");
+      const ms = (S.fundamentals && S.fundamentals.suggestions && S.fundamentals.suggestions[b.dataset.savebias]) || {};
+      const evidence = Object.fromEntries(Object.entries(ms).map(([k, v]) => [k, v.text]));
+      act({ action: "bias", market: b.dataset.savebias, answers, evidence, note: card.querySelector("[data-note]").value }, "Bias saved for the week.");
     }));
     v.querySelectorAll("[data-pushon]").forEach((b) => b.addEventListener("click", enablePush));
     v.querySelectorAll("[data-pushoff]").forEach((b) => b.addEventListener("click", disablePush));
     v.querySelectorAll("[data-notify]").forEach((el) => el.addEventListener("change", () => act({ action: "settings", patch: { notify: { [el.dataset.notify]: el.checked } } }, "Saved.")));
+    const fb = $("#fillBias"); if (fb) fb.addEventListener("click", async () => {
+      fb.disabled = true; fb.textContent = "Reading the data…";
+      try { S.fundamentals = await api("POST", { action: "autoBias" }); fillApplied = true; render(); toast("Suggestions filled in — check them and tap Save."); }
+      catch (e) { toast(e.message, 7000); fb.disabled = false; fb.textContent = "↻ Fill from free data"; }
+    });
     const lt = $("#logTrade"); if (lt) lt.addEventListener("click", logTradeDialog);
     v.querySelectorAll("[data-testalert]").forEach((b) => b.addEventListener("click", async () => { const r = await act({ action: "testAlert" }); if (r) toast(r.telegram ? "Sent — check your devices." : "Logged. No device has notifications on yet."); }));
     const so = $("#signOut"); if (so) so.addEventListener("click", () => { try { localStorage.removeItem("edge.token"); } catch {} token = ""; showLogin(); });

@@ -53,8 +53,23 @@ function gradeSetup(setup, ctx) {
   if (ev) blocks.push({ id: "news", text: `${ev.title} at ${new Date(ev.time).toISOString().slice(11, 16)} UTC — no new trades ${s.newsBeforeMin} min before / ${s.newsAfterMin} min after` });
   if (setup.expires && now > setup.expires) blocks.push({ id: "expired", text: "Setup expired — the entry candle is gone. Wait for the next one." });
   if (setup.status && setup.status !== "open") blocks.push({ id: "done", text: `Already ${setup.status}` });
+  const ce = closeOut(now, s);
+  if (ce.noNew) blocks.push({ id: "closeout", text: `Too close to the session close-out (${s.flatBy}) — no new trades now.` });
 
   return { grade, checks, blocks };
+}
+
+// ---------- Session close-out (prop firms want you flat before the daily close)
+// Futures pause 17:00–18:00 New York time; after the close-out nothing new until the evening reopen.
+function closeOut(now, s) {
+  const { hm, minutesOfDay } = require("./_time");
+  const m = minutesOfDay(now, s.tz), flat = hm(s.flatBy || "16:40"), reopen = hm("18:00");
+  return {
+    minutesLeft: flat - m,
+    warn: m >= flat - (s.flatWarnMin ?? 15) && m < flat,
+    due: m >= flat && m < reopen,
+    noNew: m >= flat - (s.noNewTradesMin ?? 30) && m < reopen,
+  };
 }
 
 // ---------- Guardrails (greed & impatience)
@@ -185,4 +200,4 @@ function exitReason(t, exit, s) {
   return r > 0 ? "closed early (profit)" : "closed early (loss)";
 }
 
-module.exports = { gradeSetup, guardrails, canTake, aPlusShare, sizeUnits, sizeContracts, orderSize, plan, rAt, evaluateTrade, exitReason, sign, round };
+module.exports = { closeOut, gradeSetup, guardrails, canTake, aPlusShare, sizeUnits, sizeContracts, orderSize, plan, rAt, evaluateTrade, exitReason, sign, round };
