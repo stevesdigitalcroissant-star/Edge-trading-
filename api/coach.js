@@ -1,6 +1,7 @@
 // POST /api/coach — the screen-watching Coach. {action:"check", image, mode, question} or {action:"reset"}.
 const { getStore } = require("./_store");
-const { context, authorized } = require("./_core");
+const { context } = require("./_core");
+const auth = require("./_auth");
 const { blockingEvent } = require("./_news");
 const R = require("./_rules");
 const coach = require("./_coach");
@@ -8,10 +9,10 @@ const coach = require("./_coach");
 module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  if (!authorized(req.headers)) return res.status(401).json({ error: "Sign in" });
   try {
     const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
     const store = getStore();
+    if (!(await auth.authorized(store, req.headers))) return res.status(401).json({ error: "Sign in" });
     if (body.action === "reset") { await coach.reset(store); return res.status(200).json({ ok: true }); }
     const ctx = await context(store);
     const guard = R.guardrails(ctx);

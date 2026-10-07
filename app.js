@@ -12,7 +12,7 @@
   async function api(method, body) {
     const r = await fetch("/api/app", { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
-    if (r.status === 401 && !(body && body.action === "login")) { showLogin(); throw new Error("Sign in"); }
+    if (r.status === 401 && !(body && ["login", "signup", "recover", "authStatus"].includes(body.action))) { showLogin(); throw new Error("Sign in"); }
     if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
     return j;
   }
@@ -66,14 +66,69 @@
     catch (e) { toast(e.message); }
   }
 
-  function showLogin() { $("#app").hidden = true; $("#login").hidden = false; }
+  // ---------- account: sign in · create account · forgot password · recovery code
+  let authView = "signin", authInfo = { needsSetupCode: false }, pendingCode = null, lastEmail = "";
+  try { lastEmail = localStorage.getItem("edge.email") || ""; } catch {}
+  async function showLogin() {
+    $("#app").hidden = true; $("#login").hidden = false;
+    try { authInfo = await api("POST", { action: "authStatus" }); authView = authInfo.hasAccount ? (authView === "recover" ? "recover" : "signin") : "create"; } catch {}
+    renderAuth();
+  }
+  const field = (id, label, type, ac, val = "") => `<label class="f"><span>${label}</span><span class="field">
+      <input id="${id}" type="${type}" autocomplete="${ac}" value="${esc(val)}" ${type === "email" ? 'inputmode="email" autocapitalize="off" spellcheck="false"' : ""} required>
+      ${type === "password" ? `<button type="button" class="eye" data-eye="${id}" aria-label="Show password"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>` : ""}</span></label>`;
+  function renderAuth() {
+    const f = $("#loginForm");
+    const brand = `<div class="brand"><img src="icon.svg" alt="" width="68" height="68"><span>Edge</span></div>`;
+    const V = {
+      signin: `${brand}<h1>Welcome back</h1><p class="muted">Only A+ setups. The rules decide — not emotions.</p>
+        ${field("aEmail", "Email", "email", "username", lastEmail)}${field("aPw", "Password", "password", "current-password")}
+        <button class="btn primary" type="submit">Sign in</button>
+        <button type="button" class="link" data-view="recover">Forgot password?</button>`,
+      create: `${brand}<h1>Create your account</h1><p class="muted">One account — yours. Use an email you'll remember.</p>
+        ${field("aEmail", "Email", "email", "username")}${field("aPw", "Password", "password", "new-password")}${field("aPw2", "Confirm password", "password", "new-password")}
+        ${authInfo.needsSetupCode ? `${field("aCode", "Setup code", "password", "off")}<small class="muted hint">The EDGE_SETUP_CODE you set in Vercel — so nobody else can claim your app.</small>` : ""}
+        <button class="btn primary" type="submit">Create account</button>`,
+      recover: `${brand}<h1>Reset your password</h1><p class="muted">Use the recovery code you saved when you created your account.</p>
+        ${field("aEmail", "Email", "email", "username", lastEmail)}${field("aCode", "Recovery code", "text", "off")}${field("aPw", "New password", "password", "new-password")}${field("aPw2", "Confirm new password", "password", "new-password")}
+        <button class="btn primary" type="submit">Set new password</button>
+        <button type="button" class="link" data-view="signin">Back to sign in</button>`,
+      code: `${brand}<h1>Save your recovery code</h1><p class="muted">It's the only way back in if you forget your password. It won't be shown again.</p>
+        <div class="rcode" id="rcode">${esc(pendingCode || "")}</div>
+        <button type="button" class="btn" id="copyCode">Copy code</button>
+        <label class="check"><input type="checkbox" id="saved"> I saved it somewhere safe (password manager or notes)</label>
+        <button class="btn primary" type="submit" id="codeDone" disabled>Continue</button>`,
+    };
+    f.innerHTML = V[authView] + `<p id="loginErr" class="err" role="alert"></p>`;
+    f.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => { authView = b.dataset.view; renderAuth(); }));
+    f.querySelectorAll("[data-eye]").forEach((b) => b.addEventListener("click", () => { const i = $("#" + b.dataset.eye); i.type = i.type === "password" ? "text" : "password"; b.classList.toggle("on", i.type === "text"); }));
+    const cc = $("#copyCode"); if (cc) cc.addEventListener("click", async () => { try { await navigator.clipboard.writeText(pendingCode); cc.textContent = "Copied ✓"; } catch { cc.textContent = "Select and copy it"; } });
+    const sv = $("#saved"); if (sv) sv.addEventListener("change", () => ($("#codeDone").disabled = !sv.checked));
+    const first = f.querySelector("input:not([value]), input[value='']"); if (first && authView !== "code") setTimeout(() => first.focus(), 50);
+  }
+  function signedIn(t, email) {
+    token = t;
+    try { localStorage.setItem("edge.token", t); if (email) localStorage.setItem("edge.email", email); } catch {}
+    if (email) lastEmail = email;
+  }
   $("#loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    const v = (id) => ($("#" + id) ? $("#" + id).value : "");
+    const err = (m) => ($("#loginErr").textContent = m);
+    const btn = e.target.querySelector('button[type="submit"]'); btn.disabled = true;
     try {
-      const { token: t } = await api("POST", { action: "login", password: $("#pw").value });
-      token = t; try { localStorage.setItem("edge.token", t); } catch {}
-      $("#login").hidden = true; await refresh();
-    } catch (err) { $("#loginErr").textContent = err.message; }
+      if (authView === "code") { pendingCode = null; $("#login").hidden = true; await refresh(); return; }
+      if ((authView === "create" || authView === "recover") && v("aPw") !== v("aPw2")) throw new Error("The two passwords don't match.");
+      if (authView === "signin") {
+        const r = await api("POST", { action: "login", email: v("aEmail"), password: v("aPw") });
+        signedIn(r.token, r.email); $("#login").hidden = true; await refresh(); return;
+      }
+      const r = await api("POST", authView === "create"
+        ? { action: "signup", email: v("aEmail"), password: v("aPw"), code: v("aCode") }
+        : { action: "recover", email: v("aEmail"), code: v("aCode"), password: v("aPw") });
+      signedIn(r.token, r.email); pendingCode = r.recoveryCode; authView = "code"; renderAuth();
+    } catch (x) { err(x.message); }
+    finally { if (document.body.contains(btn)) btn.disabled = authView === "code" && !($("#saved") || {}).checked; }
   });
 
   async function refresh() {
@@ -501,7 +556,19 @@
         <label class="f">Time zone<input data-set="tz" value="${esc(s.tz)}"></label></div>
         <div class="row" style="margin-top:12px"><button class="btn primary" id="saveRules">Save rules</button></div>
         <p class="muted">Changing rules is allowed — but never in the middle of a trade, and never right after a loss.</p></section>
-      <section class="card"><h2>Account</h2><button class="btn small" id="signOut">Sign out</button></section>`;
+      <section class="card"><h2>Account</h2>
+        <div class="acct"><div class="avatar">${esc((S.account && S.account.email || "?")[0].toUpperCase())}</div>
+          <div><b>${esc(S.account ? S.account.email : "")}</b><small class="muted">Member since ${S.account ? new Date(S.account.created).toLocaleDateString([], { month: "long", year: "numeric" }) : ""}</small></div></div>
+        <details class="checkwrap" style="margin-top:12px"><summary>Change password</summary>
+          <div class="grid2" style="margin-top:10px">
+            <label class="f">Current password<input id="cpOld" type="password" autocomplete="current-password"></label>
+            <label class="f">New password<input id="cpNew" type="password" autocomplete="new-password"></label>
+            <label class="f">Confirm new password<input id="cpNew2" type="password" autocomplete="new-password"></label>
+          </div>
+          <div class="row" style="margin-top:10px"><button class="btn small primary" id="cpSave">Change password</button><small class="muted">Signs out your other devices.</small></div>
+        </details>
+        <div class="row" style="margin-top:12px"><button class="btn small" id="newCode">New recovery code</button><button class="btn small danger" id="signOut">Sign out</button></div>
+      </section>`;
   }
 
   // ---------- events
@@ -534,7 +601,20 @@
     });
     const lt = $("#logTrade"); if (lt) lt.addEventListener("click", logTradeDialog);
     v.querySelectorAll("[data-testalert]").forEach((b) => b.addEventListener("click", async () => { const r = await act({ action: "testAlert" }); if (r) toast(r.telegram ? "Sent — check your devices." : "Logged. No device has notifications on yet."); }));
-    const so = $("#signOut"); if (so) so.addEventListener("click", () => { try { localStorage.removeItem("edge.token"); } catch {} token = ""; showLogin(); });
+    const so = $("#signOut"); if (so) so.addEventListener("click", () => { try { localStorage.removeItem("edge.token"); } catch {} token = ""; authView = "signin"; showLogin(); });
+    const cp = $("#cpSave"); if (cp) cp.addEventListener("click", async () => {
+      if ($("#cpNew").value !== $("#cpNew2").value) return toast("The two new passwords don't match.");
+      try { const r = await api("POST", { action: "changePassword", current: $("#cpOld").value, next: $("#cpNew").value }); signedIn(r.token); toast("Password changed. Other devices are signed out."); render(); }
+      catch (e) { toast(e.message, 6000); }
+    });
+    const nc = $("#newCode"); if (nc) nc.addEventListener("click", async () => {
+      try {
+        const r = await api("POST", { action: "newRecoveryCode" });
+        const body = $("#modalBody");
+        body.innerHTML = `<h3>Your new recovery code</h3><p class="muted">The old one no longer works. Save this one now — it won't be shown again.</p><div class="rcode">${esc(r.recoveryCode)}</div><div class="row"><button class="btn primary" value="ok">I saved it</button></div>`;
+        $("#modal").showModal();
+      } catch (e) { toast(e.message); }
+    });
     const sr = $("#saveRules"); if (sr) sr.addEventListener("click", () => {
       const patch = { sessions: {} };
       v.querySelectorAll("[data-set]").forEach((el) => {

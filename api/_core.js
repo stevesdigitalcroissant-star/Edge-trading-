@@ -535,23 +535,4 @@ async function action(store, broker, body, now = Date.now()) {
   throw new Error(`Unknown action: ${a}`);
 }
 
-// Single-user sign-in: the session token is an HMAC of the password.
-function sessionToken() {
-  const pw = process.env.EDGE_PASSWORD || "";
-  return pw ? crypto.createHmac("sha256", pw).update("edge-session-v1").digest("hex") : "";
-}
-function authorized(headers) {
-  const want = sessionToken();
-  const got = String(headers.authorization || "").replace(/^Bearer\s+/i, "");
-  return !!want && got.length === want.length && crypto.timingSafeEqual(Buffer.from(got), Buffer.from(want));
-}
-function login(password) {
-  const pw = process.env.EDGE_PASSWORD || "";
-  if (!pw) throw new Error("Set EDGE_PASSWORD in the environment first.");
-  const a = crypto.createHash("sha256").update(String(password || "")).digest();
-  const b = crypto.createHash("sha256").update(pw).digest();
-  if (!crypto.timingSafeEqual(a, b)) throw new Error("Wrong password");
-  return sessionToken();
-}
-
-module.exports = { handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, login, authorized, context, gradeNow, stats };
+module.exports = { handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, context, gradeNow, stats };

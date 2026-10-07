@@ -98,6 +98,16 @@ contract. Watch the roll dates.
 5. At +2R, Edge tells you to drag the stop line on the chart to your entry (break-even). Edge's price comes from the
    chart heartbeat, so you get the alert even with TradingView closed.
 
+## Your account
+
+The first time you open Edge, you **create your account**: your email, a password (8+ characters) and the
+`EDGE_SETUP_CODE`. Edge then shows a **recovery code** once. Save it in your password manager or notes, because it's
+how you get back in if you forget your password ("Forgot password?" on the sign-in screen).
+
+- Passwords are stored only as a salted scrypt hash. Sign-ins last 30 days per device.
+- **Rules → Account**: change your password (this signs out your other devices), get a new recovery code, sign out.
+- After 8 wrong passwords in 15 minutes, sign-in pauses for 15 minutes.
+
 ## Edge on your iPhone / iPad (with notifications)
 
 1. Open your Edge address in **Safari**, then tap **Share → Add to Home Screen → Add**.
@@ -184,7 +194,7 @@ You open Edge → say how you feel → Confirm
 
 | Variable | What it is |
 |---|---|
-| `EDGE_PASSWORD` | Your password for the dashboard |
+| `EDGE_SETUP_CODE` | Any secret word. You type it once when you create your account (email + password), so nobody who finds your app's address can claim it first |
 | `EDGE_HOOK_SECRET` | Any long random word. The TradingView script must use the same one |
 | `APP_URL` | Your app's address, e.g. `https://edge-xyz.vercel.app` (it's added to phone alerts) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | *Optional, recommended.* Phone alerts. In Telegram, message **@BotFather** → `/newbot` → copy the token. Send your bot a message, then open `https://api.telegram.org/bot<token>/getUpdates` and copy `chat.id` |

@@ -84,10 +84,3 @@ test("a trade that comes back after break-even closes flat, not as a loss", asyn
   assert.match(st.journal[0].exitReason, /break-even/);
   assert.equal(st.stats.unplanned.n, 1);
 });
-
-test("sign-in", () => {
-  const tok = core.login("pw");
-  assert.equal(core.authorized({ authorization: `Bearer ${tok}` }), true);
-  assert.equal(core.authorized({ authorization: "Bearer nope" }), false);
-  assert.throws(() => core.login("bad"), /Wrong password/);
-});
