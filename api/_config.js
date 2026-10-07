@@ -14,17 +14,34 @@ const MARKETS = {
     name: "Crude oil",
     unit: "barrels",
     lot: 1000,
-    match: /WTI|USOIL|UKOIL|BRENT|BCO|^M?CL\d|^CL|OIL/i,
+    match: /WTI|USOIL|UKOIL|BRENT|BCO|^M?CL|OIL/i,
     instrument: (sym) => (/BCO|BRENT|UKOIL/i.test(sym) ? "BCO_USD" : "WTICO_USD"),
   },
   natgas: {
     name: "Natural gas",
     unit: "MMBtu",
     lot: 10000,
-    match: /NATGAS|NGAS|XNG|^NG/i,
+    match: /NATGAS|NGAS|XNG|^NG|^QG|^MNG/i,
     instrument: () => "NATGAS_USD",
   },
 };
+
+// Futures contracts you can trade from TradingView (Tradovate, prop firms).
+// pv = dollars per 1.00 move in price, tick = smallest price step.
+const FUTURES = [
+  { root: "MGC", market: "gold", name: "Micro Gold", pv: 10, tick: 0.1 },
+  { root: "GC", market: "gold", name: "Gold", pv: 100, tick: 0.1 },
+  { root: "MCL", market: "crude", name: "Micro Crude", pv: 100, tick: 0.01 },
+  { root: "CL", market: "crude", name: "Crude Oil", pv: 1000, tick: 0.01 },
+  { root: "MNG", market: "natgas", name: "Micro Henry Hub", pv: 1000, tick: 0.001 },
+  { root: "QG", market: "natgas", name: "E-mini Natural Gas", pv: 2500, tick: 0.005 },
+  { root: "NG", market: "natgas", name: "Natural Gas", pv: 10000, tick: 0.001 },
+];
+// "NYMEX:MCL1!", "MCLX2026", "COMEX_MINI:MGC1!" → the contract spec (null for CFDs like XAUUSD)
+function futuresSpec(symbol) {
+  const s = String(symbol || "").replace(/^[A-Z_]+:/i, "").toUpperCase();
+  return FUTURES.find((f) => new RegExp(`^${f.root}(\\d|[FGHJKMNQUVXZ]\\d|1!|2!)`).test(s)) || null;
+}
 
 // Which market a TradingView symbol belongs to. Natural gas is checked first
 // so "NATGASUSD" never falls through to another pattern.
@@ -109,4 +126,4 @@ function mergeSettings(saved) {
   return s;
 }
 
-module.exports = { MARKETS, marketOf, DEFAULT_SETTINGS, BIAS_FACTORS, BIAS_MAX_AGE_DAYS, biasFromFactors, mergeSettings };
+module.exports = { MARKETS, FUTURES, futuresSpec, marketOf, DEFAULT_SETTINGS, BIAS_FACTORS, BIAS_MAX_AGE_DAYS, biasFromFactors, mergeSettings };

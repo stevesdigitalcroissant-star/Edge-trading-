@@ -295,7 +295,7 @@ async function state(store, broker, now = Date.now()) {
   const ctx = await context(store, now);
   await newsReminders(store, ctx).catch(() => {});
   const setupsH = await store.hgetall("setups");
-  const setups = Object.values(setupsH).sort((a, b) => b.at - a.at).slice(0, 25).map((x) => ({ ...x, g: gradeNow(x, ctx) }));
+  const setups = Object.values(setupsH).sort((a, b) => b.at - a.at).slice(0, 25).map((x) => ({ ...x, g: gradeNow(x, ctx), size: R.orderSize(x, ctx.settings) }));
   const prices = {};
   for (const m of Object.keys(MARKETS)) prices[m] = await store.get(`price:${m}`);
   let account = null;
@@ -334,9 +334,10 @@ async function take(store, broker, { setupId, emotion, entry: myEntry }, now = D
     if (k * (entry - setup.sl) <= 0) throw new Error("That entry is on the wrong side of the stop.");
     const risk = Math.abs(entry - setup.sl);
     if (k * (entry - setup.entry) / Math.abs(setup.entry - setup.sl) > s.maxChaseR) throw new Error(`Price ran more than ${s.maxChaseR}R past the entry. No chasing — wait for the next setup.`);
-    const riskUSD = s.accountSize * s.riskPct / 100;
-    const units = R.sizeUnits(riskUSD, entry, setup.sl);
-    const t = { ...base, id: `manual:${id()}`, source: "manual", entry, initialSL: setup.sl, currentSL: setup.sl, tp: entry + k * s.tpAtR * risk, units, riskUSD };
+    const size = R.orderSize(setup, s, entry);
+    if (size.kind === "futures" && size.qty < 1) throw new Error(`One ${size.contract} contract would risk $${size.riskPerContract}, more than your $${size.riskUSD} limit. Skip this one${size.contract === "GC" || size.contract === "CL" || size.contract === "NG" || size.contract === "QG" ? " — or trade the micro contract" : ""}.`);
+    const riskUSD = size.totalRisk;
+    const t = { ...base, id: `manual:${id()}`, source: "manual", symbol: setup.symbol, entry, initialSL: setup.sl, currentSL: setup.sl, tp: entry + k * s.tpAtR * risk, units: size.qty, unitLabel: size.unit, contract: size.contract || null, riskUSD };
     await store.hset("trades", t.id, t);
     await store.hset("setups", setupId, { ...setup, status: "taken" });
     return { trade: t };

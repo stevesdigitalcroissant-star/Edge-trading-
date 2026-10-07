@@ -107,6 +107,26 @@ function sizeUnits(riskMoneyUSD, entry, sl) {
   return d > 0 ? riskMoneyUSD / d : 0;
 }
 
+// Futures: whole contracts only, never more risk than allowed. 0 contracts = the stop is too wide for this account.
+function sizeContracts(riskMoneyUSD, entry, sl, spec) {
+  const dist = Math.abs(entry - sl);
+  const perContract = dist * spec.pv;
+  return { contracts: perContract > 0 ? Math.floor(riskMoneyUSD / perContract + 1e-9) : 0, riskPerContract: round(perContract), ticks: Math.round(dist / spec.tick) };
+}
+
+// What to put in the order ticket for a setup (manual / TradingView mode).
+function orderSize(setup, s, entry = setup.entry) {
+  const { futuresSpec } = require("./_config");
+  const riskUSD = s.accountSize * s.riskPct / 100;
+  const spec = futuresSpec(setup.symbol || setup.tv);
+  if (spec) {
+    const c = sizeContracts(riskUSD, entry, setup.sl, spec);
+    return { kind: "futures", contract: spec.root, name: spec.name, qty: c.contracts, unit: "contracts", riskUSD: round(riskUSD), riskPerContract: c.riskPerContract, totalRisk: round(c.contracts * c.riskPerContract), stopTicks: c.ticks };
+  }
+  const units = sizeUnits(riskUSD, entry, setup.sl);
+  return { kind: "cfd", qty: units, unit: null, riskUSD: round(riskUSD), totalRisk: round(riskUSD) };
+}
+
 // ---------- Open trade management
 
 function plan(t, s) {
@@ -161,4 +181,4 @@ function exitReason(t, exit, s) {
   return r > 0 ? "closed early (profit)" : "closed early (loss)";
 }
 
-module.exports = { gradeSetup, guardrails, canTake, aPlusShare, sizeUnits, plan, rAt, evaluateTrade, exitReason, sign, round };
+module.exports = { gradeSetup, guardrails, canTake, aPlusShare, sizeUnits, sizeContracts, orderSize, plan, rAt, evaluateTrade, exitReason, sign, round };

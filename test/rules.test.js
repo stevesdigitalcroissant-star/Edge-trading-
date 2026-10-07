@@ -120,3 +120,16 @@ test("news relevance and the built-in weekly energy reports", () => {
   const feed = [{ title: "Natural Gas Storage", time: zonedTime(2026, 10, 9, 10, 30, "America/New_York") }];
   assert.ok(!recurringForWeek(NY(9), feed).some((e) => /natural gas/i.test(e.title)));
 });
+
+test("futures: sized in whole contracts, never above the risk limit", () => {
+  const s2 = mergeSettings({ accountSize: 50000, riskPct: 0.5 }); // $250 risk
+  const mgc = R.orderSize({ symbol: "MGC1!", entry: 2400, sl: 2392 }, s2); // $8 × $10 = $80 per contract
+  assert.deepEqual([mgc.qty, mgc.riskPerContract, mgc.totalRisk, mgc.stopTicks], [3, 80, 240, 80]);
+  const gc = R.orderSize({ symbol: "COMEX:GC1!", entry: 2400, sl: 2392 }, s2); // $800 per contract
+  assert.equal(gc.qty, 0);
+  const mcl = R.orderSize({ symbol: "MCLX2026", entry: 70, sl: 70.4 }, s2); // 0.40 × $100 = $40
+  assert.equal(mcl.qty, 6);
+  const qg = R.orderSize({ symbol: "NYMEX:QG1!", entry: 3.5, sl: 3.55 }, s2); // 0.05 × $2500 = $125
+  assert.equal(qg.qty, 2);
+  assert.equal(R.orderSize({ symbol: "OANDA:XAUUSD", entry: 2400, sl: 2390 }, s2).kind, "cfd");
+});

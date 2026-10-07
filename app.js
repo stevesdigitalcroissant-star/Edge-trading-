@@ -154,7 +154,7 @@
         <div><small>BE trigger</small><b>${fx(t.plan && t.plan.beTrigger)}</b></div>
         <div><small>Target</small><b>${fx(t.tp)}</b></div>
       </div>
-      ${t.units ? `<p class="muted">Size: ${Number(t.units).toFixed(t.units < 10 ? 2 : 0)} ${esc(S.markets[t.market]?.unit || "units")}${manual ? ` ≈ ${(t.units / (s.lots[t.market] || 1)).toFixed(2)} lots (1 lot = ${s.lots[t.market]})` : ""}</p>` : ""}
+      ${t.units ? `<p class="muted">Size: ${t.unitLabel === "contracts" ? `<b>${t.units} ${esc(t.contract || "")} contract${t.units > 1 ? "s" : ""}</b> · risk $${t.riskUSD}` : `${Number(t.units).toFixed(t.units < 10 ? 2 : 0)} ${esc(S.markets[t.market]?.unit || "units")}${manual ? ` ≈ ${(t.units / (s.lots[t.market] || 1)).toFixed(2)} lots (1 lot = ${s.lots[t.market]})` : ""}`}</p>` : ""}
       ${(t.ruleBreaks || []).length ? `<p class="err">Rule break logged: ${t.ruleBreaks.map(esc).join(", ")}</p>` : ""}
       ${beAdvised ? `<div class="blocks">🔒 Move your stop to <b>${fx(t.plan.beStop)}</b> now.</div>` : ""}
       <div class="row">
@@ -188,12 +188,26 @@
     if (!S.setups.length) return `<section class="card"><h2>Setups</h2><p class="muted">No setups yet. When the TradingView script spots one, it shows up here, graded.</p><p class="muted">Waiting is the strategy. Most of trading is not trading.</p></section>`;
     return `<div class="setup-list">${S.setups.map(setupCard).join("")}</div>`;
   }
+  // The numbers to type into TradingView's order panel.
+  function ticket(x, tp) {
+    const z = x.size, s = S.settings;
+    if (z.kind === "futures" && z.qty < 1) return `<div class="blocks">⛔ One ${esc(z.contract)} contract risks $${z.riskPerContract} — more than your $${z.riskUSD} (${s.riskPct}%). Skip it${["GC", "CL", "NG", "QG"].includes(z.contract) ? " or use the micro contract" : ""}.</div>`;
+    const qty = z.kind === "futures" ? `${z.qty} ${esc(z.contract)} contract${z.qty > 1 ? "s" : ""}` : `${z.qty.toFixed(z.qty < 10 ? 2 : 0)} ${esc(S.markets[x.market].unit)} ≈ ${(z.qty / (s.lots[x.market] || 1)).toFixed(2)} lots`;
+    return `<div class="card" style="background:var(--panel2);margin:8px 0">
+      <b>Order for TradingView</b>
+      <div class="levels" style="grid-template-columns:repeat(2,1fr)">
+        <div><small>${x.dir === "long" ? "BUY" : "SELL"} · Market</small><b>${qty}</b></div>
+        <div><small>Risk</small><b>$${z.totalRisk}${z.stopTicks ? ` · ${z.stopTicks} ticks` : ""}</b></div>
+        <div><small>Stop loss</small><b>${fx(x.sl)}</b></div>
+        <div><small>Take profit (${s.tpAtR}R)</small><b>${fx(tp)}</b></div>
+      </div></div>`;
+  }
+
   function setupCard(x) {
     const s = S.settings, g = x.g;
     const risk = Math.abs(x.entry - x.sl), k = x.dir === "short" ? -1 : 1;
     const be = x.entry + k * s.beAtR * risk, tp = x.entry + k * s.tpAtR * risk;
     const live = x.status === "open" && !(x.expires && S.now > x.expires);
-    const units = (s.accountSize * s.riskPct / 100) / risk;
     return `<div class="card setup ${live ? "" : "dim"}">
       <div class="row between">
         <div class="row"><div class="grade ${g.grade === "A+" ? "Ap" : g.grade}">${g.grade}</div>
@@ -208,7 +222,7 @@
       </div>
       <ul class="checks">${g.checks.map((c) => `<li class="${c.pass ? "" : "no"}"><span>${esc(c.label)}${c.note ? ` <small>(${esc(c.note)})</small>` : ""}</span></li>`).join("")}</ul>
       ${live && !g.take.ok ? `<div class="blocks">${g.take.why.map((w) => `<div>⛔ ${esc(w)}</div>`).join("")}</div>` : ""}
-      ${live && S.broker.kind === "manual" ? `<p class="muted">Size at ${s.riskPct}% of ${s.accountSize}: <b>${units.toFixed(units < 10 ? 2 : 0)} ${esc(S.markets[x.market].unit)}</b> ≈ ${(units / (s.lots[x.market] || 1)).toFixed(2)} lots</p>` : ""}
+      ${live && S.broker.kind === "manual" ? ticket(x, tp) : ""}
       ${live ? `<div class="row"><button class="btn ${g.take.ok ? "good" : ""}" data-take="${esc(x.id)}" ${g.take.ok ? "" : "disabled"}>${g.take.ok ? (S.broker.kind === "manual" ? "I'm taking it" : "Take it — place the order") : "Not allowed"}</button>
         <button class="btn" data-skip="${esc(x.id)}">Skip</button></div>` : ""}
     </div>`;

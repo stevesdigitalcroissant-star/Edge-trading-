@@ -16,6 +16,19 @@ It takes the emotional decisions away from you:
 | Getting hit by news | No new trades 30 min before or after big news for your market (CPI, NFP, FOMC, EIA crude Wed, EIA gas storage Thu, API Tue, OPEC). If you're in a trade and the stop isn't at break-even yet, you get a warning |
 | Ignoring fundamentals | A weekly bias checklist for each market (dollar, yields, Fed, COT, inventories, OPEC, weather, storage, LNG…). A trade against your bias loses its A+ |
 
+## Placing trades in TradingView (prop firm via Tradovate)
+
+1. In TradingView, open the **Trading Panel** (bottom) → **Tradovate** → log in with the login your prop firm gave you.
+2. Charts: `COMEX:MGC1!` (micro gold), `NYMEX:MCL1!` (micro crude), `NYMEX:QG1!` or `NYMEX:MNG1!` (small natural gas), 5-minute,
+   with the Edge script and one alert each. Make sure the chart shows **real-time** data (CME/COMEX/NYMEX data add-on
+   if TradingView shows it delayed).
+3. In Edge → Rules, set **Account size** to your prop account (e.g. 50000) and **Risk per trade** (e.g. 0.5%).
+4. When an A+ alert arrives, Edge's setup card shows the **Order for TradingView**: side, number of contracts (whole
+   contracts, never above your risk), stop loss and take profit. Type those into the order panel with **Take profit** and
+   **Stop loss** ticked, place it, then tap **I'm taking it** in Edge.
+5. At +2R, Edge tells you to drag the stop line on the chart to your entry (break-even). Edge's price comes from the
+   chart heartbeat, so you get the alert even with TradingView closed.
+
 ## Edge on your iPhone / iPad (with notifications)
 
 1. Open your Edge address in **Safari**, then tap **Share → Add to Home Screen → Add**.
