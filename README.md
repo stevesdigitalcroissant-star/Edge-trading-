@@ -16,6 +16,20 @@ It takes the emotional decisions away from you:
 | Getting hit by news | No new trades 30 min before or after big news for your market (CPI, NFP, FOMC, EIA crude Wed, EIA gas storage Thu, API Tue, OPEC). If you're in a trade and the stop isn't at break-even yet, you get a warning |
 | Ignoring fundamentals | A weekly bias checklist for each market (dollar, yields, Fed, COT, inventories, OPEC, weather, storage, LNG…). A trade against your bias loses its A+ |
 
+## You don't do the analysis — each setup comes with a picture
+
+When a setup is A+, the phone alert says it in one line ("Uptrend · fresh 4H demand · 15m + 5m broke up. Buy
+2652.40 · SL 2644.40 · TP 2678.00"). Tap it, and the setup shows a **trade map** with one colour per timeframe:
+
+- **Purple = 4H**: the demand/supply zone and the break of structure that set the trend
+- **Blue = 15m**: the confirmation break of structure
+- **Yellow = 5m**: the entry break of structure
+- Entry, stop (red), break-even (orange) and target (green) with prices, and the path price took ① → ④
+
+Below it are four short lines (one per step) and the plan in one sentence. The checklist is folded away, so open it
+only if you want to. The TradingView chart uses the **same colours** (zone boxes, a BOS line per timeframe, the plan
+lines), so what you see on the phone matches the chart.
+
 ## Placing trades in TradingView (prop firm via Tradovate)
 
 1. In TradingView, open the **Trading Panel** (bottom) → **Tradovate** → log in with the login your prop firm gave you.

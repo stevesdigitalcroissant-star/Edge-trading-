@@ -52,13 +52,19 @@ sess       = input.session("0300-1200", "Session (New York time) — gold 0300-1
 needFresh  = input.bool(true, "Only the first touch of a zone (fresh)", group = grpF)
 needRoom   = input.bool(true, "Need room to the take-profit before the opposing zone", group = grpF)
 
+grpC = "Colours (one per timeframe)"
+c4h = input.color(#9b5de5, "4H — zones & break of structure", group = grpC)
+c15 = input.color(#2f80ed, "15m — break of structure", group = grpC)
+c5  = input.color(#f2c94c, "5m — entry break of structure", group = grpC)
+
 grpA = "Edge app alerts"
 secret     = input.string("change-me", "Webhook secret (same as EDGE_HOOK_SECRET)", group = grpA)
 sendBars   = input.bool(true, "Send a price heartbeat every candle (lets Edge manage your stop)", group = grpA)
 
 // ---------- Market structure
 // Returns (shifted by `off` bars so higher-timeframe values never repaint):
-// trend (1 up / -1 down / 0), demand zone, supply zone, time of last BOS up / down.
+// trend (1 up / -1 down / 0), demand zone, supply zone, time of last BOS up / down,
+// and for the last BOS each way: the level that was broken and when that swing formed.
 structure(int len, float cap, int off) =>
     float ph = ta.pivothigh(high, len, len)
     float pl = ta.pivotlow(low, len, len)
@@ -76,17 +82,27 @@ structure(int len, float cap, int off) =>
     var float supBot = na
     var int upT = 0
     var int dnT = 0
+    var int phT = 0
+    var int plT = 0
+    var float upLvl = na
+    var float dnLvl = na
+    var int upFrom = 0
+    var int dnFrom = 0
     if not na(ph)
         swingHigh := ph
+        phT := time[len]
         phHigh := high[len]
         phBodyBot := math.min(open[len], close[len])
     if not na(pl)
         swingLow := pl
+        plT := time[len]
         plLow := low[len]
         plBodyTop := math.max(open[len], close[len])
     if not na(swingHigh) and close > swingHigh
         trend := 1
         upT := time
+        upLvl := swingHigh
+        upFrom := phT
         swingHigh := na
         if not na(plLow)
             demBot := plLow
@@ -94,15 +110,17 @@ structure(int len, float cap, int off) =>
     if not na(swingLow) and close < swingLow
         trend := -1
         dnT := time
+        dnLvl := swingLow
+        dnFrom := plT
         swingLow := na
         if not na(phHigh)
             supTop := phHigh
             supBot := math.min(math.max(phBodyBot, phHigh - atr * cap), phHigh - atr * 0.25)
-    [trend[off], demTop[off], demBot[off], supTop[off], supBot[off], upT[off], dnT[off]]
+    [trend[off], demTop[off], demBot[off], supTop[off], supBot[off], upT[off], dnT[off], upLvl[off], upFrom[off], dnLvl[off], dnFrom[off]]
 
-[hTrend, hDemTop, hDemBot, hSupTop, hSupBot, hUpT, hDnT] = request.security(syminfo.tickerid, htfTf, structure(htfLen, zoneCap, 1), lookahead = barmerge.lookahead_on)
-[mTrend, mDemTop, mDemBot, mSupTop, mSupBot, mUpT, mDnT] = request.security(syminfo.tickerid, mtfTf, structure(mtfLen, zoneCap, 1), lookahead = barmerge.lookahead_on)
-[lTrend, lDemTop, lDemBot, lSupTop, lSupBot, lUpT, lDnT] = structure(ltfLen, zoneCap, 0)
+[hTrend, hDemTop, hDemBot, hSupTop, hSupBot, hUpT, hDnT, hUpLvl, hUpFrom, hDnLvl, hDnFrom] = request.security(syminfo.tickerid, htfTf, structure(htfLen, zoneCap, 1), lookahead = barmerge.lookahead_on)
+[mTrend, mDemTop, mDemBot, mSupTop, mSupBot, mUpT, mDnT, mUpLvl, mUpFrom, mDnLvl, mDnFrom] = request.security(syminfo.tickerid, mtfTf, structure(mtfLen, zoneCap, 1), lookahead = barmerge.lookahead_on)
+[lTrend, lDemTop, lDemBot, lSupTop, lSupBot, lUpT, lDnT, lUpLvl, lUpFrom, lDnLvl, lDnFrom] = structure(ltfLen, zoneCap, 0)
 
 bool newHtfDem = hUpT != hUpT[1] and not na(hDemTop)
 bool newHtfSup = hDnT != hDnT[1] and not na(hSupTop)
@@ -134,7 +152,7 @@ if newHtfDem
     dValid := true
     dWasIn := false
     box.delete(dBox)
-    dBox := box.new(bar_index, dTop, bar_index + 1, dBot, border_color = color.new(color.teal, 40), bgcolor = color.new(color.teal, 82), extend = extend.right)
+    dBox := box.new(bar_index, dTop, bar_index + 1, dBot, border_color = color.new(c4h, 30), bgcolor = color.new(c4h, 82), extend = extend.right, text = "4H DEMAND", text_color = color.new(c4h, 0), text_size = size.small, text_halign = text.align_left)
 if newHtfSup
     sTop := hSupTop
     sBot := hSupBot
@@ -142,7 +160,7 @@ if newHtfSup
     sValid := true
     sWasIn := false
     box.delete(sBox)
-    sBox := box.new(bar_index, sTop, bar_index + 1, sBot, border_color = color.new(color.red, 40), bgcolor = color.new(color.red, 82), extend = extend.right)
+    sBox := box.new(bar_index, sTop, bar_index + 1, sBot, border_color = color.new(c4h, 30), bgcolor = color.new(c4h, 90), extend = extend.right, text = "4H SUPPLY", text_color = color.new(c4h, 0), text_size = size.small, text_halign = text.align_left)
 
 bool dIn = dValid and low <= dTop and high >= dBot
 bool sIn = sValid and high >= sBot and low <= sTop
@@ -164,6 +182,44 @@ if sValid and close > sTop
     box.set_bgcolor(sBox, color.new(color.gray, 90))
     box.set_extend(sBox, extend.none)
     box.set_right(sBox, bar_index)
+
+// ---------- Break of structure lines: only the latest per timeframe, so the chart stays clean
+var line bos4 = na
+var label bos4L = na
+var line bos15 = na
+var label bos15L = na
+var line bos5 = na
+var label bos5L = na
+drawBos(line old, label oldL, int fromT, int toT, float lvl, color c, string txt, int w, string st) =>
+    line.delete(old)
+    label.delete(oldL)
+    line ln = line.new(fromT, lvl, toT, lvl, xloc = xloc.bar_time, color = c, width = w, style = st)
+    label lb = label.new(toT, lvl, txt, xloc = xloc.bar_time, style = label.style_label_left, color = color.new(c, 15), textcolor = color.white, size = size.tiny)
+    [ln, lb]
+if hUpT != hUpT[1] and not na(hUpLvl)
+    [a, b] = drawBos(bos4, bos4L, hUpFrom, hUpT, hUpLvl, c4h, "4H BOS ↑ trend up", 3, line.style_solid)
+    bos4 := a
+    bos4L := b
+if hDnT != hDnT[1] and not na(hDnLvl)
+    [a, b] = drawBos(bos4, bos4L, hDnFrom, hDnT, hDnLvl, c4h, "4H BOS ↓ trend down", 3, line.style_solid)
+    bos4 := a
+    bos4L := b
+if mtfBosUp and not na(mUpLvl)
+    [a, b] = drawBos(bos15, bos15L, mUpFrom, mUpT, mUpLvl, c15, "15m BOS ↑", 2, line.style_dashed)
+    bos15 := a
+    bos15L := b
+if mtfBosDn and not na(mDnLvl)
+    [a, b] = drawBos(bos15, bos15L, mDnFrom, mDnT, mDnLvl, c15, "15m BOS ↓", 2, line.style_dashed)
+    bos15 := a
+    bos15L := b
+if ltfBosUp and not na(lUpLvl)
+    [a, b] = drawBos(bos5, bos5L, lUpFrom, lUpT, lUpLvl, c5, "5m BOS ↑", 1, line.style_dotted)
+    bos5 := a
+    bos5L := b
+if ltfBosDn and not na(lDnLvl)
+    [a, b] = drawBos(bos5, bos5L, lDnFrom, lDnT, lDnLvl, c5, "5m BOS ↓", 1, line.style_dotted)
+    bos5 := a
+    bos5L := b
 
 // ---------- Setup state machines (0 idle → 1 zone touched → 2 15m confirmed)
 var int lState = 0
@@ -222,18 +278,19 @@ if sState == 0 and hTrend == -1 and sTouchNow and not shortSig
 f(float x) => str.tostring(x, "#.#####")
 b(bool x) => x ? "true" : "false"
 
-setupJson(string dir, float entry, float sl, bool fresh, float room, bool stopOk, float zTop, float zBot) =>
+setupJson(string dir, float entry, float sl, bool fresh, float room, bool stopOk, float zTop, float zBot, float l4, float l15, float l5, float opp) =>
     float risk = math.abs(entry - sl)
     float tp = dir == "long" ? entry + tpR * risk : entry - tpR * risk
     '{"secret":"' + secret + '","type":"setup","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + dir +
      '","entry":' + f(entry) + ',"sl":' + f(sl) + ',"tp":' + f(tp) + ',"trend4h":' + str.tostring(hTrend) +
      ',"zoneFresh":' + b(fresh) + ',"bos15":true,"close5":true,"stopOk":' + b(stopOk) +
-     ',"roomR":' + (na(room) ? "null" : f(room)) + ',"zoneTop":' + f(zTop) + ',"zoneBot":' + f(zBot) + '}'
+     ',"roomR":' + (na(room) ? "null" : f(room)) + ',"zoneTop":' + f(zTop) + ',"zoneBot":' + f(zBot) +
+     ',"lvl4h":' + (na(l4) ? "null" : f(l4)) + ',"lvl15":' + (na(l15) ? "null" : f(l15)) + ',"lvl5":' + (na(l5) ? "null" : f(l5)) + ',"opp":' + (na(opp) ? "null" : f(opp)) + '}'
 
 if longSig and lRisk > 0
-    alert(setupJson("long", close, lSL, lFresh, lRoom, lStopOk, dTop, dBot), alert.freq_once_per_bar_close)
+    alert(setupJson("long", close, lSL, lFresh, lRoom, lStopOk, dTop, dBot, hUpLvl, mUpLvl, lUpLvl, sValid and sBot > close ? sBot : na), alert.freq_once_per_bar_close)
 if shortSig and sRisk > 0
-    alert(setupJson("short", close, sSL, sFresh, sRoom, sStopOk, sTop, sBot), alert.freq_once_per_bar_close)
+    alert(setupJson("short", close, sSL, sFresh, sRoom, sStopOk, sTop, sBot, hDnLvl, mDnLvl, lDnLvl, dValid and dTop < close ? dTop : na), alert.freq_once_per_bar_close)
 if sendBars and barstate.isconfirmed
     string bos = mtfBosUp ? "up" : mtfBosDn ? "down" : ""
     alert('{"secret":"' + secret + '","type":"bar","symbol":"' + syminfo.ticker + '","price":' + f(close) + ',"high":' + f(high) + ',"low":' + f(low) + ',"bos15":"' + bos + '"}', alert.freq_once_per_bar_close)
@@ -261,8 +318,6 @@ if longSig and lRisk > 0
 if shortSig and sRisk > 0
     drawPlan(false, close, sSL, sTechA ? "A+" : "check")
 
-plotshape(ltfBosUp, "5m BOS up", shape.triangleup, location.belowbar, color.new(color.teal, 70), size = size.tiny)
-plotshape(ltfBosDn, "5m BOS down", shape.triangledown, location.abovebar, color.new(color.red, 70), size = size.tiny)
 
 // ---------- Backtest with the same rules
 bool lOk = (not needFresh or lFresh) and (not needRoom or lRoomOk) and lStopOk and inSess
@@ -299,7 +354,7 @@ if tDir == -1
     strategy.exit("SX", from_entry = "S", stop = tBE ? tEntry - beOffR * tRisk : tEntry + tRisk, limit = tEntry - tpR * tRisk)
 
 // ---------- Status panel
-var table panel = table.new(position.top_right, 2, 6, bgcolor = color.new(color.black, 20), border_width = 1)
+var table panel = table.new(position.top_right, 2, 9, bgcolor = color.new(color.black, 20), border_width = 1)
 if barstate.islast
     string st = lState == 1 ? "Long: zone touched — wait for 15m BOS" : lState == 2 ? "Long: 15m confirmed — wait for 5m entry" :
          sState == 1 ? "Short: zone touched — wait for 15m BOS" : sState == 2 ? "Short: 15m confirmed — wait for 5m entry" : "Waiting for price to reach a zone"
@@ -315,5 +370,11 @@ if barstate.islast
     table.cell(panel, 1, 4, inSess ? "open" : "closed — no trades", text_color = inSess ? color.lime : color.gray, text_size = size.small)
     table.cell(panel, 0, 5, "Exits", text_color = color.silver, text_size = size.small)
     table.cell(panel, 1, 5, "BE at " + str.tostring(beR) + "R · TP " + str.tostring(tpR) + "R", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 6, "■ 4H", text_color = c4h, text_size = size.small)
+    table.cell(panel, 1, 6, "zones + trend break", text_color = c4h, text_size = size.small)
+    table.cell(panel, 0, 7, "■ 15m", text_color = c15, text_size = size.small)
+    table.cell(panel, 1, 7, "confirmation break", text_color = c15, text_size = size.small)
+    table.cell(panel, 0, 8, "■ 5m", text_color = c5, text_size = size.small)
+    table.cell(panel, 1, 8, "entry break", text_color = c5, text_size = size.small)
     if timeframe.period != "5"
         table.cell(panel, 1, 3, "Use a 5-minute chart", text_color = color.orange, text_size = size.small)

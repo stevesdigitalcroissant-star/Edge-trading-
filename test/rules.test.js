@@ -133,3 +133,15 @@ test("futures: sized in whole contracts, never above the risk limit", () => {
   assert.equal(qg.qty, 2);
   assert.equal(R.orderSize({ symbol: "OANDA:XAUUSD", entry: 2400, sl: 2390 }, s2).kind, "cfd");
 });
+
+test("the setup is explained in plain words, step by step per timeframe", () => {
+  const { story } = require("../api/_story");
+  const st = story({ market: "gold", dir: "long", entry: 2652.4, sl: 2644.4, zoneTop: 2648, zoneBot: 2641.5, lvl4h: 2671.2, lvl15: 2650.1, lvl5: 2651.8, opp: 2690, roomR: 4.7 }, s);
+  assert.deepEqual(st.steps.map((x) => x.tf), ["4H", "4H", "15m", "5m"]);
+  assert.match(st.steps[0].text, /closed above 2671\.20/);
+  assert.match(st.steps[1].text, /demand zone \(2641\.50 – 2648\.00\)/);
+  assert.match(st.plan.text, /At 2668\.40 \(\+2R\) move the stop to break-even\. Target 2678\.00/);
+  const sh = story({ market: "natgas", dir: "short", entry: 3.412, sl: 3.448, lvl15: 3.418 }, s);
+  assert.match(sh.headline, /SELL — downtrend, fresh 4H supply/);
+  assert.match(sh.steps[2].text, /closed below 3\.418: sellers took control/);
+});

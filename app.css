@@ -2,6 +2,7 @@
   --bg: #0d1117; --panel: #151b23; --panel2: #1c2430; --line: #2a3441;
   --text: #e6edf3; --muted: #8b98a8; --accent: #e8b54b;
   --good: #2ec27e; --bad: #f0545c; --warn: #f2a33a; --info: #5aa9ff;
+  --c4h: #9b5de5; --c15: #2f80ed; --c5: #f2c94c; /* one colour per timeframe — same as the TradingView script */
   --radius: 14px;
   color-scheme: dark;
 }
@@ -119,3 +120,18 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .setup-list { display: grid; gap: 10px; }
 code { background: var(--panel2); padding: 1px 5px; border-radius: 5px; font-size: 13px; word-break: break-all; }
 .steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+
+/* trade map */
+.story { margin: 10px 0; }
+.story summary, .checkwrap summary { cursor: pointer; list-style: none; padding: 4px 0; }
+.story summary::-webkit-details-marker, .checkwrap summary::-webkit-details-marker { display: none; }
+.checkwrap summary { color: var(--muted); font-size: 14px; }
+.checkwrap summary::before { content: "▸ "; }
+.checkwrap[open] summary::before { content: "▾ "; }
+svg.map { width: 100%; height: auto; display: block; background: var(--panel2); border-radius: 10px; margin: 8px 0; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; align-items: center; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; }
+.tfsteps { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; counter-reset: st; }
+.tfsteps li { border-left: 4px solid var(--c); padding: 2px 0 2px 10px; font-size: 14px; counter-increment: st; }
+.tfsteps li b::before { content: counter(st) ". "; color: var(--c); }
+.plan { background: var(--panel2); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin: 10px 0 0; }

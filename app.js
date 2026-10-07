@@ -188,6 +188,55 @@
     if (!S.setups.length) return `<section class="card"><h2>Setups</h2><p class="muted">No setups yet. When the TradingView script spots one, it shows up here, graded.</p><p class="muted">Waiting is the strategy. Most of trading is not trading.</p></section>`;
     return `<div class="setup-list">${S.setups.map(setupCard).join("")}</div>`;
   }
+  // ---------- Trade map: the setup as a picture (same colours as the TradingView chart)
+  const TF = { c4h: "var(--c4h)", c15: "var(--c15)", c5: "var(--c5)" };
+  function tradeMap(x) {
+    const s = S.settings, k = x.dir === "short" ? -1 : 1, R = Math.abs(x.entry - x.sl);
+    const be = x.entry + k * s.beAtR * R, tp = x.entry + k * s.tpAtR * R;
+    const zTop = x.zoneTop ?? x.sl + k * 0.8 * R, zBot = x.zoneBot ?? x.sl + k * 0.2 * R;
+    const zNear = k > 0 ? Math.max(zTop, zBot) : Math.min(zTop, zBot), zFar = k > 0 ? Math.min(zTop, zBot) : Math.max(zTop, zBot);
+    const l15 = x.lvl15 ?? x.entry - k * 0.35 * R, l5 = x.lvl5 ?? x.entry - k * 0.1 * R;
+    const l4 = x.lvl4h ?? zNear + k * 2.2 * R;
+    const oppIn = x.opp != null && k * (x.opp - tp) <= 1.2 * R; // only draw the opposing zone if it's close
+    const prices = [x.sl, x.entry, be, tp, zTop, zBot, l4, l15, l5, ...(oppIn ? [x.opp] : [])];
+    let lo = Math.min(...prices), hi = Math.max(...prices); const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    const W = 360, H = 300, L = 8, X = 250, y = (p) => 10 + (H - 20) * (1 - (p - lo) / (hi - lo));
+    const react = x.sl + k * 0.2 * R;
+    const pts = [[70, y(zNear + (l4 - zNear) * 0.35)], [100, y(l4 + k * 0.5 * R)], [135, y(react)], [165, y(l15 + k * 0.25 * R)], [190, y((l15 + react) / 2)], [214, y(x.entry)]];
+    // timeframe labels in a column on the left, nudged apart so they never overlap
+    const left = [[l4, "4H BOS", "var(--c4h)"], [l15, "15m BOS", "var(--c15)"], [l5, "5m BOS", "var(--c5)"]].map(([p, t, c]) => ({ y: y(p), t, c })).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < left.length; i++) if (left[i].y - left[i - 1].y < 13) left[i].y = left[i - 1].y + 13;
+    const path = pts.map((p, i) => `${i ? "L" : "M"}${p[0]},${p[1]}`).join(" ");
+    const dot = (p, n, c) => `<circle cx="${p[0]}" cy="${p[1]}" r="9" fill="${c}"/><text x="${p[0]}" y="${p[1] + 4}" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">${n}</text>`;
+    // right-hand price tags, nudged apart so they never overlap
+    const tags = [[tp, `TP ${fx(tp)}`, "var(--good)"], [be, `BE ${fx(be)}`, "var(--warn)"], [x.entry, `Entry ${fx(x.entry)}`, "var(--text)"], [x.sl, `SL ${fx(x.sl)}`, "var(--bad)"]]
+      .map(([p, t, c]) => ({ y: y(p), t, c })).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < tags.length; i++) if (tags[i].y - tags[i - 1].y < 15) tags[i].y = tags[i - 1].y + 15;
+    const hline = (p, x1, x2, c, dash = "", w = 1.5) => `<line x1="${x1}" x2="${x2}" y1="${y(p)}" y2="${y(p)}" stroke="${c}" stroke-width="${w}" ${dash ? `stroke-dasharray="${dash}"` : ""}/>`;
+    const lab = (p, xx, t, c, below) => `<text x="${xx}" y="${y(p) + (below ? 12 : -4)}" font-size="10" font-weight="700" fill="${c}">${t}</text>`;
+    const below4 = k < 0, zoneName = k > 0 ? "4H DEMAND" : "4H SUPPLY", oppName = k > 0 ? "4H SUPPLY" : "4H DEMAND";
+    return `<svg class="map" viewBox="0 0 ${W} ${H}" role="img" aria-label="Trade map">
+      <rect x="${L}" width="${X - L}" y="${Math.min(y(zTop), y(zBot))}" height="${Math.abs(y(zTop) - y(zBot))}" fill="var(--c4h)" opacity=".22" rx="3"/>
+      <text x="${L + 4}" y="${(k > 0 ? y(zFar) - 4 + 14 : y(zFar) + 4 - 6)}" font-size="10" font-weight="700" fill="var(--c4h)">${zoneName}</text>
+      ${oppIn ? `${hline(x.opp, L, X, "var(--c4h)", "2 3", 1.5)}${lab(x.opp, L + 4, `${oppName} starts`, "var(--c4h)", k < 0)}` : ""}
+      ${hline(l4, 58, 150, "var(--c4h)", "", 2.5)}${hline(l15, 58, 205, "var(--c15)", "6 4", 2)}${hline(l5, 58, X, "var(--c5)", "2 3", 2)}
+      ${left.map((t) => `<text x="${L + 2}" y="${t.y + 4}" font-size="10" font-weight="800" fill="${t.c}">${t.t}</text>`).join("")}
+      ${hline(be, 205, X, "var(--warn)", "4 3")}${hline(tp, 205, X, "var(--good)")}${hline(x.sl, 100, X, "var(--bad)")}${hline(x.entry, 205, X, "var(--text)")}
+      <path d="${path}" fill="none" stroke="var(--text)" stroke-width="2.2" stroke-linejoin="round" opacity=".85"/>
+      <path d="M214,${y(x.entry)} L246,${y(tp)}" stroke="var(--good)" stroke-width="2" stroke-dasharray="4 3" fill="none"/>
+      ${dot(pts[1], 1, "var(--c4h)")}${dot(pts[2], 2, "var(--c4h)")}${dot(pts[3], 3, "var(--c15)")}${dot(pts[5], 4, "var(--c5)")}
+      ${tags.map((t) => `<text x="${X + 6}" y="${t.y + 4}" font-size="11" font-weight="700" fill="${t.c}">${t.t}</text>`).join("")}
+    </svg>`;
+  }
+  function storyBlock(x) {
+    const st = x.story; if (!st) return "";
+    return `<details class="story" open><summary><b>${esc(st.headline)}</b></summary>
+      ${tradeMap(x)}
+      <div class="legend"><span><i style="background:var(--c4h)"></i>4H</span><span><i style="background:var(--c15)"></i>15m</span><span><i style="background:var(--c5)"></i>5m</span><span class="muted">same colours on your TradingView chart</span></div>
+      <ol class="tfsteps">${st.steps.map((p) => `<li style="--c:${TF[p.color]}"><b>${esc(p.tf)} · ${esc(p.title)}</b><br><span class="muted">${esc(p.text)}</span></li>`).join("")}</ol>
+      <p class="plan">🎯 ${esc(st.plan.text)}</p></details>`;
+  }
+
   // The numbers to type into TradingView's order panel.
   function ticket(x, tp) {
     const z = x.size, s = S.settings;
@@ -220,10 +269,13 @@
         <div><small>BE at ${s.beAtR}R</small><b>${fx(be)}</b></div>
         <div><small>TP ${s.tpAtR}R</small><b>${fx(tp)}</b></div>
       </div>
-      <ul class="checks">${g.checks.map((c) => `<li class="${c.pass ? "" : "no"}"><span>${esc(c.label)}${c.note ? ` <small>(${esc(c.note)})</small>` : ""}</span></li>`).join("")}</ul>
+      ${storyBlock(x)}
+      <details class="checkwrap"><summary>Checklist — ${g.checks.filter((c) => c.pass).length}/${g.checks.length} passed</summary>
+      <ul class="checks">${g.checks.map((c) => `<li class="${c.pass ? "" : "no"}"><span>${esc(c.label)}${c.note ? ` <small>(${esc(c.note)})</small>` : ""}</span></li>`).join("")}</ul></details>
       ${live && !g.take.ok ? `<div class="blocks">${g.take.why.map((w) => `<div>⛔ ${esc(w)}</div>`).join("")}</div>` : ""}
       ${live && S.broker.kind === "manual" ? ticket(x, tp) : ""}
-      ${live ? `<div class="row"><button class="btn ${g.take.ok ? "good" : ""}" data-take="${esc(x.id)}" ${g.take.ok ? "" : "disabled"}>${g.take.ok ? (S.broker.kind === "manual" ? "I'm taking it" : "Take it — place the order") : "Not allowed"}</button>
+      ${live ? `<div class="row">${(() => { const tooBig = x.size && x.size.kind === "futures" && x.size.qty < 1 && S.broker.kind === "manual"; const ok = g.take.ok && !tooBig;
+        return `<button class="btn ${ok ? "good" : ""}" data-take="${esc(x.id)}" ${ok ? "" : "disabled"}>${ok ? (S.broker.kind === "manual" ? "I'm taking it" : "Take it — place the order") : tooBig ? "Too big for your risk" : "Not allowed"}</button>`; })()}
         <button class="btn" data-skip="${esc(x.id)}">Skip</button></div>` : ""}
     </div>`;
   }

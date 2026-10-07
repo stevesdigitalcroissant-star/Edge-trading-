@@ -5,6 +5,7 @@ const { MARKETS, marketOf, BIAS_FACTORS, biasFromFactors, mergeSettings, DEFAULT
 const R = require("./_rules");
 const { loadFeed, relevantEvents, blockingEvent } = require("./_news");
 const { notify, subscribe, unsubscribe, vapid } = require("./_notify");
+const { story } = require("./_story");
 const { parts } = require("./_time");
 
 const num = (x) => (x == null || x === "" || !Number.isFinite(Number(x)) ? null : Number(x));
@@ -68,6 +69,7 @@ async function handleHook(store, broker, body, now = Date.now()) {
       close5: msg.close5 !== false && msg.close5 !== "false",
       stopOk: msg.stopOk !== false && msg.stopOk !== "false",
       roomR: num(msg.roomR), zoneTop: num(msg.zoneTop), zoneBot: num(msg.zoneBot),
+      lvl4h: num(msg.lvl4h), lvl15: num(msg.lvl15), lvl5: num(msg.lvl5), opp: num(msg.opp),
       at: now, expires: now + s.setupExpiryMin * 60e3, status: "open",
     };
     if (setup.entry == null || setup.sl == null || setup.entry === setup.sl) return { status: 400, json: { error: "setup needs entry and sl" } };
@@ -80,7 +82,7 @@ async function handleHook(store, broker, body, now = Date.now()) {
     const name = MARKETS[market].name;
     const head = `${g.grade} ${setup.dir.toUpperCase()} ${name} @ ${fx(setup.entry)}  SL ${fx(setup.sl)}`;
     const text = g.take.ok
-      ? `✅ ${head}\nThis is your setup. Open Edge to confirm within ${s.setupExpiryMin} min.`
+      ? `✅ ${g.grade} ${MARKETS[market].name} ${setup.dir === "long" ? "BUY" : "SELL"}: ${story(setup, s).short}. Tap to see the picture — valid ${s.setupExpiryMin} min.`
       : `⛔ ${head}\nSkip it: ${g.take.why[0]}`;
     await notify(store, text, g.take.ok ? "setup" : "skip");
     return { status: 200, json: { ok: true, grade: g.grade, takeable: g.take.ok } };
@@ -295,7 +297,7 @@ async function state(store, broker, now = Date.now()) {
   const ctx = await context(store, now);
   await newsReminders(store, ctx).catch(() => {});
   const setupsH = await store.hgetall("setups");
-  const setups = Object.values(setupsH).sort((a, b) => b.at - a.at).slice(0, 25).map((x) => ({ ...x, g: gradeNow(x, ctx), size: R.orderSize(x, ctx.settings) }));
+  const setups = Object.values(setupsH).sort((a, b) => b.at - a.at).slice(0, 25).map((x) => ({ ...x, g: gradeNow(x, ctx), size: R.orderSize(x, ctx.settings), story: story(x, ctx.settings) }));
   const prices = {};
   for (const m of Object.keys(MARKETS)) prices[m] = await store.get(`price:${m}`);
   let account = null;
