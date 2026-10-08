@@ -524,6 +524,7 @@ async function action(store, broker, body, now = Date.now()) {
     await store.hset("journal", j.id, j);
     return { ok: true };
   }
+  if (a === "tvSetup") return { secret: process.env.EDGE_HOOK_SECRET || null };
   if (a === "closeAll") return closeAll(store, broker, { now });
   if (a === "autoBias") return fundamentals.load(store, { force: true, now });
   if (a === "testAlert") {

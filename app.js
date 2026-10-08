@@ -518,7 +518,19 @@
         <p class="muted">Devices receiving alerts: ${S.push.devices.length ? S.push.devices.map((d) => esc(d.label || "device")).join(", ") : "none yet"}. Turn it on on each phone, iPad or computer you want alerts on.</p>
         <div class="grid2">${kinds.map(([k, l]) => `<label class="f" style="flex-direction:row;display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" data-notify="${k}" style="width:auto" ${s.notify[k] ? "checked" : ""}> ${l}</label>`).join("")}</div>
       </section>`;
-    return `${notifCard}<section class="card"><h2>Connections</h2>
+    const tvCard = `<section class="card"><h2>TradingView setup</h2>
+        <p class="muted" style="margin-top:0">TradingView doesn't let apps install scripts, so it's one copy-paste. Your secret is already inside the script.</p>
+        <ol class="steps">
+          <li>Tap <b>Copy the Edge script</b> below.</li>
+          <li>On a computer, open TradingView → a <b>5-minute</b> chart of <code>MGC1!</code> (then <code>MCL1!</code>, <code>QG1!</code>).</li>
+          <li>Bottom panel → <b>Pine Editor</b> → select all, paste → <b>Save</b> → <b>Add to chart</b>.</li>
+          <li><b>Alert</b> (clock icon) → Condition: <i>Edge S&amp;D</i> → <b>alert() function calls only</b> → Notifications → tick <b>Webhook URL</b> and paste the address below → Create.</li>
+          <li>Do the same alert on the other two charts. Done — the first 5-minute candle will show up in Edge.</li>
+        </ol>
+        <div class="row" style="margin-top:12px"><button class="btn small primary" id="copyPine">Copy the Edge script</button><button class="btn small" id="copyHook">Copy webhook URL</button></div>
+        <p class="muted" style="margin:8px 0 0;font-size:12.5px">Webhook URL: <code>${esc(location.origin)}/api/hook</code>${S.hookReady ? "" : ` · <span class="err">EDGE_HOOK_SECRET isn't set in Vercel yet</span>`}</p>
+      </section>`;
+    return `${notifCard}${tvCard}<section class="card"><h2>Connections</h2>
         <div class="grid2">
           <div class="stat"><small>TradingView webhook</small><b style="font-size:15px">${ok(S.hookReady)}</b></div>
           <div class="stat"><small>Broker</small><b style="font-size:15px">${esc(S.broker.label)}</b>${S.broker.account && !S.broker.account.error ? `<small>${esc(S.broker.account.currency)} ${Number(S.broker.account.balance).toFixed(2)}</small>` : S.broker.account && S.broker.account.error ? `<small class="err">${esc(S.broker.account.error)}</small>` : ""}</div>
@@ -599,6 +611,15 @@
       try { S.fundamentals = await api("POST", { action: "autoBias" }); fillApplied = true; render(); toast("Suggestions filled in — check them and tap Save."); }
       catch (e) { toast(e.message, 7000); fb.disabled = false; fb.textContent = "↻ Fill from free data"; }
     });
+    const cpn = $("#copyPine"); if (cpn) cpn.addEventListener("click", async () => {
+      try {
+        const [{ secret }, src] = await Promise.all([api("POST", { action: "tvSetup" }), fetch("/pine/edge_supply_demand.pine", { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("Couldn't load the script"); return r.text(); })]);
+        const code = secret ? src.replace('input.string("change-me"', `input.string(${JSON.stringify(secret)}`) : src;
+        await navigator.clipboard.writeText(code);
+        toast(secret ? "Script copied — with your secret inside. Paste it in TradingView's Pine Editor." : "Script copied. Set EDGE_HOOK_SECRET in Vercel, then put it in the script's settings.", 6000);
+      } catch (e) { toast(e.message || "Couldn't copy — open it on a computer and try again.", 6000); }
+    });
+    const chk = $("#copyHook"); if (chk) chk.addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.origin + "/api/hook"); toast("Webhook URL copied."); } catch { toast(location.origin + "/api/hook", 8000); } });
     const lt = $("#logTrade"); if (lt) lt.addEventListener("click", logTradeDialog);
     v.querySelectorAll("[data-testalert]").forEach((b) => b.addEventListener("click", async () => { const r = await act({ action: "testAlert" }); if (r) toast(r.telegram ? "Sent — check your devices." : "Logged. No device has notifications on yet."); }));
     const so = $("#signOut"); if (so) so.addEventListener("click", () => { try { localStorage.removeItem("edge.token"); } catch {} token = ""; authView = "signin"; showLogin(); });
