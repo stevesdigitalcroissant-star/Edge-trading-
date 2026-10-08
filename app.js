@@ -86,6 +86,7 @@
         <button class="btn primary" type="submit">Sign in</button>
         <button type="button" class="link" data-view="recover">Forgot password?</button>`,
       create: `${brand}<h1>Create your account</h1><p class="muted">One account — yours. Use an email you'll remember.</p>
+        ${authInfo.storageReady === false ? `<div class="blocks">⏳ Almost ready: storage isn't connected yet. Add your Upstash settings in Vercel, redeploy, then create your account here.</div>` : ""}
         ${field("aEmail", "Email", "email", "username")}${field("aPw", "Password", "password", "new-password")}${field("aPw2", "Confirm password", "password", "new-password")}
         ${authInfo.needsSetupCode ? `${field("aCode", "Setup code", "password", "off")}<small class="muted hint">The EDGE_SETUP_CODE you set in Vercel — so nobody else can claim your app.</small>` : ""}
         <button class="btn primary" type="submit">Create account</button>`,

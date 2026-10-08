@@ -9,7 +9,7 @@ const bearer = (t) => ({ authorization: `Bearer ${t}` });
 
 test("create the account once, with the setup code", async () => {
   const store = memory();
-  assert.deepEqual(await auth.status(store), { hasAccount: false, needsSetupCode: true });
+  assert.deepEqual(await auth.status(store), { hasAccount: false, needsSetupCode: true, storageReady: true });
   await assert.rejects(auth.signup(store, { email: "me@x.com", password: "longenough", code: "wrong" }), /setup code/);
   await assert.rejects(auth.signup(store, { email: "not-an-email", password: "longenough", code: "let-me-in" }), /valid email/);
   await assert.rejects(auth.signup(store, { email: "me@x.com", password: "short", code: "let-me-in" }), /8 characters/);

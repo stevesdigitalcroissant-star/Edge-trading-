@@ -63,10 +63,11 @@ async function fail(store, f, now) {
 
 async function status(store) {
   const acct = await store.get("account");
-  return { hasAccount: !!acct, needsSetupCode: !acct && !!setupCode() };
+  return { hasAccount: !!acct, needsSetupCode: !acct && !!setupCode(), storageReady: !(store.kind === "memory" && process.env.VERCEL) };
 }
 
 async function signup(store, { email, password, code }, now = Date.now()) {
+  if (store.kind === "memory" && process.env.VERCEL) throw new Error("Storage isn't connected yet — your account would be lost. Add the Upstash settings in Vercel first, then come back.");
   if (await store.get("account")) throw new Error("An account already exists. Sign in instead.");
   const f = await guard(store, now);
   if (setupCode() && !sameText(code || "", setupCode())) { await fail(store, f, now); throw new Error("Wrong setup code (it's the EDGE_SETUP_CODE you set in Vercel)."); }
