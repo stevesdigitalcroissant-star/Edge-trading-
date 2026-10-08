@@ -1,6 +1,7 @@
-// Storage: Upstash Redis over its REST API when configured (Vercel → Storage →
-// Upstash for Redis adds KV_REST_API_URL / KV_REST_API_TOKEN), otherwise JSON
-// files in .data/ (local `node server.js`). Values are stored as JSON.
+// Storage: Redis when configured — over Upstash's REST API (KV_REST_API_URL /
+// KV_REST_API_TOKEN) or a plain connection string (REDIS_URL, added by Vercel →
+// Storage → Redis) — otherwise JSON files in .data/ (local `node server.js`).
+// Values are stored as JSON.
 //
 // Keys:  settings · bias            plain values
 //        trades  · journal · setups hashes (one field per item, so two writers
@@ -12,22 +13,36 @@ const path = require("path");
 
 const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+const REDIS_URL = process.env.REDIS_URL || process.env.KV_URL;
 const PREFIX = "edge:";
 
 const enc = (v) => JSON.stringify(v);
 const dec = (s) => { if (s == null) return null; try { return JSON.parse(s); } catch { return null; } };
 
-function redis() {
-  async function cmd(...args) {
-    const r = await fetch(URL_, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify(args),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || j.error) throw new Error(`Storage: ${j.error || r.status}`);
-    return j.result;
+async function rest(...args) {
+  const r = await fetch(URL_, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify(args),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) throw new Error(`Storage: ${j.error || r.status}`);
+  return j.result;
+}
+
+// One connection per warm function instance, reopened if it drops.
+let client = null;
+async function tcp(...args) {
+  if (!client) {
+    const { createClient } = require("redis");
+    const c = createClient({ url: REDIS_URL, socket: { connectTimeout: 5000 } });
+    c.on("error", () => {});
+    client = c.connect().then(() => c, (e) => { client = null; throw new Error(`Storage: ${e.message}`); });
   }
+  return (await client).sendCommand(args.map(String));
+}
+
+function redis(cmd) {
   return {
     kind: "redis",
     get: async (k) => dec(await cmd("GET", PREFIX + k)),
@@ -86,7 +101,8 @@ function memory() {
 let store = null;
 function getStore() {
   if (store) return store;
-  if (URL_ && TOKEN) store = redis();
+  if (URL_ && TOKEN) store = redis(rest);
+  else if (REDIS_URL) store = redis(tcp);
   else if (process.env.VERCEL) store = memory(); // nothing persists — the dashboard says so
   else store = files(process.env.EDGE_DATA_DIR || path.join(__dirname, "..", ".data"));
   return store;
