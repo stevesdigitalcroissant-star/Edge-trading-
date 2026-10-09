@@ -19,7 +19,8 @@ function scaleFor(raw, [lo, hi]) {
 
 async function day(sym, y, mo, d) {
   const url = `https://datafeed.dukascopy.com/datafeed/${sym}/${y}/${String(mo).padStart(2, "0")}/${String(d).padStart(2, "0")}/BID_candles_min_1.bi5`;
-  for (let tries = 0; tries < 3; tries++) {
+  for (let tries = 0; tries < 4; tries++) {
+    if (tries) await new Promise((ok) => setTimeout(ok, 800 * 2 ** tries)); // busy → wait and retry
     try {
       const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (Edge trading co-pilot)" } });
       if (r.status === 404) return [];
@@ -28,7 +29,7 @@ async function day(sym, y, mo, d) {
       const base = Date.UTC(y, mo, d), rows = [];
       for (let o = 0; o + 24 <= b.length; o += 24) rows.push([base + b.readInt32BE(o) * 1000, b.readInt32BE(o + 4), b.readInt32BE(o + 12), b.readInt32BE(o + 16), b.readInt32BE(o + 8), b.readFloatBE(o + 20)]); // file order: time, open, close, low, high, volume → [t, open, low, high, close, volume]
       return rows;
-    } catch (e) { if (tries === 2) throw e; }
+    } catch (e) { if (tries === 3) throw e; }
   }
   return [];
 }
@@ -58,8 +59,8 @@ async function load(market, from, months) {
     for (let d = 1; d <= n; d++) if (new Date(Date.UTC(y, mo, d)).getUTCDay() !== 6 && Date.UTC(y, mo, d) < Date.now() - 864e5) days.push([y, mo, d]);
   }
   const rows = [];
-  for (let k = 0; k < days.length; k += 8) {
-    const got = await Promise.all(days.slice(k, k + 8).map(([y, mo, d]) => day(ins.sym, y, mo, d)));
+  for (let k = 0; k < days.length; k += 2) {
+    const got = await Promise.all(days.slice(k, k + 2).map(([y, mo, d]) => day(ins.sym, y, mo, d)));
     for (const g of got) rows.push(...g);
   }
   rows.sort((a, b) => a[0] - b[0]);
