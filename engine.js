@@ -5,7 +5,9 @@
 // CLOSED candles, like the script (no repainting, no peeking ahead).
 (function (root) {
   const DEFAULTS = {
-    htfLen: 3, mtfLen: 2, ltfLen: 2, maxWait: 48, zoneCap: 1.5, entryMode: "bos", // "bos" = 5m break of structure · "close" = first 5m close in your direction after the 15m break
+    htfLen: 3, mtfLen: 2, ltfLen: 2, maxWait: 48, zoneCap: 1.5,
+    zones: 1, // how many 4H zones each side are tracked (1 = only the latest, like the script)
+    touch: "candle", // "candle" = every 5m candle that enters the zone is a touch (script) · "visit" = a touch only after price really left the zone entryMode: "bos", // "bos" = 5m break of structure · "close" = first 5m close in your direction after the 15m break
     beR: 2, tpR: 3.2, beOffR: 0.05, slBufAtr: 0.2, minStopAtr: 0.5, maxStopAtr: 6,
     session: ["03:00", "12:00"], asia: ["18:00", "02:00"], flatBy: "16:40", // out of everything by then (your close-out rule)
   };
@@ -90,8 +92,9 @@
     let day = null, dHi = -Infinity, dLo = Infinity, pdh = null, pdl = null;
     let wasAsia = false, aHi = null, aLo = null, asiaHi = null, asiaLo = null;
     // zones
-    let dTop = null, dBot = null, dTouches = 0, dValid = false, dWasIn = false, dFrom = -1;
-    let sTop = null, sBot = null, sTouches = 0, sValid = false, sWasIn = false, sFrom = -1;
+    // zones: { side, top, bot, touches, valid, wasIn, away, from } — newest last
+    const dem = [], sup = [];
+    let lZone = null, sZone = null;
     // setups
     let lState = 0, lBar = 0, lLow = null, lTouch = 0, lLiq15 = null;
     let sState = 0, sBar = 0, sHigh = null, sTouch = 0, sLiq15 = null;
@@ -118,15 +121,35 @@
       const mUp = m.upT !== pm.upT && m.upT !== 0, mDn = m.dnT !== pm.dnT && m.dnT !== 0;
       const lUp = l.upT !== pl.upT && l.upT !== 0, lDn = l.dnT !== pl.dnT && l.dnT !== 0;
 
-      if (newDem) { dTop = h.demTop; dBot = h.demBot; dTouches = 0; dValid = true; dWasIn = false; dFrom = i; events.push({ i, type: "zone", side: "demand", top: dTop, bot: dBot }); }
-      if (newSup) { sTop = h.supTop; sBot = h.supBot; sTouches = 0; sValid = true; sWasIn = false; sFrom = i; events.push({ i, type: "zone", side: "supply", top: sTop, bot: sBot }); }
-      const dIn = dValid && b.l <= dTop && b.h >= dBot, sIn = sValid && b.h >= sBot && b.l <= sTop;
-      const dTouchNow = dIn && !dWasIn, sTouchNow = sIn && !sWasIn;
-      if (dTouchNow) dTouches++;
-      if (sTouchNow) sTouches++;
-      dWasIn = dIn; sWasIn = sIn;
-      if (dValid && b.c < dBot) { dValid = false; events.push({ i, type: "zoneDead", side: "demand" }); }
-      if (sValid && b.c > sTop) { sValid = false; events.push({ i, type: "zoneDead", side: "supply" }); }
+      const add = (list, side, top, bot) => {
+        list.push({ side, top, bot, touches: 0, valid: true, wasIn: false, away: true, from: i });
+        while (list.length > P.zones) list.shift();
+        events.push({ i, type: "zone", side, top, bot });
+      };
+      if (newDem) add(dem, "demand", h.demTop, h.demBot);
+      if (newSup) add(sup, "supply", h.supTop, h.supBot);
+      // touches: the first zone entered on this candle (newest first)
+      let dHit = null, sHit = null;
+      for (const z of [...dem].reverse()) {
+        if (!z.valid) continue;
+        if (P.touch === "visit" && b.l > z.top + (z.top - z.bot)) z.away = true;
+        const inZ = b.l <= z.top && b.h >= z.bot;
+        if (inZ && !z.wasIn && (P.touch !== "visit" || z.away)) { z.touches++; z.away = false; if (!dHit) dHit = z; }
+        z.wasIn = inZ;
+        if (b.c < z.bot) { z.valid = false; events.push({ i, type: "zoneDead", side: "demand" }); }
+      }
+      for (const z of [...sup].reverse()) {
+        if (!z.valid) continue;
+        if (P.touch === "visit" && b.h < z.bot - (z.top - z.bot)) z.away = true;
+        const inZ = b.h >= z.bot && b.l <= z.top;
+        if (inZ && !z.wasIn && (P.touch !== "visit" || z.away)) { z.touches++; z.away = false; if (!sHit) sHit = z; }
+        z.wasIn = inZ;
+        if (b.c > z.top) { z.valid = false; events.push({ i, type: "zoneDead", side: "supply" }); }
+      }
+      const dTouchNow = !!dHit, sTouchNow = !!sHit;
+      // the nearest opposing zone limits the room to the target
+      const supAbove = sup.filter((z) => z.valid && z.bot > b.c).reduce((m, z) => (m == null || z.bot < m ? z.bot : m), null);
+      const demBelow = dem.filter((z) => z.valid && z.top < b.c).reduce((m, z) => (m == null || z.top > m ? z.top : m), null);
 
       if (h.upT !== ph.upT && h.upLvl != null) events.push({ i, type: "bos", tf: "4H", dir: 1, lvl: h.upLvl, from: h.upFrom, to: h.upT });
       if (h.dnT !== ph.dnT && h.dnLvl != null) events.push({ i, type: "bos", tf: "4H", dir: -1, lvl: h.dnLvl, from: h.dnFrom, to: h.dnT });
@@ -137,9 +160,9 @@
 
       const longSig = lState === 2 && (P.entryMode === "close" ? b.c > b.o : lUp), shortSig = sState === 2 && (P.entryMode === "close" ? b.c < b.o : lDn);
       const lSL = Math.min(lLow ?? b.l, b.l) - P.slBufAtr * (atr5 || 0), lRisk = b.c - lSL;
-      const lRoom = sValid && sBot > b.c && lRisk > 0 ? (sBot - b.c) / lRisk : null;
+      const lRoom = supAbove != null && lRisk > 0 ? (supAbove - b.c) / lRisk : null;
       const sSL = Math.max(sHigh ?? b.h, b.h) + P.slBufAtr * (atr5 || 0), sRisk = sSL - b.c;
-      const sRoom = dValid && dTop < b.c && sRisk > 0 ? (b.c - dTop) / sRisk : null;
+      const sRoom = demBelow != null && sRisk > 0 ? (b.c - demBelow) / sRisk : null;
       const stopOk = (r) => atr5 != null && r > 0 && r / atr5 >= P.minStopAtr && r / atr5 <= P.maxStopAtr;
       const lowest = Math.min(lLow ?? b.l, b.l), highest = Math.max(sHigh ?? b.h, b.h);
       const sweptL = pdl != null && lowest < pdl && b.c > pdl ? ["previous day low", pdl] : asiaLo != null && lowest < asiaLo && b.c > asiaLo ? ["Asian low", asiaLo] : lLiq15 != null && lowest < lLiq15 && b.c > lLiq15 ? ["15m swing low", lLiq15] : null;
@@ -149,12 +172,12 @@
       const sWhy = whyNot(sweptS, sTouch === 1, stopOk(sRisk), sRoom == null || sRoom >= P.tpR);
 
       // state transitions (after the signal check, like the script)
-      if (lState > 0) { lLow = Math.min(lLow, b.l); if (h.trend !== 1 || !dValid || i - lBar > P.maxWait || longSig) lState = 0; }
+      if (lState > 0) { lLow = Math.min(lLow, b.l); if (h.trend !== 1 || !lZone.valid || i - lBar > P.maxWait || longSig) lState = 0; }
       if (lState === 1 && mUp) lState = 2;
-      if (lState === 0 && h.trend === 1 && dTouchNow && !longSig) { lState = 1; lBar = i; lLow = b.l; lTouch = dTouches; lLiq15 = m.plLow; }
-      if (sState > 0) { sHigh = Math.max(sHigh, b.h); if (h.trend !== -1 || !sValid || i - sBar > P.maxWait || shortSig) sState = 0; }
+      if (lState === 0 && h.trend === 1 && dTouchNow && !longSig) { lState = 1; lBar = i; lLow = b.l; lTouch = dHit.touches; lLiq15 = m.plLow; lZone = dHit; }
+      if (sState > 0) { sHigh = Math.max(sHigh, b.h); if (h.trend !== -1 || !sZone.valid || i - sBar > P.maxWait || shortSig) sState = 0; }
       if (sState === 1 && mDn) sState = 2;
-      if (sState === 0 && h.trend === -1 && sTouchNow && !shortSig) { sState = 1; sBar = i; sHigh = b.h; sTouch = sTouches; sLiq15 = m.phHigh; }
+      if (sState === 0 && h.trend === -1 && sTouchNow && !shortSig) { sState = 1; sBar = i; sHigh = b.h; sTouch = sHit.touches; sLiq15 = m.phHigh; sZone = sHit; }
 
       const lEnter = longSig && lRisk > 0 && lWhy === "";
       const sEnter = shortSig && sRisk > 0 && sWhy === "" && !lEnter;
@@ -178,7 +201,8 @@
         events.push({ i, type: "enter", dir: gDir, entry: gE, sl: gSL, be: gE + gDir * P.beR * gRisk, beStop: gE + gDir * P.beOffR * gRisk, tp: gE + gDir * P.tpR * gRisk, swept: (lEnter ? sweptL : sweptS)[0] });
       }
 
-      states.push({ trend: h.trend, dValid, dTop, dBot, dTouches, dFrom, sValid, sTop, sBot, sTouches, sFrom, lState, sState,
+      const live = (list) => list.filter((z) => z.valid).map((z) => ({ top: z.top, bot: z.bot, from: z.from, touches: z.touches }));
+      states.push({ trend: h.trend, dem: live(dem), sup: live(sup), lState, sState,
         lSwept: lState > 0 && !!sweptL, sSwept: sState > 0 && !!sweptS, lSwName: sweptL ? sweptL[0] : "", sSwName: sweptS ? sweptS[0] : "",
         lTouch, sTouch, inSess, gDir, gE, gSL, gRisk, gBE, gSw });
     }
