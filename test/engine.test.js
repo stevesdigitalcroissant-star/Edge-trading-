@@ -76,3 +76,14 @@ test("the panel talks like the script", () => {
   assert.equal(p.steps.length, 5);
   assert.ok(typeof p.doNow === "string" && p.doNow.length > 10);
 });
+
+test("history files: 1-minute candles become 5-minute candles, empty minutes skipped", () => {
+  const { toFive } = require("../api/history");
+  const t0 = Date.UTC(2025, 0, 6, 0, 0);
+  // [t, open, low, high, close, volume] in raw integer prices
+  const rows = [0, 1, 2, 3, 4, 5, 6].map((k) => [t0 + k * 60e3, 2650000 + k, 2649000 + k, 2652000 + k, 2650500 + k, k === 6 ? 0 : 1]);
+  const five = toFive(rows, 1000);
+  assert.equal(five.length, 2);
+  assert.deepEqual(five[0], [t0, 2650, 2652.004, 2649, 2650.504]);
+  assert.deepEqual(five[1], [t0 + 300e3, 2650.005, 2652.005, 2649.005, 2650.505]);
+});

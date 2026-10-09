@@ -17,6 +17,7 @@ const hook = require("./api/hook");
 const app = require("./api/app");
 const coachApi = require("./api/coach");
 const candles = require("./api/candles");
+const history = require("./api/history");
 const { getStore } = require("./api/_store");
 const { getBroker } = require("./api/_broker");
 const { syncTrades } = require("./api/_core");
@@ -43,6 +44,7 @@ http.createServer((req, res) => {
     return;
   }
   if (url.pathname === "/api/candles") return candles(req, res);
+  if (url.pathname === "/api/history") return history(req, res);
   const p = url.pathname === "/" ? "/index.html" : url.pathname;
   if (!STATIC.has(p)) return res.status(404).end("Not found");
   res.setHeader("Content-Type", TYPES[path.extname(p)] || "application/octet-stream");

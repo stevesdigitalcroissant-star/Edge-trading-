@@ -65,7 +65,7 @@
         st.trend = -1; st.dnT = b.t; st.dnLvl = st.swingLow; st.dnFrom = st.plT; st.swingLow = null;
         if (st.phHigh != null && atr != null) { st.supTop = st.phHigh; st.supBot = Math.min(Math.max(st.phBodyBot, st.phHigh - atr * cap), st.phHigh - atr * 0.25); }
       }
-      return { trend: st.trend, demTop: st.demTop, demBot: st.demBot, supTop: st.supTop, supBot: st.supBot, upT: st.upT, dnT: st.dnT,
+      return { phT: st.phT, plT: st.plT, swingHigh: st.swingHigh, swingLow: st.swingLow, trend: st.trend, demTop: st.demTop, demBot: st.demBot, supTop: st.supTop, supBot: st.supBot, upT: st.upT, dnT: st.dnT,
         upLvl: st.upLvl, dnLvl: st.dnLvl, upFrom: st.upFrom, dnFrom: st.dnFrom, phHigh: st.phHigh, plLow: st.plLow };
     };
   }
@@ -242,6 +242,6 @@
     return { side: isL ? "LONG" : !isL && (s.trend === -1 || s.sState > 0 || inT) ? "SHORT" : "", steps, doNow };
   }
 
-  const api = { run, panel, nyMin, SESSIONS };
+  const api = { run, panel, nyMin, SESSIONS, Structure, inWindow, hm };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.EdgeEngine = api;
 })(typeof self !== "undefined" ? self : this);
