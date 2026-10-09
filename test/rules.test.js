@@ -145,3 +145,10 @@ test("the setup is explained in plain words, step by step per timeframe", () => 
   assert.match(sh.headline, /SELL — downtrend, fresh 4H supply/);
   assert.match(sh.steps[2].text, /closed below 3\.418: sellers took control/);
 });
+
+test("zone visits: a later visit is A+ once liquidity was taken; no sweep on the first visit is A", () => {
+  const g = (o) => R.gradeSetup(setup(o), { settings: s, bias, now: NY(9) }).grade;
+  assert.equal(g({ zoneFresh: false, sweep: true }), "A+");
+  assert.equal(g({ zoneFresh: true, sweep: false }), "A");
+  assert.equal(g({ zoneFresh: false, sweep: false }), "B");
+});

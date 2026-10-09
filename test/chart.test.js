@@ -104,3 +104,11 @@ test("a practice trade closed at the session close-out is the rule, not a rule b
   assert.equal(r.trade.exitReason, "session close-out");
   assert.deepEqual(r.trade.ruleBreaks, []);
 });
+
+test("an A signal (no liquidity sweep) read off the chart is graded A, not A+", async () => {
+  const store = memory();
+  const now = NY(9);
+  await core.action(store, broker, { action: "bias", market: "gold", answers: { dxy: 1, yields: 1, fed: 0 } }, now);
+  const r = await core.action(store, broker, { action: "chartSetup", symbol: "MGC1!", dir: "long", grade: "A", entry: 4200, sl: 4195 }, now);
+  assert.equal(r.grade, "A");
+});

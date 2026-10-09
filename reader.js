@@ -28,10 +28,11 @@
     let t = ` ${String(text || "").toUpperCase().replace(/[|,]/g, " ").replace(/\s+/g, " ")} `;
     t = t.replace(/\b[E3F]D[G6]E\b/g, "EDGE").replace(/\bL[O0]NG\b/g, "LONG").replace(/\b[S5]H[O0]RT\b/g, "SHORT").replace(/\bWA[I1L]T\b/g, "WAIT")
       .replace(/ [S5][L1I] /g, " SL ").replace(/ P[X×K] /g, " PX ");
-    const m = t.match(/EDGE (\S+) (LONG|SHORT|WAIT)(?: E ?([\d.]+) SL ?([\d.]+))? PX ?([\d.]+)/);
+    const m = t.match(/EDGE (\S+) (LONG|SHORT|WAIT)(?: (A\+|A4|A|AT))?(?: E ?([\d.]+) SL ?([\d.]+))? PX ?([\d.]+)/);
     if (!m) return null;
     const n = (x) => (x != null && /^\d+(\.\d+)?$/.test(x) ? Number(x) : null);
-    const out = { symbol: m[1].replace(/[^A-Z0-9!]/g, ""), dir: m[2] === "WAIT" ? null : m[2].toLowerCase(), entry: n(m[3]), sl: n(m[4]), px: n(m[5]) };
+    // grade: "A+" (liquidity taken) or "A" (first visit, no sweep); older script versions had no grade = A+
+    const out = { symbol: m[1].replace(/[^A-Z0-9!]/g, ""), dir: m[2] === "WAIT" ? null : m[2].toLowerCase(), grade: m[3] === "A" ? "A" : "A+", entry: n(m[4]), sl: n(m[5]), px: n(m[6]) };
     if (out.px == null) return null;
     if (out.dir) {
       if (out.entry == null || out.sl == null) return null;
@@ -134,12 +135,12 @@
   async function onRead(p) {
     // a new ENTER signal on the chart
     if (p.dir) {
-      const key = `${p.symbol}|${p.dir}|${p.entry}|${p.sl}`;
+      const key = `${p.symbol}|${p.dir}|${p.grade}|${p.entry}|${p.sl}`;
       if (!seenSignals.has(key)) {
         seenSignals.add(key);
         try { localStorage.setItem("edge.seenSignals", JSON.stringify([...seenSignals].slice(-50))); } catch {}
         signal = { ...p, key, at: Date.now() };
-        say(`A plus ${p.dir} signal. Entry ${p.entry}, stop ${p.sl}. Check it in Edge before you click.`, "act_now", true);
+        say(p.grade === "A+" ? `A plus ${p.dir} signal. Entry ${p.entry}, stop ${p.sl}. Check it in Edge before you click.` : `A ${p.dir} signal, no liquidity sweep. Only if 90 percent of your trades are A plus.`, "act_now", true);
       }
     }
     // the live price → Edge's trade manager (break-even, target, phone alerts)
@@ -190,7 +191,7 @@
     const t = guideRes && guideRes.trades[0];
     pip.document.body.innerHTML = !stream ? "<div>Chart reader is off.</div>"
       : t ? `<div class="${esc(t.urgency)}">${esc(t.text)}</div><small>${t.r > 0 ? "+" : ""}${t.r}R · BE at ${esc(t.beTrigger)} · TP ${esc(t.tp)}</small>`
-      : signal && Date.now() - signal.at < 15 * 60e3 ? `<div class="act_now">A+ ${esc(signal.dir.toUpperCase())} signal — entry ${esc(signal.entry)}, SL ${esc(signal.sl)}</div><small>Open Edge → Take it, if you're calm.</small>`
+      : signal && Date.now() - signal.at < 15 * 60e3 ? `<div class="act_now">${esc(signal.grade)} ${esc(signal.dir.toUpperCase())} signal — entry ${esc(signal.entry)}, SL ${esc(signal.sl)}</div><small>Open Edge → Take it, if you're calm.</small>`
       : `<div class="info">No trade. Waiting for an A+ signal.</div><small>${read ? `${esc(read.symbol)} · ${esc(read.px)}` : "Reading…"}</small>`;
   }
 
@@ -205,7 +206,7 @@
       await loadOcr();
       if (!worker) {
         worker = await window.Tesseract.createWorker("eng");
-        await worker.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.!:- ", preserve_interword_spaces: "1" });
+        await worker.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.!:-+ ", preserve_interword_spaces: "1" });
       }
       status = "Looking for the EDGE line on your chart…"; paint();
       timer = setInterval(tick, 2500);
@@ -221,7 +222,7 @@
   async function takeSignal() {
     if (!signal) return;
     try {
-      const r = await api({ action: "chartSetup", symbol: signal.symbol, dir: signal.dir, entry: signal.entry, sl: signal.sl });
+      const r = await api({ action: "chartSetup", symbol: signal.symbol, dir: signal.dir, grade: signal.grade, entry: signal.entry, sl: signal.sl });
       if (r.takeable === false) window.Edge.toast(`Edge says skip: ${(r.why || [])[0] || "a rule blocks it"}`, 7000);
       window.Edge.go("setups");
     } catch (e) { window.Edge.toast(e.message, 7000); }
@@ -245,7 +246,7 @@
           <p class="num" style="font-size:22px;margin:4px 0"><b>${t.r > 0 ? "+" : ""}${t.r}R</b> <small class="muted">best ${t.maxR}R</small></p>
           <ul class="steps muted"><li>Stop now: <b>${esc(t.stop)}</b></li><li>At <b>${esc(t.beTrigger)}</b> → move stop to <b>${esc(t.beStop)}</b> (break-even)</li><li>Full exit at <b>${esc(t.tp)}</b></li></ul>
         </section>`
-      : sig ? `<section class="banner bad" style="font-size:20px">A+ ${esc(signal.dir.toUpperCase())} signal on ${esc(signal.symbol)} — entry ${esc(signal.entry)} · SL ${esc(signal.sl)}</section>
+      : sig ? `<section class="banner bad" style="font-size:20px">${esc(signal.grade)} ${esc(signal.dir.toUpperCase())} signal on ${esc(signal.symbol)} — entry ${esc(signal.entry)} · SL ${esc(signal.sl)}</section>
         <section class="card"><p class="muted">Every step is done on the chart: 4H trend, fresh zone, liquidity taken, 15m break, 5m close. Edge still checks your limits, the news and your mood before you take it.</p>
           <div class="row"><button class="btn primary" id="rTake">Take it in Edge →</button><button class="btn" id="rDismiss">Not this one</button></div></section>`
       : stream ? `<section class="card"><p>${read ? `<b>No trade.</b> Waiting for an A+ signal on ${esc(read.symbol)} · price ${esc(read.px)}` : "Reading your chart…"}</p></section>` : ""}

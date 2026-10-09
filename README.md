@@ -133,6 +133,19 @@ news reminders are checked on every 5-minute TradingView heartbeat, so keep the 
 The Coach (screen watching) needs a computer, because iPhone and iPad browsers can't share a screen. Its
 "act now" alerts still arrive on your phone.
 
+## Your rules (as of this version)
+
+- 4H trend from break of structure; the last 5 demand and 5 supply zones are tracked.
+- A **visit** = price comes back into a zone after having really left it (wicks in and out are one visit).
+- **A+** = liquidity taken (previous day / Asian / 15m swing high or low swept, then reclaimed), on any visit.
+- **A** = no sweep, first visit only — allowed only while 90% of your trades are A+. A later visit without a sweep is skipped.
+- After the touch, up to **8 hours** for the 15m break, then the 5m candle close that breaks structure = entry.
+- **Stop** beyond the 5m swing the entry broke from; break-even at +2R, full exit at +3.2R, out by 16:40 New York.
+
+On the real last 2 months (gold, crude, natural gas) these rules found 4 A+ trades: one target (+3.2R),
+one break-even, one stop (−1R), one closed at the session close-out (+0.5R) — +2.8R in total. That's a
+small sample: it shows the rules work, not that they're profitable.
+
 ## Replay — Edge finds the setups for you (free)
 
 **Coach → Replay (Edge finds it).** Real past 5-minute candles for gold, crude

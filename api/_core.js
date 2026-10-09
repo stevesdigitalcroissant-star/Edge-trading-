@@ -564,10 +564,11 @@ async function action(store, broker, body, now = Date.now()) {
     const exit = outcome === "tp" ? entry + k * s.tpAtR * risk : outcome === "be" ? entry + k * s.beOffsetR * risk : outcome === "sl" ? sl : num(body.exit);
     if (exit == null) throw new Error("Enter the price you got out at.");
     const t = {
-      id: `practice:${id()}`, source: "practice", practice: true, market, dir, grade: missing.length ? "unplanned" : "A+",
+      // A = every step but the liquidity sweep, on the first visit to the zone (your rule) — allowed, not a break
+      id: `practice:${id()}`, source: "practice", practice: true, market, dir, grade: !missing.length ? "A+" : body.grade === "A" && missing.length === 1 && missing[0] === "liquidity taken" ? "A" : "unplanned",
       entry, initialSL: sl, currentSL: outcome === "be" ? exit : sl, tp: entry + k * s.tpAtR * risk, beMoved: outcome === "be",
       steps, liquidity: String(body.liquidity || "").slice(0, 40), emotion: ["calm", "fomo", "revenge", "bored"].includes(body.emotion) ? body.emotion : "calm",
-      openedAt: num(body.openedAt) || now, ruleBreaks: missing.map((m) => `skipped: ${m}`), maxR: null,
+      openedAt: num(body.openedAt) || now, ruleBreaks: body.grade === "A" && missing.length === 1 && missing[0] === "liquidity taken" ? [] : missing.map((m) => `skipped: ${m}`), maxR: null,
     };
     const resultR = R.round(R.rAt(t, exit));
     if (outcome === "exit" && resultR > 0 && resultR < s.tpAtR - 0.15) t.ruleBreaks.push("closed early (greed/fear)");
@@ -587,7 +588,9 @@ async function action(store, broker, body, now = Date.now()) {
     const all = Object.values((await store.hgetall("setups")) || {});
     const same = all.find((x) => x && x.market === market && x.dir === dir && x.entry === entry && x.sl === sl && now - x.at < 4 * 3600e3);
     if (same) return { setupId: same.id, existing: true };
-    const r = await createSetup(store, market, { symbol: String(body.symbol || "").slice(0, 20), dir, entry, sl, trend4h: R.sign(dir), zoneFresh: true, bos15: true, close5: true, stopOk: true, sweep: true, sweepName: "chart" }, now, { source: "chart" });
+    // the script prints A+ (liquidity taken) or A (first visit to the zone, no sweep)
+    const swept = body.grade !== "A";
+    const r = await createSetup(store, market, { symbol: String(body.symbol || "").slice(0, 20), dir, entry, sl, trend4h: R.sign(dir), zoneFresh: true, bos15: true, close5: true, stopOk: true, sweep: swept, sweepName: swept ? "chart" : "" }, now, { source: "chart" });
     if (r.error) throw new Error(r.error);
     return { setupId: r.setup.id, grade: r.grade, takeable: r.takeable, why: r.why };
   }

@@ -6,8 +6,8 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const STEPS = [
     ["4H trend", "4H trend", "The last 4H candle CLOSED beyond a swing — above the last high for a long, below the last low for a short."],
-    ["fresh zone", "Fresh 4H zone touched", "Price is back at the demand (long) / supply (short) zone for the FIRST time since the break."],
-    ["liquidity taken", "Liquidity taken", "Price swept stops beyond a level, then closed back inside."],
+    ["fresh zone", "4H zone touched", "Price is back in a 4H demand (long) / supply (short) zone."],
+    ["liquidity taken", "Liquidity taken (A+)", "Price swept stops beyond a level, then closed back inside. Without it: only an A, and only on the zone's first visit."],
     ["15m break", "15m break of structure", "A 15m candle CLOSED beyond the last 15m swing, in your direction."],
     ["5m close", "5m candle close", "A 5m candle CLOSED beyond the last 5m swing — this candle's close is your entry."],
   ];
@@ -27,10 +27,15 @@
     return { risk, k, f, be: f(entry + k * s.beAtR * risk), beStop: f(entry + k * s.beOffsetR * risk), tp: f(entry + k * s.tpAtR * risk), s };
   };
   const done = () => STEPS.filter(([k]) => p.steps[k]).length;
+  // A+ = all five · A = all but the sweep, on the zone's first visit · otherwise no trade
+  const gradeNow = () => {
+    const core = ["4H trend", "fresh zone", "15m break", "5m close"].every((k) => p.steps[k]);
+    return !core ? "" : p.steps["liquidity taken"] ? "A+" : p.firstVisit ? "A" : "";
+  };
 
   function html() {
     const s = settings();
-    const n = done(), all = n === STEPS.length;
+    const n = done(), grade = gradeNow(), all = grade !== "";
     const e = Number(p.entry), sl = Number(p.sl);
     const ok = p.entry !== "" && p.sl !== "" && Number.isFinite(e) && Number.isFinite(sl) && (p.dir === "long" ? e > sl : e < sl);
     const st = window.Edge && window.Edge.state() && window.Edge.state().practiceStats;
@@ -70,7 +75,7 @@
     return `
       <section class="card">
         <h2 style="margin-top:0">Practice on FX Replay — free</h2>
-        <p class="muted">The Edge script can't run inside FX Replay, so here <b>you</b> find the steps — that's the skill you're training. Tick each one only when you can point at it on the chart. ENTER unlocks at 5/5.</p>
+        <p class="muted">The Edge script can't run inside FX Replay, so here <b>you</b> find the steps — that's the skill you're training. Tick each one only when you can point at it on the chart. All 5 = A+. Everything but the sweep, on the zone's first visit = A.</p>
         <div class="seg" style="margin:10px 0" id="pMkt">${MARKETS.map(([k, l]) => `<button type="button" class="${p.market === k ? "on z" : ""}" data-m="${k}">${l}</button>`).join("")}</div>
         <div class="seg" style="margin:0 0 12px;grid-template-columns:1fr 1fr" id="pDir">
           <button type="button" class="${p.dir === "long" ? "on p1" : ""}" data-d="long">Long</button>
@@ -78,10 +83,11 @@
         <div style="display:grid;gap:12px">${STEPS.map(([k, label, hint], i) => `
           <label class="check"><input type="checkbox" data-step="${esc(k)}" ${p.steps[k] ? "checked" : ""}>
             <span><b style="color:var(--text)">${i + 1}. ${esc(label)}</b><br><small>${esc(hint)}</small>
+            ${k === "fresh zone" && p.steps[k] && !p.steps["liquidity taken"] ? `<br><label class="check" style="margin-top:6px"><input type="checkbox" id="pFirst" ${p.firstVisit ? "checked" : ""}> First visit to this zone since it formed</label>` : ""}
             ${k === "liquidity taken" && p.steps[k] ? `<br><select id="pLiq" style="margin-top:6px">${["", ...LIQ].map((l) => `<option ${p.liquidity === l ? "selected" : ""} value="${esc(l)}">${l ? esc(l) : "Which one?"}</option>`).join("")}</select>` : ""}</span></label>`).join("")}
         </div>
       </section>
-      <section class="banner ${all ? "good" : "bad"}" style="font-size:18px">${all ? `A+ — all 5 steps done. Enter on the 5m close.` : `${n}/5 — not A+. ${n === 4 && !p.steps["liquidity taken"] ? "No liquidity taken = no trade." : "Wait for the missing step."}`}</section>
+      <section class="banner ${grade === "A+" ? "good" : "bad"}" style="font-size:18px">${grade === "A+" ? `A+ — all 5 steps done. Enter on the 5m close.` : grade === "A" ? "A — no liquidity sweep, first visit. Only take it while 90% of your trades are A+." : `${n}/5 — no trade. ${n === 4 && !p.steps["liquidity taken"] ? "Second visit without a liquidity sweep = no trade." : "Wait for the missing step."}`}</section>
       <section class="card">
         <div class="grid2">
           <label class="f"><span>Entry (5m close)</span><input id="pEntry" inputmode="decimal" value="${esc(p.entry)}"></label>
@@ -93,7 +99,7 @@
         <div class="row" style="margin-top:10px">
           <button class="btn primary" id="pEnter" ${all && ok ? "" : "disabled"}>I entered — guide me</button>
         </div>
-        ${!all && ok ? `<p class="muted" style="font-size:12px"><a href="#" id="pAnyway">I took it anyway (logged as NOT A+ — it shows in your stats)</a></p>` : ""}
+        ${!all && ok ? `<p class="muted" style="font-size:12px"><a href="#" id="pAnyway">I took it anyway (logged as a rule break — it shows in your stats)</a></p>` : ""}
       </section>${statsHtml(st)}`;
   }
 
@@ -114,21 +120,21 @@
     if (outcome === "exit" && !Number.isFinite(exit)) return window.Edge.toast("Type the price you closed at.");
     try {
       const r = await fetch("/api/app", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${window.Edge.token()}` },
-        body: JSON.stringify({ action: "practiceLog", market: t.market, dir: t.dir, entry: t.entry, sl: t.sl, steps: t.steps, liquidity: t.liquidity, outcome, exit, openedAt: t.at, note: ($("#pNote", root) || {}).value || "" }) });
+        body: JSON.stringify({ action: "practiceLog", grade: t.grade, market: t.market, dir: t.dir, entry: t.entry, sl: t.sl, steps: t.steps, liquidity: t.liquidity, outcome, exit, openedAt: t.at, note: ($("#pNote", root) || {}).value || "" }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
       const res = j.trade.resultR;
       window.Edge.toast(`Logged: ${res > 0 ? "+" : ""}${res}R (${j.trade.exitReason})${j.trade.ruleBreaks.length ? " · " + j.trade.ruleBreaks.join(", ") : " · plan followed ✓"}`, 7000);
-      p = { ...p, steps: {}, liquidity: "", entry: "", sl: "", trade: null, price: "" }; save();
+      p = { ...p, steps: {}, liquidity: "", firstVisit: false, entry: "", sl: "", trade: null, price: "" }; save();
       if (window.Edge.refresh) await window.Edge.refresh();
       render();
     } catch (e) { window.Edge.toast(e.message, 6000); }
   }
 
   function enter(force) {
-    const all = done() === STEPS.length;
-    if (!all && !force) return;
-    p.trade = { market: p.market, dir: p.dir, entry: Number(p.entry), sl: Number(p.sl), steps: { ...p.steps }, liquidity: p.liquidity, grade: all ? "A+" : "not A+", beMoved: false, at: Date.now() };
+    const grade = gradeNow();
+    if (!grade && !force) return;
+    p.trade = { market: p.market, dir: p.dir, entry: Number(p.entry), sl: Number(p.sl), steps: { ...p.steps }, liquidity: p.liquidity, grade: grade || "no trade", beMoved: false, at: Date.now() };
     p.price = ""; save(); render();
   }
 
@@ -137,6 +143,7 @@
     root.querySelectorAll("#pDir [data-d]").forEach((b) => b.addEventListener("click", () => { p.dir = b.dataset.d; save(); render(); }));
     root.querySelectorAll("[data-step]").forEach((c) => c.addEventListener("change", () => { p.steps[c.dataset.step] = c.checked; save(); render(); }));
     const lq = $("#pLiq", root); if (lq) lq.addEventListener("change", () => { p.liquidity = lq.value; save(); });
+    const fv = $("#pFirst", root); if (fv) fv.addEventListener("change", () => { p.firstVisit = fv.checked; save(); render(); });
     for (const [id, key] of [["#pEntry", "entry"], ["#pSl", "sl"], ["#pPrice", "price"]]) {
       const el = $(id, root);
       if (el) el.addEventListener("change", () => { p[key] = el.value.trim().replace(",", "."); save(); render(); });

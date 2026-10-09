@@ -40,9 +40,11 @@ test("finds setups and follows each one to a single result", () => {
         const k = ev.dir;
         assert.ok(k * (ev.entry - ev.sl) > 0, "stop on the right side");
         assert.ok(Math.abs(ev.tp - (ev.entry + k * 3.2 * Math.abs(ev.entry - ev.sl))) < 1e-9);
-        assert.ok(ev.swept, "A+ needs liquidity taken");
+        assert.ok(["A+", "A"].includes(ev.grade));
+        if (ev.grade === "A+") assert.ok(ev.swept, "A+ needs liquidity taken");
+        else assert.equal(ev.visit, 1, "A (no sweep) only on the first visit");
         const p = E.panel(res, ev.i);
-        assert.ok(p.steps.every(([, ok]) => ok), `all five steps done at ENTER: ${JSON.stringify(p.steps)}`);
+        assert.ok(p.steps.every(([, ok], k) => ok || (k === 2 && ev.grade === "A")), `steps done at ENTER: ${JSON.stringify(p.steps)}`);
       }
       if (ev.type === "be") { assert.ok(open && !open.closed); open.be = true; }
       if (ev.type === "exit") {

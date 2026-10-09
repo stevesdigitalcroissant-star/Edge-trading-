@@ -5,12 +5,16 @@
 // CLOSED candles, like the script (no repainting, no peeking ahead).
 (function (root) {
   const DEFAULTS = {
-    htfLen: 3, mtfLen: 2, ltfLen: 2, maxWait: 48, zoneCap: 1.5,
-    zones: 1, // how many 4H zones each side are tracked (1 = only the latest, like the script)
-    touch: "candle", // "candle" = every 5m candle that enters the zone is a touch (script) · "visit" = a touch only after price really left the zone entryMode: "bos", // "bos" = 5m break of structure · "close" = first 5m close in your direction after the 15m break
+    htfLen: 3, mtfLen: 2, ltfLen: 2, zoneCap: 1.5,
+    maxWait: 96, // 5m candles from the zone touch to the entry (96 = 8 hours)
+    zones: 5, // fresh 4H zones tracked each side (newest first)
+    touch: "visit", // a new touch only counts after price really left the zone (wicks in and out = one visit)
+    entryMode: "bos", // "bos" = 5m break of structure · "close" = first 5m close in your direction after the 15m break
+    stop: "swing", // "zone" = beyond the far edge of the 4H zone · "swing" = beyond the 5m swing the entry broke from · "extreme" = beyond the lowest low / highest high since the touch
     beR: 2, tpR: 3.2, beOffR: 0.05, slBufAtr: 0.2, minStopAtr: 0.5, maxStopAtr: 6,
     session: ["03:00", "12:00"], asia: ["18:00", "02:00"], flatBy: "16:40", // out of everything by then (your close-out rule)
   };
+
   const SESSIONS = { gold: ["03:00", "12:00"], crude: ["08:00", "14:30"], natgas: ["08:00", "14:30"] };
 
   // New York local minutes since epoch (handles daylight saving), cached per hour
@@ -99,7 +103,7 @@
     let lState = 0, lBar = 0, lLow = null, lTouch = 0, lLiq15 = null;
     let sState = 0, sBar = 0, sHigh = null, sTouch = 0, sLiq15 = null;
     // the A+ trade being followed
-    let gDir = 0, gE = null, gSL = null, gRisk = null, gBE = false, gBar = 0, gSw = "";
+    let gDir = 0, gE = null, gSL = null, gRisk = null, gBE = false, gBar = 0, gSw = "", gGrade = "";
 
     for (let i = 0; i < bars.length; i++) {
       const b = bars[i], mod0 = nyMin(b.t), mod = ((mod0 % 1440) + 1440) % 1440;
@@ -159,17 +163,19 @@
       if (lDn && l.dnLvl != null) events.push({ i, type: "bos", tf: "5m", dir: -1, lvl: l.dnLvl, from: l.dnFrom, to: l.dnT });
 
       const longSig = lState === 2 && (P.entryMode === "close" ? b.c > b.o : lUp), shortSig = sState === 2 && (P.entryMode === "close" ? b.c < b.o : lDn);
-      const lSL = Math.min(lLow ?? b.l, b.l) - P.slBufAtr * (atr5 || 0), lRisk = b.c - lSL;
+      const lSL = (P.stop === "zone" && lZone ? Math.min(lZone.bot, b.l) : P.stop === "swing" && l.plLow != null && l.plLow < b.c ? Math.min(l.plLow, b.l) : Math.min(lLow ?? b.l, b.l)) - P.slBufAtr * (atr5 || 0), lRisk = b.c - lSL;
       const lRoom = supAbove != null && lRisk > 0 ? (supAbove - b.c) / lRisk : null;
-      const sSL = Math.max(sHigh ?? b.h, b.h) + P.slBufAtr * (atr5 || 0), sRisk = sSL - b.c;
+      const sSL = (P.stop === "zone" && sZone ? Math.max(sZone.top, b.h) : P.stop === "swing" && l.phHigh != null && l.phHigh > b.c ? Math.max(l.phHigh, b.h) : Math.max(sHigh ?? b.h, b.h)) + P.slBufAtr * (atr5 || 0), sRisk = sSL - b.c;
       const sRoom = demBelow != null && sRisk > 0 ? (b.c - demBelow) / sRisk : null;
       const stopOk = (r) => atr5 != null && r > 0 && r / atr5 >= P.minStopAtr && r / atr5 <= P.maxStopAtr;
       const lowest = Math.min(lLow ?? b.l, b.l), highest = Math.max(sHigh ?? b.h, b.h);
       const sweptL = pdl != null && lowest < pdl && b.c > pdl ? ["previous day low", pdl] : asiaLo != null && lowest < asiaLo && b.c > asiaLo ? ["Asian low", asiaLo] : lLiq15 != null && lowest < lLiq15 && b.c > lLiq15 ? ["15m swing low", lLiq15] : null;
       const sweptS = pdh != null && highest > pdh && b.c < pdh ? ["previous day high", pdh] : asiaHi != null && highest > asiaHi && b.c < asiaHi ? ["Asian high", asiaHi] : sLiq15 != null && highest > sLiq15 && b.c < sLiq15 ? ["15m swing high", sLiq15] : null;
-      const whyNot = (swept, fresh, sOk, roomOk) => !swept ? "no liquidity taken" : !fresh ? "zone already touched" : !sOk ? "stop size not normal" : !roomOk ? `no room to ${P.tpR}R` : !inSess ? "outside the session" : "";
-      const lWhy = whyNot(sweptL, lTouch === 1, stopOk(lRisk), lRoom == null || lRoom >= P.tpR);
-      const sWhy = whyNot(sweptS, sTouch === 1, stopOk(sRisk), sRoom == null || sRoom >= P.tpR);
+      // A+ = liquidity taken (first or later visit) · A = first visit, no sweep · anything else is skipped
+      const grade = (swept, fresh, sOk, roomOk) => !sOk ? ["", "stop size not normal"] : !roomOk ? ["", `no room to ${P.tpR}R`] : !inSess ? ["", "outside the session"]
+        : swept ? ["A+", ""] : fresh ? ["A", ""] : ["", "second visit without liquidity taken"];
+      const [lGrade, lWhy] = grade(!!sweptL, lTouch === 1, stopOk(lRisk), lRoom == null || lRoom >= P.tpR);
+      const [sGrade, sWhy] = grade(!!sweptS, sTouch === 1, stopOk(sRisk), sRoom == null || sRoom >= P.tpR);
 
       // state transitions (after the signal check, like the script)
       if (lState > 0) { lLow = Math.min(lLow, b.l); if (h.trend !== 1 || !lZone.valid || i - lBar > P.maxWait || longSig) lState = 0; }
@@ -179,8 +185,8 @@
       if (sState === 1 && mDn) sState = 2;
       if (sState === 0 && h.trend === -1 && sTouchNow && !shortSig) { sState = 1; sBar = i; sHigh = b.h; sTouch = sHit.touches; sLiq15 = m.phHigh; sZone = sHit; }
 
-      const lEnter = longSig && lRisk > 0 && lWhy === "";
-      const sEnter = shortSig && sRisk > 0 && sWhy === "" && !lEnter;
+      const lEnter = longSig && lRisk > 0 && lGrade !== "";
+      const sEnter = shortSig && sRisk > 0 && sGrade !== "" && !lEnter;
       if (longSig && sweptL) events.push({ i, type: "sweep", dir: 1, name: sweptL[0], lvl: sweptL[1], from: lBar });
       if (shortSig && sweptS) events.push({ i, type: "sweep", dir: -1, name: sweptS[0], lvl: sweptS[1], from: sBar });
       if (!lEnter && longSig && lRisk > 0) events.push({ i, type: "skip", dir: 1, why: lWhy });
@@ -197,14 +203,14 @@
         else if (!gBE && (gDir === 1 ? b.h >= gE + P.beR * gRisk : b.l <= gE - P.beR * gRisk)) { gBE = true; events.push({ i, type: "be", dir: gDir, stop: gE + gDir * P.beOffR * gRisk }); }
       }
       if (lEnter || sEnter) {
-        gDir = lEnter ? 1 : -1; gE = b.c; gSL = lEnter ? lSL : sSL; gRisk = Math.abs(b.c - gSL); gBE = false; gBar = i; gSw = (lEnter ? sweptL : sweptS)[0];
-        events.push({ i, type: "enter", dir: gDir, entry: gE, sl: gSL, be: gE + gDir * P.beR * gRisk, beStop: gE + gDir * P.beOffR * gRisk, tp: gE + gDir * P.tpR * gRisk, swept: (lEnter ? sweptL : sweptS)[0] });
+        gDir = lEnter ? 1 : -1; gE = b.c; gSL = lEnter ? lSL : sSL; gRisk = Math.abs(b.c - gSL); gBE = false; gBar = i; gGrade = lEnter ? lGrade : sGrade; gSw = ((lEnter ? sweptL : sweptS) || [""])[0]; const gTouch = lEnter ? lTouch : sTouch;
+        events.push({ i, type: "enter", dir: gDir, entry: gE, sl: gSL, be: gE + gDir * P.beR * gRisk, beStop: gE + gDir * P.beOffR * gRisk, tp: gE + gDir * P.tpR * gRisk, swept: gSw, grade: gGrade, visit: gTouch });
       }
 
       const live = (list) => list.filter((z) => z.valid).map((z) => ({ top: z.top, bot: z.bot, from: z.from, touches: z.touches }));
       states.push({ trend: h.trend, dem: live(dem), sup: live(sup), lState, sState,
         lSwept: lState > 0 && !!sweptL, sSwept: sState > 0 && !!sweptS, lSwName: sweptL ? sweptL[0] : "", sSwName: sweptS ? sweptS[0] : "",
-        lTouch, sTouch, inSess, gDir, gE, gSL, gRisk, gBE, gSw });
+        lTouch, sTouch, inSess, gDir, gE, gSL, gRisk, gBE, gSw, gGrade });
     }
     return { events, states, params: P };
   }
@@ -218,8 +224,8 @@
     const stt = isL ? s.lState : s.sState, swept = isL ? s.lSwept : s.sSwept;
     const steps = [
       ["4H trend", inT || (isL ? s.trend === 1 : s.trend === -1), s.trend === 1 ? "UP" : s.trend === -1 ? "DOWN" : "none yet"],
-      ["Fresh 4H zone touched", inT || stt > 0, inT ? "fresh" : stt > 0 ? ((isL ? s.lTouch : s.sTouch) === 1 ? "fresh" : "touched before") : "waiting"],
-      ["Liquidity taken", inT || (stt > 0 && swept), inT ? s.gSw : stt > 0 && swept ? (isL ? s.lSwName : s.sSwName) : "waiting"],
+      ["4H zone touched", inT || stt > 0, inT ? "done" : stt > 0 ? ((isL ? s.lTouch : s.sTouch) === 1 ? "first visit" : "visit " + (isL ? s.lTouch : s.sTouch) + " — needs a sweep") : "waiting"],
+      ["Liquidity taken (A+)", inT ? s.gGrade === "A+" : stt > 0 && swept, inT ? (s.gGrade === "A+" ? s.gSw : "no sweep — A setup") : stt > 0 && swept ? (isL ? s.lSwName : s.sSwName) : "waiting"],
       ["15m break of structure", inT || stt === 2, inT || stt === 2 ? "done" : "waiting"],
       ["5m candle close → ENTER", s.gDir !== 0, s.gDir !== 0 ? `entered ${f(s.gE)}` : "waiting"],
     ];

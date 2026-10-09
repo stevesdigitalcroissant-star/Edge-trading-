@@ -70,16 +70,16 @@
     const name = NAMES[market];
     if (ev.type === "enter") {
       const side = ev.dir === 1 ? "LONG" : "SHORT";
-      if (autoTake) { taken.set(ev.i, { ev, be: false }); say(`A+ ${side} ${name} — taken at ${fx(ev.entry)}. Stop ${fx(ev.sl)}, target ${fx(ev.tp)}.`, true); return; }
+      if (autoTake) { taken.set(ev.i, { ev, be: false }); say(`${ev.grade} ${side} ${name} — taken at ${fx(ev.entry)}. Stop ${fx(ev.sl)}, target ${fx(ev.tp)}.`, true); return; }
       pending = ev; stop();
-      say(`A+ ${side} on ${name}. Enter at ${fx(ev.entry)}, stop ${fx(ev.sl)}. Take it or skip it.`, true);
+      say(ev.grade === "A+" ? `A+ ${side} on ${name}. Enter at ${fx(ev.entry)}, stop ${fx(ev.sl)}. Take it or skip it.` : `A ${side} on ${name} — no liquidity sweep. Only allowed while 90 percent of your trades are A plus.`, true);
     }
-    if (ev.type === "skip") feed = [{ at: bars[i].t, text: `${ev.dir === 1 ? "Long" : "Short"} trigger skipped — ${ev.why}. Not A+, no trade.` }, ...feed].slice(0, 30);
+    if (ev.type === "skip") feed = [{ at: bars[i].t, text: `${ev.dir === 1 ? "Long" : "Short"} trigger skipped — ${ev.why}. No trade.` }, ...feed].slice(0, 30);
     const mine = [...taken.values()].find((x) => !x.done);
     if (ev.type === "be" && mine) { mine.be = true; say(`Plus ${settings().beAtR} R. Move your stop to break-even, ${fx(ev.stop)}.`, true); }
     if (ev.type === "exit") {
       if (mine) { mine.done = true; log(mine.ev, ev); }
-      else { const sk = skipped.find((x) => !x.result); if (sk) { sk.result = ev.outcome; say(`The A+ you skipped ended at ${ev.outcome === "tp" ? "the target" : ev.outcome === "be" ? "break-even" : ev.outcome === "flat" ? "the session close-out" : "the stop"}.`, false); } }
+      else { const sk = skipped.find((x) => !x.result); if (sk) { sk.result = ev.outcome; say(`The setup you skipped ended at ${ev.outcome === "tp" ? "the target" : ev.outcome === "be" ? "break-even" : ev.outcome === "flat" ? "the session close-out" : "the stop"}.`, false); } }
     }
   }
   async function log(enter, exit) {
@@ -88,7 +88,7 @@
     try {
       const r = await fetch("/api/app", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${window.Edge.token()}` },
         body: JSON.stringify({ action: "practiceLog", market, dir: enter.dir === 1 ? "long" : "short", entry: enter.entry, sl: enter.sl, liquidity: enter.swept, outcome: exit.outcome, exit: exit.price, openedAt: bars[enter.i].t,
-          steps: { "4H trend": true, "fresh zone": true, "liquidity taken": true, "15m break": true, "5m close": true }, note: `Edge replay ${when(bars[enter.i].t)}` }) });
+          grade: enter.grade, steps: { "4H trend": true, "fresh zone": true, "liquidity taken": enter.grade === "A+", "15m break": true, "5m close": true }, note: `Edge replay ${when(bars[enter.i].t)}` }) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Error ${r.status}`);
       if (window.Edge.refresh) window.Edge.refresh();
     } catch (e) { window.Edge.toast(`Couldn't log it: ${e.message}`, 6000); }
@@ -101,7 +101,7 @@
     if (!ev) {
       // none left ahead → start over from the earliest one
       ev = res.events.find((e) => e.type === "enter" && e.i - 36 >= WARMUP);
-      if (!ev) return window.Edge.toast("No A+ setup in these 60 days. Try another market.");
+      if (!ev) return window.Edge.toast("No setup in these 60 days. Try another market.");
       for (const t of taken.values()) t.done = true;
       i = ev.i - 36;
     }
@@ -110,14 +110,15 @@
     // a trade you're in still plays out while we skip ahead
     for (let k = i + 1; k <= to; k++) for (const e of byI.get(k) || []) if (e.type === "be" || e.type === "exit") onEvent(e);
     i = to;
-    say(`Jumped to ${when(bars[i].t)}. An A+ setup forms in the next 3 hours — watch the steps.`, false);
+    say(`Jumped to ${when(bars[i].t)}. A setup forms in the next 3 hours — watch the steps.`, false);
     paint(); play();
   }
 
   // ---------- chart
 
   function draw() {
-    const cv = $("#rpChart", root); if (!cv || !res) return;
+    if (!root || !root.isConnected || !res) return;
+    const cv = $("#rpChart", root); if (!cv) return;
     const W = cv.clientWidth, H = cv.clientHeight, dpr = window.devicePixelRatio || 1;
     cv.width = W * dpr; cv.height = H * dpr;
     const x = cv.getContext("2d"); x.scale(dpr, dpr);
@@ -129,7 +130,7 @@
     const near = (v) => v != null && v > lo - span * 0.6 && v < hi + span * 0.6;
     const live = [...taken.values()].find((t) => !t.done) || (pending ? { ev: pending } : null);
     const tr = live ? live.ev : null;
-    for (const v of [st.dValid && st.dTop, st.dValid && st.dBot, st.sValid && st.sTop, st.sValid && st.sBot]) if (v && near(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    for (const z of [...st.dem, ...st.sup]) for (const v of [z.top, z.bot]) if (near(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
     if (tr) for (const v of [tr.sl, tr.be, tr.tp]) { lo = Math.min(lo, v); hi = Math.max(hi, v); } // always show the whole trade
     const pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
     const Y = (v) => ((hi - v) / (hi - lo)) * H, X = (k) => (k - from) * cw + cw / 2;
@@ -140,8 +141,8 @@
     for (let g = 0; g <= 5; g++) { const v = lo + ((hi - lo) * g) / 5, y = Y(v); x.beginPath(); x.moveTo(0, y); x.lineTo(W - padR, y); x.stroke(); x.fillText(fx(v), W - padR + 6, y + 3); }
     // zones
     const zone = (top, bot, fromI, label, a) => { const x0 = Math.max(0, X(Math.max(fromI, from)) - cw / 2); x.fillStyle = `rgba(155,93,229,${a})`; x.fillRect(x0, Y(top), W - padR - x0, Y(bot) - Y(top)); x.strokeStyle = "rgba(155,93,229,.6)"; x.strokeRect(x0, Y(top), W - padR - x0, Y(bot) - Y(top)); x.fillStyle = C4; x.fillText(label, x0 + 4, Y(top) + 11); };
-    if (st.dValid && near(st.dTop)) zone(st.dTop, st.dBot, st.dFrom, "4H DEMAND", 0.16);
-    if (st.sValid && near(st.sBot)) zone(st.sTop, st.sBot, st.sFrom, "4H SUPPLY", 0.12);
+    for (const z of st.dem) if (near(z.top)) zone(z.top, z.bot, z.from, `4H DEMAND${z.touches ? ` · visit ${z.touches}` : " · fresh"}`, 0.16);
+    for (const z of st.sup) if (near(z.bot)) zone(z.top, z.bot, z.from, `4H SUPPLY${z.touches ? ` · visit ${z.touches}` : " · fresh"}`, 0.12);
     // latest break of structure per timeframe
     const last = {};
     for (const ev of res.events) { if (ev.i > i) break; if (ev.type === "bos") last[ev.tf] = ev; }
@@ -176,7 +177,7 @@
     for (const ev of res.events) {
       if (ev.i > i) break;
       if (ev.i < from) continue;
-      if (ev.type === "enter") { x.fillStyle = ev.dir === 1 ? "#22c55e" : "#ef4444"; const y = ev.dir === 1 ? Y(bars[ev.i].l) + 14 : Y(bars[ev.i].h) - 6; x.font = "bold 11px system-ui"; x.fillText(ev.dir === 1 ? "▲ ENTER A+" : "▼ ENTER A+", X(ev.i) - 24, y); x.font = "10px ui-monospace, monospace"; }
+      if (ev.type === "enter") { x.fillStyle = ev.dir === 1 ? "#22c55e" : "#ef4444"; const y = ev.dir === 1 ? Y(bars[ev.i].l) + 14 : Y(bars[ev.i].h) - 6; x.font = "bold 11px system-ui"; x.fillText(`${ev.dir === 1 ? "▲" : "▼"} ENTER ${ev.grade}`, X(ev.i) - 24, y); x.font = "10px ui-monospace, monospace"; }
       if (ev.type === "exit") { x.fillStyle = ev.outcome === "tp" ? "#22c55e" : ev.outcome === "be" ? "#f59e0b" : "#ef4444"; x.fillText(ev.outcome === "tp" ? "🎯 TP" : ev.outcome === "be" ? "BE" : ev.outcome === "flat" ? "close-out" : "SL", X(ev.i) - 6, Y(bars[ev.i].h) - 6); }
       if (ev.type === "skip") { x.fillStyle = "#6b7280"; x.fillText("skip", X(ev.i) - 8, ev.dir === 1 ? Y(bars[ev.i].l) + 12 : Y(bars[ev.i].h) - 4); }
     }
@@ -190,8 +191,8 @@
     const p = window.EdgeEngine.panel(res, i);
     const live = [...taken.values()].find((t) => !t.done);
     return `
-      ${pending ? `<section class="banner bad" style="font-size:19px">A+ ${pending.dir === 1 ? "LONG" : "SHORT"} — enter at ${fx(pending.entry)} · stop ${fx(pending.sl)} · target ${fx(pending.tp)}
-          <p>Every step is done. The liquidity taken: ${esc(pending.swept)}. Calm? Then take it.</p>
+      ${pending ? `<section class="banner bad" style="font-size:19px">${esc(pending.grade)} ${pending.dir === 1 ? "LONG" : "SHORT"} — enter at ${fx(pending.entry)} · stop ${fx(pending.sl)} · target ${fx(pending.tp)}
+          <p>${pending.grade === "A+" ? `Every step is done. The liquidity taken: ${esc(pending.swept)}. Calm? Then take it.` : "Every step except the liquidity sweep (first visit to the zone). An A setup: only take it while 90% of your trades are A+."}</p>
           <div class="row" style="margin-top:10px"><button class="btn primary" id="rpTake">Take it</button><button class="btn" id="rpSkip">Skip</button></div></section>`
       : `<section class="banner ${live ? (live.be ? "good" : "bad") : "good"}" style="font-size:17px">${esc(p.doNow)}</section>`}
       <section class="card">
@@ -215,14 +216,14 @@
         <div class="row">
           ${playing ? `<button class="btn" id="rpPause">⏸ Pause</button>` : `<button class="btn primary" id="rpPlay" ${pending ? "disabled" : ""}>▶ Play</button>`}
           <button class="btn small" id="rpStep" ${pending ? "disabled" : ""}>+1 candle</button>
-          <button class="btn small" id="rpNext">⏭ Next A+ setup</button>
+          <button class="btn small" id="rpNext">⏭ Next setup</button>
           <button class="btn small" id="rpDay">🎲 Random day</button>
         </div>
         <div class="row" style="margin-top:8px;align-items:center">
           <span class="muted" style="font-size:13px">Speed</span>
           <div class="seg" style="grid-template-columns:repeat(4,1fr);flex:1" id="rpSpeed">${[1, 4, 10, 30].map((v) => `<button type="button" class="${speed === v ? "on z" : ""}" data-s="${v}">${v}×</button>`).join("")}</div>
         </div>
-        <label class="check" style="margin-top:10px"><input type="checkbox" id="rpAuto" ${autoTake ? "checked" : ""}> Take every A+ automatically (just watch how the rules play out)</label>
+        <label class="check" style="margin-top:10px"><input type="checkbox" id="rpAuto" ${autoTake ? "checked" : ""}> Take every setup automatically (just watch how the rules play out)</label>
         <label class="check" style="margin-top:6px"><input type="checkbox" id="rpMute" ${muted ? "" : "checked"}> Speak out loud</label>`}
       </section>
       <div id="rpPanel">${res ? panelHtml() : ""}</div>
@@ -232,7 +233,7 @@
           <div class="stat"><small>Trades</small><b>${st.n}</b><small>${st.ruleBreaks} with a rule break</small></div>
           <div class="stat"><small>Total</small><b class="${st.totalR >= 0 ? "pos" : "neg"}">${st.totalR > 0 ? "+" : ""}${st.totalR}R</b><small>win ${st.winRate ?? "—"}%</small></div>
         </div>` : `<p class="muted" style="margin:0">Nothing logged yet.</p>`}
-        ${skipped.length ? `<p class="muted" style="font-size:13px">This session you skipped ${skipped.length} A+ setup${skipped.length > 1 ? "s" : ""}${won ? ` — ${won} would have hit the target` : ""}.</p>` : ""}
+        ${skipped.length ? `<p class="muted" style="font-size:13px">This session you skipped ${skipped.length} setup${skipped.length > 1 ? "s" : ""}${won ? ` — ${won} would have hit the target` : ""}.</p>` : ""}
         <p class="muted" style="font-size:12px">Free price data (Yahoo Finance futures: GC, CL, NG), last ~60 days. The replay never shows you a candle before it closes.</p>
       </section>`;
   }

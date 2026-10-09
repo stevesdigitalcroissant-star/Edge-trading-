@@ -7,12 +7,14 @@
 //   1. 4H  : trend from break of structure (a CLOSE beyond the last swing).
 //            The candle the move started from becomes the demand (uptrend)
 //            or supply (downtrend) zone.
-//   2. 4H  : wait for price to come back into that zone (first touch = fresh).
+//   2. 4H  : wait for price to come back into a zone (the last 5 each side are tracked).
+//            Liquidity taken (stops swept, then reclaimed) = A+ on any visit;
+//            no sweep = A, and only on the first visit.
 //   3. 15m : wait for a break of structure in the trend's direction (closed candle).
 //   4. 5m  : enter on the close of the 5m candle that breaks structure again
 //            (or the first 5m close after the 15m break — see settings).
-//   Stop   : beyond the reaction low/high since the zone touch (+ small buffer).
-//   Exits  : stop to break-even at +2R, full exit at +3.2R.
+//   Stop   : beyond the 5m swing the entry broke from (+ small buffer).
+//   Exits  : stop to break-even at +2R, full exit at +3.2R, out of everything at 16:40 New York.
 //
 // It is a strategy, so the Strategy Tester shows how these exact rules did on
 // past data. For the Edge app, create ONE alert on this chart:
@@ -34,14 +36,16 @@ htfLen     = input.int(3, "4H swing size (candles each side)", minval = 1, group
 mtfLen     = input.int(2, "15m swing size", minval = 1, group = grpS)
 ltfLen     = input.int(2, "5m swing size", minval = 1, group = grpS)
 entryMode  = input.string("5m break of structure", "5m entry trigger", options = ["5m break of structure", "First 5m close after 15m BOS"], group = grpS)
-maxWait    = input.int(48, "Max 5m candles from zone touch to entry", minval = 6, group = grpS)
+maxWait    = input.int(96, "Max 5m candles from zone touch to entry (96 = 8 hours)", minval = 6, group = grpS)
+zonesMax   = input.int(5, "4H zones tracked each side", minval = 1, maxval = 10, group = grpS)
 zoneCap    = input.float(1.5, "Max zone height (× 4H ATR)", minval = 0.2, step = 0.1, group = grpS)
 
 grpR = "Risk & exits"
 beR        = input.float(2.0, "Move stop to break-even at (R)", minval = 0.5, step = 0.1, group = grpR)
 tpR        = input.float(3.2, "Take profit at (R)", minval = 1.0, step = 0.1, group = grpR)
 beOffR     = input.float(0.05, "Break-even buffer (R)", minval = 0.0, step = 0.01, group = grpR)
-slBufAtr   = input.float(0.2, "Stop buffer beyond the reaction low/high (× 5m ATR)", minval = 0.0, step = 0.05, group = grpR)
+stopMode   = input.string("Beyond the 5m swing", "Stop loss", options = ["Beyond the 5m swing", "Beyond the 4H zone", "Beyond the low/high since the touch"], group = grpR)
+slBufAtr   = input.float(0.2, "Stop buffer (× 5m ATR)", minval = 0.0, step = 0.05, group = grpR)
 minStopAtr = input.float(0.5, "Smallest normal stop (× 5m ATR)", minval = 0.0, step = 0.1, group = grpR)
 maxStopAtr = input.float(6.0, "Largest normal stop (× 5m ATR)", minval = 0.5, step = 0.5, group = grpR)
 riskPct    = input.float(1.0, "Backtest: risk per trade (% of equity)", minval = 0.1, maxval = 5, step = 0.1, group = grpR)
@@ -49,9 +53,8 @@ riskPct    = input.float(1.0, "Backtest: risk per trade (% of equity)", minval =
 grpF = "Filters (backtest)"
 useSess    = input.bool(true, "Only trade inside the session", group = grpF)
 sess       = input.session("0300-1200", "Session (New York time) — gold 0300-1200, oil & gas 0800-1430", group = grpF)
-needFresh  = input.bool(true, "Only the first touch of a zone (fresh)", group = grpF)
-needRoom   = input.bool(true, "Need room to the take-profit before the opposing zone", group = grpF)
-needSweep  = input.bool(true, "Only after liquidity is taken (stops swept, then reclaimed)", group = grpF)
+aPlusOnly  = input.bool(true, "Backtest: A+ only (A = first visit without a liquidity sweep)", group = grpF)
+flatSess   = input.session("1640-1800", "Close-out (New York time) — out of every trade", group = grpF)
 asiaSess   = input.session("1800-0200", "Asian session (New York time) — its high/low is liquidity", group = grpF)
 
 grpC = "Colours (one per timeframe)"
@@ -150,57 +153,77 @@ if not inAsia and inAsia[1]
     asiaHi := aHi
     asiaLo := aLo
 
-// ---------- Zones (tracked on this chart: touches and invalidation)
-var float dTop = na
-var float dBot = na
-var int dTouches = 0
-var bool dValid = false
-var bool dWasIn = false
-var float sTop = na
-var float sBot = na
-var int sTouches = 0
-var bool sValid = false
-var bool sWasIn = false
-var box dBox = na
-var box sBox = na
+// ---------- Zones: the last few 4H demand / supply zones, tracked on this chart
+// A visit = price enters the zone after having really left it (wicks in and out are one visit).
+type Zone
+    float top
+    float bot
+    int touches = 0
+    bool valid = true
+    bool wasIn = false
+    bool away = true
+    box bx = na
+
+var array<Zone> dems = array.new<Zone>()
+var array<Zone> sups = array.new<Zone>()
+
+addZone(array<Zone> list, float top, float bot, bool isDem) =>
+    box bx = box.new(bar_index, top, bar_index + 1, bot, border_color = color.new(c4h, 30), bgcolor = color.new(c4h, isDem ? 82 : 90), extend = extend.right, text = isDem ? "4H DEMAND · fresh" : "4H SUPPLY · fresh", text_color = color.new(c4h, 0), text_size = size.small, text_halign = text.align_left, force_overlay = true)
+    list.push(Zone.new(top, bot, 0, true, false, true, bx))
+    if list.size() > zonesMax
+        Zone old = list.shift()
+        box.delete(old.bx)
+
+// returns the zone first entered on this candle (newest first), and kills zones price closed through
+visitZones(array<Zone> list, bool isDem) =>
+    Zone hit = na
+    int n = list.size()
+    if n > 0
+        for k = n - 1 to 0
+            Zone z = list.get(k)
+            if z.valid
+                float h = z.top - z.bot
+                if isDem ? low > z.top + h : high < z.bot - h
+                    z.away := true
+                bool inZ = low <= z.top and high >= z.bot
+                if inZ and not z.wasIn and z.away
+                    z.touches := z.touches + 1
+                    z.away := false
+                    box.set_text(z.bx, (isDem ? "4H DEMAND · visit " : "4H SUPPLY · visit ") + str.tostring(z.touches))
+                    if na(hit)
+                        hit := z
+                z.wasIn := inZ
+                if isDem ? close < z.bot : close > z.top
+                    z.valid := false
+                    box.set_bgcolor(z.bx, color.new(color.gray, 90))
+                    box.set_extend(z.bx, extend.none)
+                    box.set_right(z.bx, bar_index)
+    hit
 
 if newHtfDem
-    dTop := hDemTop
-    dBot := hDemBot
-    dTouches := 0
-    dValid := true
-    dWasIn := false
-    box.delete(dBox)
-    dBox := box.new(bar_index, dTop, bar_index + 1, dBot, border_color = color.new(c4h, 30), bgcolor = color.new(c4h, 82), extend = extend.right, text = "4H DEMAND", text_color = color.new(c4h, 0), text_size = size.small, text_halign = text.align_left, force_overlay = true)
+    addZone(dems, hDemTop, hDemBot, true)
 if newHtfSup
-    sTop := hSupTop
-    sBot := hSupBot
-    sTouches := 0
-    sValid := true
-    sWasIn := false
-    box.delete(sBox)
-    sBox := box.new(bar_index, sTop, bar_index + 1, sBot, border_color = color.new(c4h, 30), bgcolor = color.new(c4h, 90), extend = extend.right, text = "4H SUPPLY", text_color = color.new(c4h, 0), text_size = size.small, text_halign = text.align_left, force_overlay = true)
+    addZone(sups, hSupTop, hSupBot, false)
+Zone dHit = visitZones(dems, true)
+Zone sHit = visitZones(sups, false)
+bool dTouchNow = not na(dHit)
+bool sTouchNow = not na(sHit)
 
-bool dIn = dValid and low <= dTop and high >= dBot
-bool sIn = sValid and high >= sBot and low <= sTop
-bool dTouchNow = dIn and not dWasIn
-bool sTouchNow = sIn and not sWasIn
-if dTouchNow
-    dTouches += 1
-if sTouchNow
-    sTouches += 1
-dWasIn := dIn
-sWasIn := sIn
-if dValid and close < dBot
-    dValid := false
-    box.set_bgcolor(dBox, color.new(color.gray, 90))
-    box.set_extend(dBox, extend.none)
-    box.set_right(dBox, bar_index)
-if sValid and close > sTop
-    sValid := false
-    box.set_bgcolor(sBox, color.new(color.gray, 90))
-    box.set_extend(sBox, extend.none)
-    box.set_right(sBox, bar_index)
+// the nearest opposing zone limits the room to the target
+nearestAbove(array<Zone> list) =>
+    float best = na
+    for z in list
+        if z.valid and z.bot > close and (na(best) or z.bot < best)
+            best := z.bot
+    best
+nearestBelow(array<Zone> list) =>
+    float best = na
+    for z in list
+        if z.valid and z.top < close and (na(best) or z.top > best)
+            best := z.top
+    best
+float supAbove = nearestAbove(sups)
+float demBelow = nearestBelow(dems)
 
 // ---------- Break of structure lines: only the latest per timeframe, so the chart stays clean
 var line bos4 = na
@@ -246,26 +269,41 @@ var int lBar = 0
 var float lLow = na
 var int lTouch = 0
 var float lLiq15 = na
+var Zone lZone = na
 var int sState = 0
 var int sBar = 0
 var float sHigh = na
 var int sTouch = 0
 var float sLiq15 = na
+var Zone sZone = na
+float lZoneTop = na
+float lZoneBot = na
+float sZoneTop = na
+float sZoneBot = na
+if not na(lZone)
+    lZoneTop := lZone.top
+    lZoneBot := lZone.bot
+if not na(sZone)
+    sZoneTop := sZone.top
+    sZoneBot := sZone.bot
 
 bool trigger5 = entryMode == "First 5m close after 15m BOS"
 bool longSig = lState == 2 and (trigger5 ? close > open : ltfBosUp) and barstate.isconfirmed
 bool shortSig = sState == 2 and (trigger5 ? close < open : ltfBosDn) and barstate.isconfirmed
 
 // trade plan for a signal on this candle
-float lSL = math.min(lLow, low) - slBufAtr * atr5
+// stop: beyond the 5m swing the entry broke from (default), the far edge of the zone, or the extreme since the touch
+float lBase = stopMode == "Beyond the 4H zone" and not na(lZoneBot) ? math.min(lZoneBot, low) : stopMode == "Beyond the 5m swing" and not na(lPL) and lPL < close ? math.min(lPL, low) : math.min(lLow, low)
+float lSL = lBase - slBufAtr * atr5
 float lRisk = close - lSL
-float lRoom = sValid and sBot > close and lRisk > 0 ? (sBot - close) / lRisk : na
+float lRoom = not na(supAbove) and lRisk > 0 ? (supAbove - close) / lRisk : na
 bool lFresh = lTouch == 1
 bool lRoomOk = na(lRoom) or lRoom >= tpR
 bool lStopOk = lRisk > 0 and lRisk / atr5 >= minStopAtr and lRisk / atr5 <= maxStopAtr
-float sSL = math.max(sHigh, high) + slBufAtr * atr5
+float sBase = stopMode == "Beyond the 4H zone" and not na(sZoneTop) ? math.max(sZoneTop, high) : stopMode == "Beyond the 5m swing" and not na(lPH) and lPH > close ? math.max(lPH, high) : math.max(sHigh, high)
+float sSL = sBase + slBufAtr * atr5
 float sRisk = sSL - close
-float sRoom = dValid and dTop < close and sRisk > 0 ? (close - dTop) / sRisk : na
+float sRoom = not na(demBelow) and sRisk > 0 ? (close - demBelow) / sRisk : na
 bool sFresh = sTouch == 1
 bool sRoomOk = na(sRoom) or sRoom >= tpR
 bool sStopOk = sRisk > 0 and sRisk / atr5 >= minStopAtr and sRisk / atr5 <= maxStopAtr
@@ -305,7 +343,7 @@ bool sSwept = sSwName != ""
 // state transitions (after the signal check, so tap → 15m → 5m happen in order)
 if lState > 0
     lLow := math.min(lLow, low)
-    if hTrend != 1 or not dValid or bar_index - lBar > maxWait or longSig
+    if hTrend != 1 or not lZone.valid or bar_index - lBar > maxWait or longSig
         lState := 0
 if lState == 1 and mtfBosUp
     lState := 2
@@ -313,12 +351,13 @@ if lState == 0 and hTrend == 1 and dTouchNow and not longSig
     lState := 1
     lBar := bar_index
     lLow := low
-    lTouch := dTouches
+    lTouch := dHit.touches
     lLiq15 := mPL
+    lZone := dHit
 
 if sState > 0
     sHigh := math.max(sHigh, high)
-    if hTrend != -1 or not sValid or bar_index - sBar > maxWait or shortSig
+    if hTrend != -1 or not sZone.valid or bar_index - sBar > maxWait or shortSig
         sState := 0
 if sState == 1 and mtfBosDn
     sState := 2
@@ -326,8 +365,9 @@ if sState == 0 and hTrend == -1 and sTouchNow and not shortSig
     sState := 1
     sBar := bar_index
     sHigh := high
-    sTouch := sTouches
+    sTouch := sHit.touches
     sLiq15 := mPH
+    sZone := sHit
 
 // ---------- Alerts for the Edge app
 f(float x) => str.tostring(x, "#.#####")
@@ -344,9 +384,9 @@ setupJson(string dir, float entry, float sl, bool fresh, float room, bool stopOk
      ',"sweep":' + b(swName != "") + ',"sweepName":"' + swName + '","sweepLvl":' + (na(swLvl) ? "null" : f(swLvl)) + '}'
 
 if longSig and lRisk > 0
-    alert(setupJson("long", close, lSL, lFresh, lRoom, lStopOk, dTop, dBot, hUpLvl, mUpLvl, lUpLvl, sValid and sBot > close ? sBot : na, lSwName, lSwLvl), alert.freq_once_per_bar_close)
+    alert(setupJson("long", close, lSL, lFresh, lRoom, lStopOk, lZoneTop, lZoneBot, hUpLvl, mUpLvl, lUpLvl, supAbove, lSwName, lSwLvl), alert.freq_once_per_bar_close)
 if shortSig and sRisk > 0
-    alert(setupJson("short", close, sSL, sFresh, sRoom, sStopOk, sTop, sBot, hDnLvl, mDnLvl, lDnLvl, dValid and dTop < close ? dTop : na, sSwName, sSwLvl), alert.freq_once_per_bar_close)
+    alert(setupJson("short", close, sSL, sFresh, sRoom, sStopOk, sZoneTop, sZoneBot, hDnLvl, mDnLvl, lDnLvl, demBelow, sSwName, sSwLvl), alert.freq_once_per_bar_close)
 if sendBars and barstate.isconfirmed
     string bos = mtfBosUp ? "up" : mtfBosDn ? "down" : ""
     alert('{"secret":"' + secret + '","type":"bar","symbol":"' + syminfo.ticker + '","price":' + f(close) + ',"high":' + f(high) + ',"low":' + f(low) + ',"bos15":"' + bos + '"}', alert.freq_once_per_bar_close)
@@ -354,7 +394,7 @@ if sendBars and barstate.isconfirmed
 // ---------- Drawing
 fm(float x) => str.tostring(x, format.mintick)
 
-drawPlan(bool isLong, float entry, float sl) =>
+drawPlan(bool isLong, float entry, float sl, string grade) =>
     float risk = math.abs(entry - sl)
     float k = isLong ? 1.0 : -1.0
     float be = entry + k * beR * risk
@@ -367,31 +407,46 @@ drawPlan(bool isLong, float entry, float sl) =>
     label.new(r, sl, "SL " + fm(sl), style = label.style_label_left, color = color.new(color.red, 60), textcolor = color.white, size = size.tiny, force_overlay = true)
     label.new(r, be, "at " + fm(be) + " → stop to BE (" + str.tostring(beR) + "R)", style = label.style_label_left, color = color.new(color.orange, 70), textcolor = color.white, size = size.tiny, force_overlay = true)
     label.new(r, tp, "TP " + fm(tp) + " (" + str.tostring(tpR) + "R) — full exit", style = label.style_label_left, color = color.new(color.green, 60), textcolor = color.white, size = size.tiny, force_overlay = true)
-    label.new(bar_index, isLong ? low : high, (isLong ? "▲ ENTER LONG — A+\n" : "▼ ENTER SHORT — A+\n") + "entry " + fm(entry) + " · SL " + fm(sl),
-         style = isLong ? label.style_label_up : label.style_label_down, color = isLong ? color.new(color.green, 0) : color.new(color.red, 0), textcolor = color.white, size = size.normal, force_overlay = true)
+    label.new(bar_index, isLong ? low : high, (isLong ? "▲ ENTER LONG — " : "▼ ENTER SHORT — ") + grade + (grade == "A" ? " (no sweep)" : "") + "\nentry " + fm(entry) + " · SL " + fm(sl),
+         style = isLong ? label.style_label_up : label.style_label_down, color = grade == "A" ? color.new(color.orange, 0) : isLong ? color.new(color.green, 0) : color.new(color.red, 0), textcolor = color.white, size = size.normal, force_overlay = true)
 
 drawSweep(float lv, string nm, int fromBar) =>
     line.new(fromBar, lv, bar_index, lv, color = color.new(color.white, 30), style = line.style_dashed, force_overlay = true)
     label.new(fromBar, lv, "$$$ " + nm + " taken", style = label.style_label_right, color = color.new(color.white, 80), textcolor = color.white, size = size.tiny, force_overlay = true)
 
-// why a 5m trigger is NOT an A+ entry ("" = every step is done)
-whyNot(bool swept, bool fresh, bool stopOk, bool roomOk) =>
-    not swept ? "no liquidity taken" : not fresh ? "zone already touched" : not stopOk ? "stop size not normal" : not roomOk ? "no room to " + str.tostring(tpR) + "R" : not inSess ? "outside the session" : ""
-string lWhy = whyNot(lSwept, lFresh, lStopOk, lRoomOk)
-string sWhy = whyNot(sSwept, sFresh, sStopOk, sRoomOk)
-bool lEnter = longSig and lRisk > 0 and lWhy == ""
-bool sEnter = shortSig and sRisk > 0 and sWhy == "" and not lEnter
+// A+ = liquidity taken (first or later visit) · A = first visit, no sweep · anything else is skipped (with the reason)
+gradeOf(bool swept, bool fresh, bool stopOk, bool roomOk) =>
+    string g = ""
+    string why = ""
+    if not stopOk
+        why := "stop size not normal"
+    else if not roomOk
+        why := "no room to " + str.tostring(tpR) + "R"
+    else if not inSess
+        why := "outside the session"
+    else if swept
+        g := "A+"
+    else if fresh
+        g := "A"
+    else
+        why := "second visit without liquidity taken"
+    [g, why]
+[lGrade, lWhy] = gradeOf(lSwept, lFresh, lStopOk, lRoomOk)
+[sGrade, sWhy] = gradeOf(sSwept, sFresh, sStopOk, sRoomOk)
+bool lEnter = longSig and lRisk > 0 and lGrade != ""
+bool sEnter = shortSig and sRisk > 0 and sGrade != "" and not lEnter
+bool inFlat = not na(time(timeframe.period, flatSess, "America/New_York"))
 
 if longSig and lSwept
     drawSweep(lSwLvl, lSwName, lBar)
 if shortSig and sSwept
     drawSweep(sSwLvl, sSwName, sBar)
 if lEnter
-    drawPlan(true, close, lSL)
+    drawPlan(true, close, lSL, lGrade)
 else if longSig and lRisk > 0
     label.new(bar_index, low, "long trigger — skip: " + lWhy, style = label.style_label_up, color = color.new(color.gray, 30), textcolor = color.white, size = size.tiny, force_overlay = true)
 if sEnter
-    drawPlan(false, close, sSL)
+    drawPlan(false, close, sSL, sGrade)
 else if shortSig and sRisk > 0
     label.new(bar_index, high, "short trigger — skip: " + sWhy, style = label.style_label_down, color = color.new(color.gray, 30), textcolor = color.white, size = size.tiny, force_overlay = true)
 
@@ -403,6 +458,7 @@ var float gRisk = na
 var bool gBE = false
 var int gBar = 0
 var string gSw = ""
+var string gGrade = ""
 var string gEvent = ""
 var int gEvBar = 0
 if gDir != 0 and bar_index > gBar
@@ -420,6 +476,11 @@ if gDir != 0 and bar_index > gBar
         gEvent := "Target hit: +" + str.tostring(tpR) + "R. Close it — done for this one."
         label.new(bar_index, gDir == 1 ? high : low, "🎯 TARGET " + str.tostring(tpR) + "R — CLOSE", style = gDir == 1 ? label.style_label_down : label.style_label_up, color = color.new(color.green, 0), textcolor = color.white, size = size.normal, force_overlay = true)
         gDir := 0
+    else if inFlat
+        gEvBar := bar_index
+        gEvent := "Close-out time — out of the trade. No holding into the session close."
+        label.new(bar_index, gDir == 1 ? high : low, "close-out — OUT", style = gDir == 1 ? label.style_label_down : label.style_label_up, color = color.new(color.gray, 0), textcolor = color.white, size = size.small, force_overlay = true)
+        gDir := 0
     else if not gBE and (gDir == 1 ? high >= gE + beR * gRisk : low <= gE - beR * gRisk)
         gBE := true
         label.new(bar_index, gDir == 1 ? high : low, "🔒 +" + str.tostring(beR) + "R — MOVE STOP TO " + fm(gE + gDir * beOffR * gRisk), style = gDir == 1 ? label.style_label_down : label.style_label_up, color = color.new(color.orange, 0), textcolor = color.white, size = size.normal, force_overlay = true)
@@ -431,16 +492,15 @@ if lEnter or sEnter
     gBE := false
     gBar := bar_index
     gSw := lEnter ? lSwName : sSwName
+    gGrade := lEnter ? lGrade : sGrade
 
 // ---------- Backtest with the same rules
-bool lOk = (not needFresh or lFresh) and (not needRoom or lRoomOk) and (not needSweep or lSwept) and lStopOk and inSess
-bool sOk = (not needFresh or sFresh) and (not needRoom or sRoomOk) and (not needSweep or sSwept) and sStopOk and inSess
 var float tEntry = na
 var float tRisk = na
 var int tDir = 0
 var bool tBE = false
-bool enterL = longSig and lRisk > 0 and lOk and strategy.position_size == 0
-bool enterS = shortSig and sRisk > 0 and sOk and strategy.position_size == 0 and not enterL
+bool enterL = lEnter and (not aPlusOnly or lGrade == "A+") and strategy.position_size == 0
+bool enterS = sEnter and (not aPlusOnly or sGrade == "A+") and strategy.position_size == 0 and not enterL
 
 if strategy.position_size == 0 and not enterL and not enterS
     tDir := 0
@@ -465,6 +525,8 @@ if tDir == 1
     strategy.exit("LX", from_entry = "L", stop = tBE ? tEntry + beOffR * tRisk : tEntry - tRisk, limit = tEntry + tpR * tRisk)
 if tDir == -1
     strategy.exit("SX", from_entry = "S", stop = tBE ? tEntry - beOffR * tRisk : tEntry + tRisk, limit = tEntry - tpR * tRisk)
+if inFlat and strategy.position_size != 0
+    strategy.close_all(comment = "close-out")
 
 // ---------- Status panel
 // Row 1 is the "EDGE code": Edge on your computer reads it off the screen (Coach → Chart reader).
@@ -473,8 +535,19 @@ if barstate.isfirst
     table.merge_cells(panel, 0, 0, 1, 0)
     table.merge_cells(panel, 0, 1, 1, 1)
 ok(bool x) => x ? "✓" : "…"
+// the zone closest to price, e.g. "4101.2 – 4112.5  visit 1"
+nearestZoneText(array<Zone> list, bool isDem) =>
+    string txt = "none"
+    float bestD = na
+    for z in list
+        if z.valid
+            float d = math.abs(isDem ? close - z.top : z.bot - close)
+            if na(bestD) or d < bestD
+                bestD := d
+                txt := fm(z.bot) + " – " + fm(z.top) + (z.touches == 0 ? "  fresh" : "  visit " + str.tostring(z.touches))
+    txt
 if barstate.islast
-    string code = "EDGE " + syminfo.ticker + " " + (gDir == 1 ? "LONG E " + fm(gE) + " SL " + fm(gSL) : gDir == -1 ? "SHORT E " + fm(gE) + " SL " + fm(gSL) : "WAIT") + " PX " + fm(close)
+    string code = "EDGE " + syminfo.ticker + " " + (gDir == 1 ? "LONG " + gGrade + " E " + fm(gE) + " SL " + fm(gSL) : gDir == -1 ? "SHORT " + gGrade + " E " + fm(gE) + " SL " + fm(gSL) : "WAIT") + " PX " + fm(close)
     table.cell(panel, 0, 0, code, text_color = color.white, bgcolor = color.black, text_size = size.large, text_font_family = font.family_monospace)
 
     // what to do right now
@@ -484,11 +557,11 @@ if barstate.islast
                                    : "IN " + (gDir == 1 ? "LONG" : "SHORT") + ": stop " + fm(gSL) + " · at " + fm(beLvl) + " move stop to BE · target " + fm(tpLvl))
          : gEvent != "" and bar_index - gEvBar <= 6 ? gEvent
          : not inSess ? "Session closed — no new trades"
-         : lState == 2 ? (lSwept ? "Long: wait for a 5m candle to CLOSE above the last 5m high → ENTER" : "Long: 15m confirmed, but liquidity NOT taken yet — no entry until stops are swept")
-         : sState == 2 ? (sSwept ? "Short: wait for a 5m candle to CLOSE below the last 5m low → ENTER" : "Short: 15m confirmed, but liquidity NOT taken yet — no entry until stops are swept")
+         : lState == 2 ? (lSwept ? "Long: wait for a 5m candle to CLOSE above the last 5m high → ENTER (A+)" : lTouch == 1 ? "Long: no sweep yet — a 5m close above the last 5m high is an A entry (A+ needs the sweep)" : "Long: second visit — no entry until liquidity is swept")
+         : sState == 2 ? (sSwept ? "Short: wait for a 5m candle to CLOSE below the last 5m low → ENTER (A+)" : sTouch == 1 ? "Short: no sweep yet — a 5m close below the last 5m low is an A entry (A+ needs the sweep)" : "Short: second visit — no entry until liquidity is swept")
          : lState == 1 ? "Long: in the demand zone — wait for a 15m break of structure up"
          : sState == 1 ? "Short: in the supply zone — wait for a 15m break of structure down"
-         : "Wait — price isn't at a fresh 4H zone. Nothing to do."
+         : "Wait — price isn't at a 4H zone. Nothing to do."
     color doCol = gDir != 0 ? (gBE ? color.lime : color.orange) : lState == 2 or sState == 2 ? color.yellow : color.silver
     table.cell(panel, 0, 1, doNow, text_color = doCol, text_size = size.normal)
 
@@ -501,19 +574,20 @@ if barstate.islast
     table.cell(panel, 1, 2, "", text_size = size.small)
     table.cell(panel, 0, 3, ok(inT or (isL ? hTrend == 1 : hTrend == -1)) + " 1  4H trend", text_color = c4h, text_size = size.small)
     table.cell(panel, 1, 3, hTrend == 1 ? "UP" : hTrend == -1 ? "DOWN" : "none yet", text_color = hTrend == 1 ? color.lime : hTrend == -1 ? color.red : color.silver, text_size = size.small)
-    table.cell(panel, 0, 4, ok(inT or stt > 0) + " 2  fresh 4H zone touched", text_color = c4h, text_size = size.small)
-    table.cell(panel, 1, 4, inT ? "fresh" : stt > 0 ? ((isL ? lTouch : sTouch) == 1 ? "fresh" : "touched before") : "waiting", text_color = color.white, text_size = size.small)
-    table.cell(panel, 0, 5, ok(inT or (stt > 0 and (isL ? lSwept : sSwept))) + " 3  liquidity taken", text_color = color.white, text_size = size.small)
-    table.cell(panel, 1, 5, inT ? gSw : stt > 0 and (isL ? lSwept : sSwept) ? (isL ? lSwName : sSwName) : "waiting", text_color = color.white, text_size = size.small)
+    int vis = isL ? lTouch : sTouch
+    table.cell(panel, 0, 4, ok(inT or stt > 0) + " 2  4H zone touched", text_color = c4h, text_size = size.small)
+    table.cell(panel, 1, 4, inT ? "done" : stt > 0 ? (vis == 1 ? "first visit" : "visit " + str.tostring(vis) + " — needs a sweep") : "waiting", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 5, ok(inT ? gGrade == "A+" : stt > 0 and (isL ? lSwept : sSwept)) + " 3  liquidity taken (A+)", text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 5, inT ? (gGrade == "A+" ? gSw : "no sweep — A setup") : stt > 0 and (isL ? lSwept : sSwept) ? (isL ? lSwName : sSwName) : "waiting", text_color = color.white, text_size = size.small)
     table.cell(panel, 0, 6, ok(inT or stt == 2) + " 4  15m break of structure", text_color = c15, text_size = size.small)
     table.cell(panel, 1, 6, inT or stt == 2 ? "done" : "waiting", text_color = color.white, text_size = size.small)
     table.cell(panel, 0, 7, ok(gDir != 0) + " 5  5m candle close → ENTER", text_color = c5, text_size = size.small)
     table.cell(panel, 1, 7, gDir != 0 ? "entered " + fm(gE) : "waiting", text_color = color.white, text_size = size.small)
 
     table.cell(panel, 0, 8, "Demand", text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 8, dValid ? fm(dBot) + " – " + fm(dTop) + (dTouches == 0 ? "  fresh" : "  touched " + str.tostring(dTouches) + "×") : "none", text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 8, nearestZoneText(dems, true), text_color = color.white, text_size = size.small)
     table.cell(panel, 0, 9, "Supply", text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 9, sValid ? fm(sBot) + " – " + fm(sTop) + (sTouches == 0 ? "  fresh" : "  touched " + str.tostring(sTouches) + "×") : "none", text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 9, nearestZoneText(sups, false), text_color = color.white, text_size = size.small)
     table.cell(panel, 0, 10, "Session", text_color = color.silver, text_size = size.small)
     table.cell(panel, 1, 10, inSess ? "open" : "closed — no trades", text_color = inSess ? color.lime : color.gray, text_size = size.small)
     table.cell(panel, 0, 11, "Exits", text_color = color.silver, text_size = size.small)

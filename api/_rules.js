@@ -21,7 +21,8 @@ function gradeSetup(setup, ctx) {
 
   const checks = [
     { id: "trend", label: "4H trend points your way (break of structure)", pass: Number(setup.trend4h) === sign(dir) },
-    { id: "zone", label: "Fresh 4H supply/demand zone (first touch)", pass: setup.zoneFresh !== false },
+    // a second visit to the zone is fine once liquidity was taken on it
+    { id: "zone", label: "4H supply/demand zone: first visit, or a later visit with liquidity taken", pass: setup.zoneFresh !== false || setup.sweep === true },
     {
       id: "liquidity", label: "Liquidity taken first (stops swept, then reclaimed)", pass: setup.sweep !== false,
       note: setup.sweepName ? `${setup.sweepName}${setup.sweepLvl != null ? " " + setup.sweepLvl : ""}` : setup.sweep === false ? "no sweep yet — price may come back for it" : "",
