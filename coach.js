@@ -14,9 +14,10 @@
 
   const settings = () => (window.Edge && window.Edge.state() ? window.Edge.state().settings : { coachIdleSec: 60, coachTradeSec: 20, beAtR: 2, tpAtR: 3.2 });
 
-  const engineHtml = () => `<div class="seg" style="margin:0 0 12px;grid-template-columns:1fr 1fr" id="cEngine">
-      <button type="button" class="${engine === "reader" ? "on p1" : ""}" data-e="reader">Chart reader (free)</button>
-      <button type="button" class="${engine === "ai" ? "on z" : ""}" data-e="ai">AI coach (Claude key)</button></div>`;
+  const engineHtml = () => `<div class="seg" style="margin:0 0 12px" id="cEngine">
+      <button type="button" class="${engine === "reader" ? "on p1" : ""}" data-e="reader">Chart reader</button>
+      <button type="button" class="${engine === "practice" ? "on p1" : ""}" data-e="practice">Practice (FX Replay)</button>
+      <button type="button" class="${engine === "ai" ? "on z" : ""}" data-e="ai">AI coach</button></div>`;
   function bindEngine() {
     root.querySelectorAll("#cEngine [data-e]").forEach((b) => b.addEventListener("click", () => {
       if (b.dataset.e === engine) return;
@@ -27,6 +28,12 @@
   }
 
   function render() {
+    if (engine === "practice" && window.EdgePractice) {
+      root.innerHTML = engineHtml() + `<div id="practiceRoot"></div>`;
+      bindEngine();
+      window.EdgePractice.mount($("#practiceRoot"));
+      return;
+    }
     if (engine === "reader" && window.EdgeReader) {
       root.innerHTML = engineHtml() + `<div id="readerRoot"></div>`;
       bindEngine();

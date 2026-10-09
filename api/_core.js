@@ -12,6 +12,7 @@ const { parts } = require("./_time");
 const num = (x) => (x == null || x === "" || !Number.isFinite(Number(x)) ? null : Number(x));
 const fx = (x) => (x == null ? "—" : Number(x) >= 100 ? Number(x).toFixed(2) : Number(x).toFixed(3));
 const id = () => crypto.randomBytes(6).toString("hex");
+const PRACTICE_STEPS = ["4H trend", "fresh zone", "liquidity taken", "15m break", "5m close"];
 const BAD_MOODS = { fomo: "FOMO", revenge: "revenge", bored: "boredom" };
 
 // ---------- shared context
@@ -547,6 +548,33 @@ async function action(store, broker, body, now = Date.now()) {
     }
     await store.hset("journal", j.id, j);
     return { ok: true };
+  }
+  if (a === "practiceLog") {
+    // a replay (FX Replay) trade, checked step by step by you — never counts toward real limits or stats
+    const market = body.market, dir = body.dir === "short" ? "short" : "long";
+    const entry = num(body.entry), sl = num(body.sl);
+    if (!MARKETS[market] || entry == null || sl == null || R.sign(dir) * (entry - sl) <= 0) throw new Error("Need market, direction, entry and a stop on the right side.");
+    const s = mergeSettings(await store.get("settings"));
+    const k = R.sign(dir), risk = Math.abs(entry - sl);
+    const steps = {};
+    for (const key of PRACTICE_STEPS) steps[key] = !!(body.steps || {})[key];
+    const missing = PRACTICE_STEPS.filter((key) => !steps[key]);
+    const outcome = ["tp", "be", "sl", "exit"].includes(body.outcome) ? body.outcome : null;
+    if (!outcome) throw new Error("How did it end? Target, break-even, stop, or your exit price.");
+    const exit = outcome === "tp" ? entry + k * s.tpAtR * risk : outcome === "be" ? entry + k * s.beOffsetR * risk : outcome === "sl" ? sl : num(body.exit);
+    if (exit == null) throw new Error("Enter the price you got out at.");
+    const t = {
+      id: `practice:${id()}`, source: "practice", practice: true, market, dir, grade: missing.length ? "unplanned" : "A+",
+      entry, initialSL: sl, currentSL: outcome === "be" ? exit : sl, tp: entry + k * s.tpAtR * risk, beMoved: outcome === "be",
+      steps, liquidity: String(body.liquidity || "").slice(0, 40), emotion: ["calm", "fomo", "revenge", "bored"].includes(body.emotion) ? body.emotion : "calm",
+      openedAt: num(body.openedAt) || now, ruleBreaks: missing.map((m) => `skipped: ${m}`), maxR: null,
+    };
+    const resultR = R.round(R.rAt(t, exit));
+    if (outcome === "exit" && resultR > 0 && resultR < s.tpAtR - 0.15) t.ruleBreaks.push("closed early (greed/fear)");
+    if (resultR < -1.15) t.ruleBreaks.push("lost more than 1R (stop moved?)");
+    const j = { ...t, exit, closedAt: now, pnl: null, resultR, exitReason: R.exitReason(t, exit, s), note: String(body.note || "").slice(0, 1000) };
+    await store.hset("journal", j.id, j);
+    return { trade: j };
   }
   if (a === "chartSetup") {
     // the free chart reader saw the script's ENTER signal (the script only shows it when every A+ step is done)

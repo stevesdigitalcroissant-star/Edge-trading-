@@ -77,3 +77,21 @@ test("a misread price never touches an open trade", async () => {
   assert.equal(st.open.length, 1);
   assert.equal(st.open[0].id, trade.id);
 });
+
+test("practice trades (FX Replay) are logged apart, with skipped steps as rule breaks", async () => {
+  const store = memory();
+  const now = NY(9);
+  const all = { "4H trend": true, "fresh zone": true, "liquidity taken": true, "15m break": true, "5m close": true };
+  const a = await core.action(store, broker, { action: "practiceLog", market: "gold", dir: "long", entry: 2400, sl: 2390, steps: all, outcome: "tp" }, now);
+  assert.equal(a.trade.grade, "A+");
+  assert.equal(a.trade.resultR, 3.2);
+  assert.equal(a.trade.exitReason, "target");
+  const b = await core.action(store, broker, { action: "practiceLog", market: "crude", dir: "short", entry: 70, sl: 70.5, steps: { ...all, "liquidity taken": false }, outcome: "exit", exit: 69.5 }, now + 1);
+  assert.equal(b.trade.grade, "unplanned");
+  assert.deepEqual(b.trade.ruleBreaks, ["skipped: liquidity taken", "closed early (greed/fear)"]);
+  await assert.rejects(core.action(store, broker, { action: "practiceLog", market: "gold", dir: "long", entry: 2400, sl: 2390, steps: all }, now), /How did it end/);
+  const st = await core.state(store, broker, now + 2);
+  assert.equal(st.journal.length, 0); // real stats untouched
+  assert.equal(st.practice.length, 2);
+  assert.equal(st.practiceStats.aPlus.totalR, 3.2);
+});

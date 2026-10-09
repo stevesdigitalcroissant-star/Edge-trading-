@@ -22,7 +22,7 @@
     catch (e) { toast(e.message, 7000); return null; }
   }
 
-  window.Edge = { token: () => token, state: () => S, toast, go: (t) => { tab = t; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#" + tab); refresh(); scrollTo(0, 0); } };
+  window.Edge = { token: () => token, state: () => S, toast, refresh: () => refresh(), go: (t) => { tab = t; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#" + tab); refresh(); scrollTo(0, 0); } };
 
   // ---------- notifications on this device (Web Push; iPhone/iPad need Edge on the Home Screen)
   const TABS = ["now", "coach", "setups", "bias", "journal", "rules"];

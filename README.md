@@ -133,6 +133,18 @@ news reminders are checked on every 5-minute TradingView heartbeat, so keep the 
 The Coach (screen watching) needs a computer, because iPhone and iPad browsers can't share a screen. Its
 "act now" alerts still arrive on your phone.
 
+## Practice on FX Replay (free)
+
+FX Replay can't run TradingView scripts, so the practice screen (**Coach →
+Practice (FX Replay)**) makes you find the five steps yourself and tick them:
+4H trend → fresh zone touched → liquidity taken (which one) → 15m break → 5m
+close. **I entered** only unlocks at 5/5. Type entry and stop and Edge gives the
+take-profit (3.2R) and the break-even price (2R) to set in FX Replay; type the
+replay price as you go and it tells you what to do. Log how it ended (target,
+break-even, stop, or your exit) — skipped steps and early exits are recorded as
+rule breaks. Practice results live in Journal → Practice and never touch your
+real stats. Works on the iPad and phone too.
+
 ## Free chart reader — no webhook, no AI key (TradingView free plan)
 
 The script does the analysis on your chart and shows every step in its panel
