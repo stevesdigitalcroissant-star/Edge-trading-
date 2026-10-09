@@ -5,7 +5,7 @@
 // CLOSED candles, like the script (no repainting, no peeking ahead).
 (function (root) {
   const DEFAULTS = {
-    htfLen: 3, mtfLen: 2, ltfLen: 2, maxWait: 48, zoneCap: 1.5,
+    htfLen: 3, mtfLen: 2, ltfLen: 2, maxWait: 48, zoneCap: 1.5, entryMode: "bos", // "bos" = 5m break of structure · "close" = first 5m close in your direction after the 15m break
     beR: 2, tpR: 3.2, beOffR: 0.05, slBufAtr: 0.2, minStopAtr: 0.5, maxStopAtr: 6,
     session: ["03:00", "12:00"], asia: ["18:00", "02:00"], flatBy: "16:40", // out of everything by then (your close-out rule)
   };
@@ -135,7 +135,7 @@
       if (lUp && l.upLvl != null) events.push({ i, type: "bos", tf: "5m", dir: 1, lvl: l.upLvl, from: l.upFrom, to: l.upT });
       if (lDn && l.dnLvl != null) events.push({ i, type: "bos", tf: "5m", dir: -1, lvl: l.dnLvl, from: l.dnFrom, to: l.dnT });
 
-      const longSig = lState === 2 && lUp, shortSig = sState === 2 && lDn;
+      const longSig = lState === 2 && (P.entryMode === "close" ? b.c > b.o : lUp), shortSig = sState === 2 && (P.entryMode === "close" ? b.c < b.o : lDn);
       const lSL = Math.min(lLow ?? b.l, b.l) - P.slBufAtr * (atr5 || 0), lRisk = b.c - lSL;
       const lRoom = sValid && sBot > b.c && lRisk > 0 ? (sBot - b.c) / lRisk : null;
       const sSL = Math.max(sHigh ?? b.h, b.h) + P.slBufAtr * (atr5 || 0), sRisk = sSL - b.c;
