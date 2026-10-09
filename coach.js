@@ -7,14 +7,34 @@
   const root = $("#coach");
   const canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
   let stream = null, video = null, timer = null, busy = false, lastSent = 0, lastThumb = null, last = null, inTrade = false;
+  let engine = "reader";
+  try { engine = localStorage.getItem("edge.coachEngine") || "reader"; } catch {}
   let mode = "live", muted = false, spokenAt = 0, spoken = "", history = [], pip = null, errors = 0;
   try { mode = localStorage.getItem("edge.coachMode") || "live"; muted = localStorage.getItem("edge.mute") === "1"; } catch {}
 
   const settings = () => (window.Edge && window.Edge.state() ? window.Edge.state().settings : { coachIdleSec: 60, coachTradeSec: 20, beAtR: 2, tpAtR: 3.2 });
 
+  const engineHtml = () => `<div class="seg" style="margin:0 0 12px;grid-template-columns:1fr 1fr" id="cEngine">
+      <button type="button" class="${engine === "reader" ? "on p1" : ""}" data-e="reader">Chart reader (free)</button>
+      <button type="button" class="${engine === "ai" ? "on z" : ""}" data-e="ai">AI coach (Claude key)</button></div>`;
+  function bindEngine() {
+    root.querySelectorAll("#cEngine [data-e]").forEach((b) => b.addEventListener("click", () => {
+      if (b.dataset.e === engine) return;
+      if ((engine === "reader" && window.EdgeReader && window.EdgeReader.active()) || (engine === "ai" && stream)) return window.Edge.toast("Stop the one that's running first.");
+      engine = b.dataset.e; try { localStorage.setItem("edge.coachEngine", engine); } catch {}
+      render();
+    }));
+  }
+
   function render() {
+    if (engine === "reader" && window.EdgeReader) {
+      root.innerHTML = engineHtml() + `<div id="readerRoot"></div>`;
+      bindEngine();
+      window.EdgeReader.mount($("#readerRoot"));
+      return;
+    }
     const s = settings();
-    root.innerHTML = `
+    root.innerHTML = engineHtml() + `
       <section class="card">
         <div class="row between"><h2 style="margin:0">Coach — watches your chart with you</h2>
           <span class="pill ${stream ? "good" : ""}">${stream ? "● watching" : "off"}</span></div>
@@ -69,6 +89,7 @@
   }
 
   function bind() {
+    bindEngine();
     root.querySelectorAll("#cMode [data-m]").forEach((b) => b.addEventListener("click", () => {
       mode = b.dataset.m; try { localStorage.setItem("edge.coachMode", mode); } catch {}
       last = null; inTrade = false; render();

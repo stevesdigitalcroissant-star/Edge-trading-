@@ -61,36 +61,60 @@ async function handleHook(store, broker, body, now = Date.now()) {
   }
 
   if (msg.type === "setup") {
-    const s = mergeSettings(await store.get("settings"));
-    const setup = {
-      id: id(), market, symbol: msg.symbol, tv: msg.tv, dir: msg.dir === "short" ? "short" : "long",
-      entry: num(msg.entry), sl: num(msg.sl), tp: num(msg.tp), trend4h: num(msg.trend4h),
-      zoneFresh: msg.zoneFresh !== false && msg.zoneFresh !== "false",
-      bos15: msg.bos15 !== false && msg.bos15 !== "false",
-      close5: msg.close5 !== false && msg.close5 !== "false",
-      stopOk: msg.stopOk !== false && msg.stopOk !== "false",
-      roomR: num(msg.roomR), zoneTop: num(msg.zoneTop), zoneBot: num(msg.zoneBot),
-      lvl4h: num(msg.lvl4h), lvl15: num(msg.lvl15), lvl5: num(msg.lvl5), opp: num(msg.opp),
-      sweep: msg.sweep === undefined ? undefined : msg.sweep === true || msg.sweep === "true", sweepName: String(msg.sweepName || "").slice(0, 40), sweepLvl: num(msg.sweepLvl),
-      at: now, expires: now + s.setupExpiryMin * 60e3, status: "open",
-    };
-    if (setup.entry == null || setup.sl == null || setup.entry === setup.sl) return { status: 400, json: { error: "setup needs entry and sl" } };
-    await store.hset("setups", setup.id, setup);
-    await pruneSetups(store, now);
-    const ctx = await context(store, now);
-    const g = gradeNow(setup, ctx);
-    setup.gradeAtAlert = g.grade;
-    await store.hset("setups", setup.id, setup);
-    const name = MARKETS[market].name;
-    const head = `${g.grade} ${setup.dir.toUpperCase()} ${name} @ ${fx(setup.entry)}  SL ${fx(setup.sl)}`;
-    const text = g.take.ok
-      ? `✅ ${g.grade} ${MARKETS[market].name} ${setup.dir === "long" ? "BUY" : "SELL"}: ${story(setup, s).short}. Tap to see the picture — valid ${s.setupExpiryMin} min.`
-      : `⛔ ${head}\nSkip it: ${g.take.why[0]}`;
-    await notify(store, text, g.take.ok ? "setup" : "skip");
-    return { status: 200, json: { ok: true, grade: g.grade, takeable: g.take.ok } };
+    const r = await createSetup(store, market, msg, now);
+    if (r.error) return { status: 400, json: { error: r.error } };
+    return { status: 200, json: { ok: true, grade: r.grade, takeable: r.takeable } };
   }
 
   return { status: 400, json: { error: `Unknown alert type: ${msg.type}` } };
+}
+
+// A setup from the TradingView alert or read off the chart: store it, grade it, tell the phone.
+async function createSetup(store, market, msg, now, { source = "alert" } = {}) {
+  const s = mergeSettings(await store.get("settings"));
+  const setup = {
+    id: id(), market, source, symbol: msg.symbol, tv: msg.tv, dir: msg.dir === "short" ? "short" : "long",
+    entry: num(msg.entry), sl: num(msg.sl), tp: num(msg.tp), trend4h: num(msg.trend4h),
+    zoneFresh: msg.zoneFresh !== false && msg.zoneFresh !== "false",
+    bos15: msg.bos15 !== false && msg.bos15 !== "false",
+    close5: msg.close5 !== false && msg.close5 !== "false",
+    stopOk: msg.stopOk !== false && msg.stopOk !== "false",
+    roomR: num(msg.roomR), zoneTop: num(msg.zoneTop), zoneBot: num(msg.zoneBot),
+    lvl4h: num(msg.lvl4h), lvl15: num(msg.lvl15), lvl5: num(msg.lvl5), opp: num(msg.opp),
+    sweep: msg.sweep === undefined ? undefined : msg.sweep === true || msg.sweep === "true", sweepName: String(msg.sweepName || "").slice(0, 40), sweepLvl: num(msg.sweepLvl),
+    at: now, expires: now + s.setupExpiryMin * 60e3, status: "open",
+  };
+  if (setup.entry == null || setup.sl == null || setup.entry === setup.sl) return { error: "setup needs entry and sl" };
+  if (R.sign(setup.dir) * (setup.entry - setup.sl) <= 0) return { error: "the stop is on the wrong side of the entry" };
+  if (setup.tp == null) setup.tp = setup.entry + R.sign(setup.dir) * s.tpAtR * Math.abs(setup.entry - setup.sl);
+  await store.hset("setups", setup.id, setup);
+  await pruneSetups(store, now);
+  const ctx = await context(store, now);
+  const g = gradeNow(setup, ctx);
+  setup.gradeAtAlert = g.grade;
+  await store.hset("setups", setup.id, setup);
+  const name = MARKETS[market].name;
+  const head = `${g.grade} ${setup.dir.toUpperCase()} ${name} @ ${fx(setup.entry)}  SL ${fx(setup.sl)}`;
+  const text = g.take.ok
+    ? `✅ ${g.grade} ${name} ${setup.dir === "long" ? "BUY" : "SELL"}: ${story(setup, s).short}. Tap to see the picture — valid ${s.setupExpiryMin} min.`
+    : `⛔ ${head}\nSkip it: ${g.take.why[0]}`;
+  await notify(store, text, g.take.ok ? "setup" : "skip");
+  return { setup, grade: g.grade, takeable: g.take.ok, why: g.take.why || [] };
+}
+
+// What to do now in an open trade, in one line (the PC trade guide speaks it).
+function guide(t, s, price) {
+  const p = R.plan(t, s);
+  const r = price == null ? t.r : R.round(R.rAt(t, price));
+  const stop = t.currentSL ?? t.initialSL;
+  const bePending = !t.beMoved && (t.maxR || 0) >= s.beAtR;
+  let urgency = "info", text;
+  if (t.tp != null && price != null && R.sign(t.dir) * (price - t.tp) >= 0) { urgency = "act_now"; text = `Target hit — close it now at ${fx(t.tp)}. Don't wait for more.`; }
+  else if (bePending) { urgency = "act_now"; text = `Move your stop to ${fx(p.beStop)} now — break-even. Then tap Done.`; }
+  else if (t.beMoved) text = `Stop is at break-even. Target ${fx(t.tp)}. Hands off — let it work.`;
+  else if (r != null && r < 0) { urgency = "warn"; text = `Down ${Math.abs(r)}R. Your stop at ${fx(stop)} does the job — don't move it, don't add.`; }
+  else text = `Hold. Stop at ${fx(stop)}. At ${fx(p.beTrigger)} (+${s.beAtR}R) move it to break-even.`;
+  return { r, maxR: t.maxR || 0, urgency, text, beTrigger: p.beTrigger, beStop: p.beStop, tp: t.tp, stop };
 }
 
 async function pruneSetups(store, now) {
@@ -524,6 +548,35 @@ async function action(store, broker, body, now = Date.now()) {
     await store.hset("journal", j.id, j);
     return { ok: true };
   }
+  if (a === "chartSetup") {
+    // the free chart reader saw the script's ENTER signal (the script only shows it when every A+ step is done)
+    const market = marketOf(body.symbol || "") || (MARKETS[body.market] ? body.market : null);
+    if (!market) throw new Error("Edge only trades gold, crude oil and natural gas — open one of those charts.");
+    const dir = body.dir === "short" ? "short" : "long";
+    const entry = num(body.entry), sl = num(body.sl);
+    if (entry == null || sl == null || R.sign(dir) * (entry - sl) <= 0) throw new Error("Couldn't read a clean entry and stop — check the numbers.");
+    const all = Object.values((await store.hgetall("setups")) || {});
+    const same = all.find((x) => x && x.market === market && x.dir === dir && x.entry === entry && x.sl === sl && now - x.at < 4 * 3600e3);
+    if (same) return { setupId: same.id, existing: true };
+    const r = await createSetup(store, market, { symbol: String(body.symbol || "").slice(0, 20), dir, entry, sl, trend4h: R.sign(dir), zoneFresh: true, bos15: true, close5: true, stopOk: true, sweep: true, sweepName: "chart" }, now, { source: "chart" });
+    if (r.error) throw new Error(r.error);
+    return { setupId: r.setup.id, grade: r.grade, takeable: r.takeable, why: r.why };
+  }
+  if (a === "chartPrice") {
+    // the free chart reader's live price → the same trade manager the TradingView heartbeat uses
+    const market = marketOf(body.symbol || "") || (MARKETS[body.market] ? body.market : null);
+    const price = num(body.price);
+    if (!market || price == null || price <= 0) throw new Error("Couldn't read the price.");
+    // a misread digit must never close a trade: ignore prices far from your open trade
+    const mine = Object.values((await store.hgetall("trades")) || {}).filter((t) => t.market === market);
+    if (mine.some((t) => Math.abs(price / t.entry - 1) > 0.04)) throw new Error(`Read ${price} off the chart — too far from your trade, ignored. Make the EDGE line bigger or zoom the browser.`);
+    const mark = { price, high: price, low: price, time: now, symbol: String(body.symbol || "").slice(0, 20), bos15: "", source: "screen" };
+    await store.set(`price:${market}`, mark);
+    const res = await syncTrades(store, broker, { now, market, mark, force: true });
+    const s = mergeSettings(await store.get("settings"));
+    const open = Object.values((await store.hgetall("trades")) || {}).filter((t) => t.market === market);
+    return { market, price, closed: res.closed || 0, closedAll: !!res.closedAll, trades: open.map((t) => ({ id: t.id, dir: t.dir, entry: t.entry, grade: t.grade, beMoved: !!t.beMoved, ...guide(t, s, price) })) };
+  }
   if (a === "tvSetup") return { secret: process.env.EDGE_HOOK_SECRET || null };
   if (a === "closeAll") return closeAll(store, broker, { now });
   if (a === "autoBias") return fundamentals.load(store, { force: true, now });
@@ -536,4 +589,4 @@ async function action(store, broker, body, now = Date.now()) {
   throw new Error(`Unknown action: ${a}`);
 }
 
-module.exports = { handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, context, gradeNow, stats };
+module.exports = { guide, createSetup, handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, context, gradeNow, stats };

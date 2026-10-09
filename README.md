@@ -133,6 +133,30 @@ news reminders are checked on every 5-minute TradingView heartbeat, so keep the 
 The Coach (screen watching) needs a computer, because iPhone and iPad browsers can't share a screen. Its
 "act now" alerts still arrive on your phone.
 
+## Free chart reader — no webhook, no AI key (TradingView free plan)
+
+The script does the analysis on your chart and shows every step in its panel
+(top-right): 4H trend → fresh zone touched → liquidity taken → 15m break → 5m
+close. Only when all five are done does it print **▲ ENTER LONG — A+** (or
+SHORT) with the entry, stop, break-even and target drawn. A trigger that misses
+a step gets a grey "skip: no liquidity taken" (or whichever step is missing).
+While the trade runs, the panel's "do now" line and the chart labels tell you
+when to move the stop to break-even and when to close.
+
+The first line of the panel is the **EDGE code**, e.g.
+`EDGE MGC1! LONG E 4207.8 SL 4195.2 PX 4210.1`. On your computer, open Edge →
+**Coach → Chart reader (free)** → **Start reading my chart** and share the
+TradingView window. Edge reads that line off the screen (OCR, in your browser):
+
+- a new ENTER signal → it speaks, and **Take it in Edge** turns it into a setup
+  (your limits, news, mood check still apply) — no typing;
+- the live price → Edge's trade manager: what to do now, out loud, in the
+  **⧉ Float over my chart** window, and as phone notifications (+2R → stop to
+  break-even, target, session end).
+
+It acts only on two identical reads in a row and ignores any price more than 4%
+from your open trade, so a misread can never close anything.
+
 ## Coach — Edge watches your chart with you
 
 Open Edge **on your computer** (Chrome or Edge) → **Coach** tab → *Start watching my chart*. Then pick the

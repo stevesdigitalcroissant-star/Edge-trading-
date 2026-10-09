@@ -352,7 +352,9 @@ if sendBars and barstate.isconfirmed
     alert('{"secret":"' + secret + '","type":"bar","symbol":"' + syminfo.ticker + '","price":' + f(close) + ',"high":' + f(high) + ',"low":' + f(low) + ',"bos15":"' + bos + '"}', alert.freq_once_per_bar_close)
 
 // ---------- Drawing
-drawPlan(bool isLong, float entry, float sl, string grade) =>
+fm(float x) => str.tostring(x, format.mintick)
+
+drawPlan(bool isLong, float entry, float sl) =>
     float risk = math.abs(entry - sl)
     float k = isLong ? 1.0 : -1.0
     float be = entry + k * beR * risk
@@ -362,25 +364,71 @@ drawPlan(bool isLong, float entry, float sl, string grade) =>
     line.new(bar_index, sl, r, sl, color = color.red, width = 2, force_overlay = true)
     line.new(bar_index, be, r, be, color = color.orange, style = line.style_dashed, force_overlay = true)
     line.new(bar_index, tp, r, tp, color = color.green, width = 2, force_overlay = true)
-    label.new(r, be, "BE at " + str.tostring(beR) + "R", style = label.style_label_left, color = color.new(color.orange, 70), textcolor = color.white, size = size.tiny, force_overlay = true)
-    label.new(r, tp, "TP " + str.tostring(tpR) + "R", style = label.style_label_left, color = color.new(color.green, 60), textcolor = color.white, size = size.tiny, force_overlay = true)
-    label.new(bar_index, isLong ? low : high, (isLong ? "LONG " : "SHORT ") + grade, style = isLong ? label.style_label_up : label.style_label_down,
-         color = grade == "A+" ? color.new(color.green, 0) : color.new(color.gray, 0), textcolor = color.white, size = size.small, force_overlay = true)
+    label.new(r, sl, "SL " + fm(sl), style = label.style_label_left, color = color.new(color.red, 60), textcolor = color.white, size = size.tiny, force_overlay = true)
+    label.new(r, be, "at " + fm(be) + " → stop to BE (" + str.tostring(beR) + "R)", style = label.style_label_left, color = color.new(color.orange, 70), textcolor = color.white, size = size.tiny, force_overlay = true)
+    label.new(r, tp, "TP " + fm(tp) + " (" + str.tostring(tpR) + "R) — full exit", style = label.style_label_left, color = color.new(color.green, 60), textcolor = color.white, size = size.tiny, force_overlay = true)
+    label.new(bar_index, isLong ? low : high, (isLong ? "▲ ENTER LONG — A+\n" : "▼ ENTER SHORT — A+\n") + "entry " + fm(entry) + " · SL " + fm(sl),
+         style = isLong ? label.style_label_up : label.style_label_down, color = isLong ? color.new(color.green, 0) : color.new(color.red, 0), textcolor = color.white, size = size.normal, force_overlay = true)
 
 drawSweep(float lv, string nm, int fromBar) =>
     line.new(fromBar, lv, bar_index, lv, color = color.new(color.white, 30), style = line.style_dashed, force_overlay = true)
     label.new(fromBar, lv, "$$$ " + nm + " taken", style = label.style_label_right, color = color.new(color.white, 80), textcolor = color.white, size = size.tiny, force_overlay = true)
+
+// why a 5m trigger is NOT an A+ entry ("" = every step is done)
+whyNot(bool swept, bool fresh, bool stopOk, bool roomOk) =>
+    not swept ? "no liquidity taken" : not fresh ? "zone already touched" : not stopOk ? "stop size not normal" : not roomOk ? "no room to " + str.tostring(tpR) + "R" : not inSess ? "outside the session" : ""
+string lWhy = whyNot(lSwept, lFresh, lStopOk, lRoomOk)
+string sWhy = whyNot(sSwept, sFresh, sStopOk, sRoomOk)
+bool lEnter = longSig and lRisk > 0 and lWhy == ""
+bool sEnter = shortSig and sRisk > 0 and sWhy == "" and not lEnter
+
 if longSig and lSwept
     drawSweep(lSwLvl, lSwName, lBar)
 if shortSig and sSwept
     drawSweep(sSwLvl, sSwName, sBar)
-bool lTechA = lFresh and lRoomOk and lStopOk and lSwept
-bool sTechA = sFresh and sRoomOk and sStopOk and sSwept
-if longSig and lRisk > 0
-    drawPlan(true, close, lSL, lTechA ? "A+" : "check")
-if shortSig and sRisk > 0
-    drawPlan(false, close, sSL, sTechA ? "A+" : "check")
+if lEnter
+    drawPlan(true, close, lSL)
+else if longSig and lRisk > 0
+    label.new(bar_index, low, "long trigger — skip: " + lWhy, style = label.style_label_up, color = color.new(color.gray, 30), textcolor = color.white, size = size.tiny, force_overlay = true)
+if sEnter
+    drawPlan(false, close, sSL)
+else if shortSig and sRisk > 0
+    label.new(bar_index, high, "short trigger — skip: " + sWhy, style = label.style_label_down, color = color.new(color.gray, 30), textcolor = color.white, size = size.tiny, force_overlay = true)
 
+// ---------- The A+ trade, followed candle by candle (tells you what to do while you're in it)
+var int gDir = 0
+var float gE = na
+var float gSL = na
+var float gRisk = na
+var bool gBE = false
+var int gBar = 0
+var string gEvent = ""
+var int gEvBar = 0
+if gDir != 0 and bar_index > gBar
+    float tpLvl = gE + gDir * tpR * gRisk
+    float stopNow = gBE ? gE + gDir * beOffR * gRisk : gSL
+    bool hitStop = gDir == 1 ? low <= stopNow : high >= stopNow
+    bool hitTp = gDir == 1 ? high >= tpLvl : low <= tpLvl
+    if hitStop
+        gEvBar := bar_index
+        gEvent := gBE ? "Out at break-even — no loss. Done." : "Stopped out: -1R. That's the plan working. No revenge."
+        label.new(bar_index, gDir == 1 ? low : high, gBE ? "BE stop — out flat" : "stopped −1R", style = gDir == 1 ? label.style_label_up : label.style_label_down, color = color.new(color.gray, 20), textcolor = color.white, size = size.small, force_overlay = true)
+        gDir := 0
+    else if hitTp
+        gEvBar := bar_index
+        gEvent := "Target hit: +" + str.tostring(tpR) + "R. Close it — done for this one."
+        label.new(bar_index, gDir == 1 ? high : low, "🎯 TARGET " + str.tostring(tpR) + "R — CLOSE", style = gDir == 1 ? label.style_label_down : label.style_label_up, color = color.new(color.green, 0), textcolor = color.white, size = size.normal, force_overlay = true)
+        gDir := 0
+    else if not gBE and (gDir == 1 ? high >= gE + beR * gRisk : low <= gE - beR * gRisk)
+        gBE := true
+        label.new(bar_index, gDir == 1 ? high : low, "🔒 +" + str.tostring(beR) + "R — MOVE STOP TO " + fm(gE + gDir * beOffR * gRisk), style = gDir == 1 ? label.style_label_down : label.style_label_up, color = color.new(color.orange, 0), textcolor = color.white, size = size.normal, force_overlay = true)
+if lEnter or sEnter
+    gDir := lEnter ? 1 : -1
+    gE := close
+    gSL := lEnter ? lSL : sSL
+    gRisk := math.abs(close - gSL)
+    gBE := false
+    gBar := bar_index
 
 // ---------- Backtest with the same rules
 bool lOk = (not needFresh or lFresh) and (not needRoom or lRoomOk) and (not needSweep or lSwept) and lStopOk and inSess
@@ -417,27 +465,60 @@ if tDir == -1
     strategy.exit("SX", from_entry = "S", stop = tBE ? tEntry - beOffR * tRisk : tEntry + tRisk, limit = tEntry - tpR * tRisk)
 
 // ---------- Status panel
-var table panel = table.new(position.top_right, 2, 9, bgcolor = color.new(color.black, 20), border_width = 1, force_overlay = true)
+// Row 1 is the "EDGE code": Edge on your computer reads it off the screen (Coach → Chart reader).
+var table panel = table.new(position.top_right, 2, 16, bgcolor = color.new(color.black, 15), border_width = 1, force_overlay = true)
+if barstate.isfirst
+    table.merge_cells(panel, 0, 0, 1, 0)
+    table.merge_cells(panel, 0, 1, 1, 1)
+ok(bool x) => x ? "✓" : "…"
 if barstate.islast
-    string st = lState == 1 ? "Long: zone touched — wait for 15m BOS" : lState == 2 ? "Long: 15m confirmed — wait for 5m entry" :
-         sState == 1 ? "Short: zone touched — wait for 15m BOS" : sState == 2 ? "Short: 15m confirmed — wait for 5m entry" : "Waiting for price to reach a zone"
-    table.cell(panel, 0, 0, "4H trend", text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 0, hTrend == 1 ? "UP" : hTrend == -1 ? "DOWN" : "—", text_color = hTrend == 1 ? color.lime : hTrend == -1 ? color.red : color.silver, text_size = size.small)
-    table.cell(panel, 0, 1, "Demand", text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 1, dValid ? f(dBot) + " – " + f(dTop) + (dTouches == 0 ? "  fresh" : "  touched " + str.tostring(dTouches) + "×") : "none", text_color = color.white, text_size = size.small)
-    table.cell(panel, 0, 2, "Supply", text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 2, sValid ? f(sBot) + " – " + f(sTop) + (sTouches == 0 ? "  fresh" : "  touched " + str.tostring(sTouches) + "×") : "none", text_color = color.white, text_size = size.small)
-    table.cell(panel, 0, 3, "Now", text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 3, st, text_color = color.yellow, text_size = size.small)
-    table.cell(panel, 0, 4, "Session", text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 4, inSess ? "open" : "closed — no trades", text_color = inSess ? color.lime : color.gray, text_size = size.small)
-    table.cell(panel, 0, 5, "Exits", text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 5, "BE at " + str.tostring(beR) + "R · TP " + str.tostring(tpR) + "R", text_color = color.white, text_size = size.small)
-    table.cell(panel, 0, 6, "■ 4H", text_color = c4h, text_size = size.small)
-    table.cell(panel, 1, 6, "zones + trend break", text_color = c4h, text_size = size.small)
-    table.cell(panel, 0, 7, "■ 15m", text_color = c15, text_size = size.small)
-    table.cell(panel, 1, 7, "confirmation break", text_color = c15, text_size = size.small)
-    table.cell(panel, 0, 8, "■ 5m", text_color = c5, text_size = size.small)
-    table.cell(panel, 1, 8, "entry break", text_color = c5, text_size = size.small)
+    string code = "EDGE " + syminfo.ticker + " " + (gDir == 1 ? "LONG E " + fm(gE) + " SL " + fm(gSL) : gDir == -1 ? "SHORT E " + fm(gE) + " SL " + fm(gSL) : "WAIT") + " PX " + fm(close)
+    table.cell(panel, 0, 0, code, text_color = color.white, bgcolor = color.black, text_size = size.large, text_font_family = font.family_monospace)
+
+    // what to do right now
+    float tpLvl = gE + gDir * tpR * gRisk
+    float beLvl = gE + gDir * beR * gRisk
+    string doNow = gDir != 0 ? (gBE ? "IN " + (gDir == 1 ? "LONG" : "SHORT") + ": stop at break-even " + fm(gE + gDir * beOffR * gRisk) + " · target " + fm(tpLvl) + " — hands off"
+                                   : "IN " + (gDir == 1 ? "LONG" : "SHORT") + ": stop " + fm(gSL) + " · at " + fm(beLvl) + " move stop to BE · target " + fm(tpLvl))
+         : gEvent != "" and bar_index - gEvBar <= 6 ? gEvent
+         : not inSess ? "Session closed — no new trades"
+         : lState == 2 ? (lSwept ? "Long: wait for a 5m candle to CLOSE above the last 5m high → ENTER" : "Long: 15m confirmed, but liquidity NOT taken yet — no entry until stops are swept")
+         : sState == 2 ? (sSwept ? "Short: wait for a 5m candle to CLOSE below the last 5m low → ENTER" : "Short: 15m confirmed, but liquidity NOT taken yet — no entry until stops are swept")
+         : lState == 1 ? "Long: in the demand zone — wait for a 15m break of structure up"
+         : sState == 1 ? "Short: in the supply zone — wait for a 15m break of structure down"
+         : "Wait — price isn't at a fresh 4H zone. Nothing to do."
+    color doCol = gDir != 0 ? (gBE ? color.lime : color.orange) : lState == 2 or sState == 2 ? color.yellow : color.silver
+    table.cell(panel, 0, 1, doNow, text_color = doCol, text_size = size.normal)
+
+    // the steps, in order (for the setup that's forming, or the 4H trend's side when nothing is)
+    bool isL = lState > 0 or (sState == 0 and hTrend == 1)
+    int stt = isL ? lState : sState
+    table.cell(panel, 0, 2, isL ? "LONG steps" : hTrend == -1 or sState > 0 ? "SHORT steps" : "Steps", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 2, "", text_size = size.small)
+    table.cell(panel, 0, 3, ok(isL ? hTrend == 1 : hTrend == -1) + " 1  4H trend", text_color = c4h, text_size = size.small)
+    table.cell(panel, 1, 3, hTrend == 1 ? "UP" : hTrend == -1 ? "DOWN" : "none yet", text_color = hTrend == 1 ? color.lime : hTrend == -1 ? color.red : color.silver, text_size = size.small)
+    table.cell(panel, 0, 4, ok(stt > 0) + " 2  fresh 4H zone touched", text_color = c4h, text_size = size.small)
+    table.cell(panel, 1, 4, stt > 0 ? ((isL ? lTouch : sTouch) == 1 ? "fresh" : "touched before") : "waiting", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 5, ok(stt > 0 and (isL ? lSwept : sSwept)) + " 3  liquidity taken", text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 5, stt > 0 and (isL ? lSwept : sSwept) ? (isL ? lSwName : sSwName) : "waiting", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 6, ok(stt == 2) + " 4  15m break of structure", text_color = c15, text_size = size.small)
+    table.cell(panel, 1, 6, stt == 2 ? "done" : "waiting", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 7, ok(gDir != 0) + " 5  5m candle close → ENTER", text_color = c5, text_size = size.small)
+    table.cell(panel, 1, 7, gDir != 0 ? "entered " + fm(gE) : "waiting", text_color = color.white, text_size = size.small)
+
+    table.cell(panel, 0, 8, "Demand", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 8, dValid ? fm(dBot) + " – " + fm(dTop) + (dTouches == 0 ? "  fresh" : "  touched " + str.tostring(dTouches) + "×") : "none", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 9, "Supply", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 9, sValid ? fm(sBot) + " – " + fm(sTop) + (sTouches == 0 ? "  fresh" : "  touched " + str.tostring(sTouches) + "×") : "none", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 10, "Session", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 10, inSess ? "open" : "closed — no trades", text_color = inSess ? color.lime : color.gray, text_size = size.small)
+    table.cell(panel, 0, 11, "Exits", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 11, "BE at " + str.tostring(beR) + "R · TP " + str.tostring(tpR) + "R", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 12, "■ 4H", text_color = c4h, text_size = size.small)
+    table.cell(panel, 1, 12, "zones + trend break", text_color = c4h, text_size = size.small)
+    table.cell(panel, 0, 13, "■ 15m", text_color = c15, text_size = size.small)
+    table.cell(panel, 1, 13, "confirmation break", text_color = c15, text_size = size.small)
+    table.cell(panel, 0, 14, "■ 5m", text_color = c5, text_size = size.small)
+    table.cell(panel, 1, 14, "entry break", text_color = c5, text_size = size.small)
     if timeframe.period != "5"
-        table.cell(panel, 1, 3, "Use a 5-minute chart", text_color = color.orange, text_size = size.small)
+        table.cell(panel, 0, 1, "Use a 5-minute chart — the steps are built for it", text_color = color.orange, text_size = size.normal)
