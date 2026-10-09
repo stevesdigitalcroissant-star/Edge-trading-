@@ -524,7 +524,7 @@
         <ol class="steps">
           <li>Tap <b>Copy the Edge script</b> below.</li>
           <li>On a computer, open TradingView → a <b>5-minute</b> chart of <code>MGC1!</code> (then <code>MCL1!</code>, <code>QG1!</code>).</li>
-          <li>Bottom panel → <b>Pine Editor</b> → select all, paste → <b>Save</b> → <b>Add to chart</b>.</li>
+          <li>Bottom panel → <b>Pine Editor</b> → <b>delete everything already there</b> (Ctrl+A / ⌘A, then Delete), paste → <b>Save</b> → <b>Add to chart</b>.</li>
           <li><b>Alert</b> (clock icon) → Condition: <i>Edge S&amp;D</i> → <b>alert() function calls only</b> → Notifications → tick <b>Webhook URL</b> and paste the address below → Create.</li>
           <li>Do the same alert on the other two charts. Done — the first 5-minute candle will show up in Edge.</li>
         </ol>
@@ -617,7 +617,7 @@
         const [{ secret }, src] = await Promise.all([api("POST", { action: "tvSetup" }), fetch("/pine/edge_supply_demand.pine", { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("Couldn't load the script"); return r.text(); })]);
         const code = secret ? src.replace('input.string("change-me"', `input.string(${JSON.stringify(secret)}`) : src;
         await navigator.clipboard.writeText(code);
-        toast(secret ? "Script copied — with your secret inside. Paste it in TradingView's Pine Editor." : "Script copied. Set EDGE_HOOK_SECRET in Vercel, then put it in the script's settings.", 6000);
+        toast(secret ? "Script copied — with your secret inside. In TradingView's Pine Editor press Ctrl+A (⌘A on Mac), Delete, then paste." : "Script copied. Set EDGE_HOOK_SECRET in Vercel, then put it in the script's settings.", 6000);
       } catch (e) { toast(e.message || "Couldn't copy — open it on a computer and try again.", 6000); }
     });
     const chk = $("#copyHook"); if (chk) chk.addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.origin + "/api/hook"); toast("Webhook URL copied."); } catch { toast(location.origin + "/api/hook", 8000); } });

@@ -207,7 +207,7 @@ You open Edge → say how you feel → Confirm
 
 ### 2. TradingView
 1. Open a 5m chart of `OANDA:XAUUSD`, `OANDA:WTICOUSD` or `OANDA:NATGASUSD` (other symbols for gold, oil and gas work too).
-2. Go to **Pine Editor**, paste in `pine/edge_supply_demand.pine` → **Add to chart**.
+2. Go to **Pine Editor**, delete the starter code that is already there (Ctrl+A, Delete), then paste in `pine/edge_supply_demand.pine` → **Add to chart**.
 3. In the script's settings: under **Webhook secret**, enter the same word as `EDGE_HOOK_SECRET`. Set the session to `0300-1200` for gold and `0800-1430` for oil and gas.
 4. Create an **alert**. Condition: *Edge S&D* → **"alert() function calls only"**. Under Notifications, tick **Webhook URL** and enter `https://<your-app>/api/hook`.
 5. Repeat for each market (one chart and one alert each).
