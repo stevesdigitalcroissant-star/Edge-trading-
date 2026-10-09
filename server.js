@@ -16,12 +16,13 @@ try {
 const hook = require("./api/hook");
 const app = require("./api/app");
 const coachApi = require("./api/coach");
+const candles = require("./api/candles");
 const { getStore } = require("./api/_store");
 const { getBroker } = require("./api/_broker");
 const { syncTrades } = require("./api/_core");
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png" };
-const STATIC = new Set(["/pine/edge_supply_demand.pine", "/index.html", "/app.js", "/coach.js", "/reader.js", "/practice.js", "/sw.js", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/app.css", "/icon.svg", "/manifest.webmanifest"]);
+const STATIC = new Set(["/pine/edge_supply_demand.pine", "/index.html", "/app.js", "/coach.js", "/reader.js", "/practice.js", "/engine.js", "/replay.js", "/sw.js", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/app.css", "/icon.svg", "/manifest.webmanifest"]);
 
 function wrap(res) {
   res.status = (c) => { res.statusCode = c; return res; };
@@ -41,6 +42,7 @@ http.createServer((req, res) => {
     });
     return;
   }
+  if (url.pathname === "/api/candles") return candles(req, res);
   const p = url.pathname === "/" ? "/index.html" : url.pathname;
   if (!STATIC.has(p)) return res.status(404).end("Not found");
   res.setHeader("Content-Type", TYPES[path.extname(p)] || "application/octet-stream");

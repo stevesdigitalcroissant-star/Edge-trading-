@@ -14,10 +14,11 @@
 
   const settings = () => (window.Edge && window.Edge.state() ? window.Edge.state().settings : { coachIdleSec: 60, coachTradeSec: 20, beAtR: 2, tpAtR: 3.2 });
 
-  const engineHtml = () => `<div class="seg" style="margin:0 0 12px" id="cEngine">
-      <button type="button" class="${engine === "reader" ? "on p1" : ""}" data-e="reader">Chart reader</button>
-      <button type="button" class="${engine === "practice" ? "on p1" : ""}" data-e="practice">Practice (FX Replay)</button>
-      <button type="button" class="${engine === "ai" ? "on z" : ""}" data-e="ai">AI coach</button></div>`;
+  const engineHtml = () => `<div class="seg" style="margin:0 0 12px;grid-template-columns:1fr 1fr" id="cEngine">
+      <button type="button" class="${engine === "reader" ? "on p1" : ""}" data-e="reader">Chart reader (live)</button>
+      <button type="button" class="${engine === "replay" ? "on p1" : ""}" data-e="replay">Replay (Edge finds it)</button>
+      <button type="button" class="${engine === "practice" ? "on p1" : ""}" data-e="practice">FX Replay checklist</button>
+      <button type="button" class="${engine === "ai" ? "on z" : ""}" data-e="ai">AI coach (FX Replay)</button></div>`;
   function bindEngine() {
     root.querySelectorAll("#cEngine [data-e]").forEach((b) => b.addEventListener("click", () => {
       if (b.dataset.e === engine) return;
@@ -28,6 +29,12 @@
   }
 
   function render() {
+    if (engine === "replay" && window.EdgeReplay) {
+      root.innerHTML = engineHtml() + `<div id="replayRoot"></div>`;
+      bindEngine();
+      window.EdgeReplay.mount($("#replayRoot"));
+      return;
+    }
     if (engine === "practice" && window.EdgePractice) {
       root.innerHTML = engineHtml() + `<div id="practiceRoot"></div>`;
       bindEngine();

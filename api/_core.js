@@ -559,7 +559,7 @@ async function action(store, broker, body, now = Date.now()) {
     const steps = {};
     for (const key of PRACTICE_STEPS) steps[key] = !!(body.steps || {})[key];
     const missing = PRACTICE_STEPS.filter((key) => !steps[key]);
-    const outcome = ["tp", "be", "sl", "exit"].includes(body.outcome) ? body.outcome : null;
+    const outcome = ["tp", "be", "sl", "exit", "flat"].includes(body.outcome) ? body.outcome : null;
     if (!outcome) throw new Error("How did it end? Target, break-even, stop, or your exit price.");
     const exit = outcome === "tp" ? entry + k * s.tpAtR * risk : outcome === "be" ? entry + k * s.beOffsetR * risk : outcome === "sl" ? sl : num(body.exit);
     if (exit == null) throw new Error("Enter the price you got out at.");
@@ -571,8 +571,9 @@ async function action(store, broker, body, now = Date.now()) {
     };
     const resultR = R.round(R.rAt(t, exit));
     if (outcome === "exit" && resultR > 0 && resultR < s.tpAtR - 0.15) t.ruleBreaks.push("closed early (greed/fear)");
+    // "flat" = out at the close-out time — that's the rule, not a break
     if (resultR < -1.15) t.ruleBreaks.push("lost more than 1R (stop moved?)");
-    const j = { ...t, exit, closedAt: now, pnl: null, resultR, exitReason: R.exitReason(t, exit, s), note: String(body.note || "").slice(0, 1000) };
+    const j = { ...t, exit, closedAt: now, pnl: null, resultR, exitReason: outcome === "flat" ? "session close-out" : R.exitReason(t, exit, s), note: String(body.note || "").slice(0, 1000) };
     await store.hset("journal", j.id, j);
     return { trade: j };
   }

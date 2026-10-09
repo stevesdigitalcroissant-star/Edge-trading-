@@ -402,6 +402,7 @@ var float gSL = na
 var float gRisk = na
 var bool gBE = false
 var int gBar = 0
+var string gSw = ""
 var string gEvent = ""
 var int gEvBar = 0
 if gDir != 0 and bar_index > gBar
@@ -429,6 +430,7 @@ if lEnter or sEnter
     gRisk := math.abs(close - gSL)
     gBE := false
     gBar := bar_index
+    gSw := lEnter ? lSwName : sSwName
 
 // ---------- Backtest with the same rules
 bool lOk = (not needFresh or lFresh) and (not needRoom or lRoomOk) and (not needSweep or lSwept) and lStopOk and inSess
@@ -491,18 +493,20 @@ if barstate.islast
     table.cell(panel, 0, 1, doNow, text_color = doCol, text_size = size.normal)
 
     // the steps, in order (for the setup that's forming, or the 4H trend's side when nothing is)
-    bool isL = lState > 0 or (sState == 0 and hTrend == 1)
+    // in an A+ trade every step was done (the setup itself resets on the entry candle)
+    bool inT = gDir != 0
+    bool isL = inT ? gDir == 1 : lState > 0 or (sState == 0 and hTrend == 1)
     int stt = isL ? lState : sState
-    table.cell(panel, 0, 2, isL ? "LONG steps" : hTrend == -1 or sState > 0 ? "SHORT steps" : "Steps", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 0, 2, isL ? "LONG steps" : inT or hTrend == -1 or sState > 0 ? "SHORT steps" : "Steps", text_color = color.silver, text_size = size.small)
     table.cell(panel, 1, 2, "", text_size = size.small)
-    table.cell(panel, 0, 3, ok(isL ? hTrend == 1 : hTrend == -1) + " 1  4H trend", text_color = c4h, text_size = size.small)
+    table.cell(panel, 0, 3, ok(inT or (isL ? hTrend == 1 : hTrend == -1)) + " 1  4H trend", text_color = c4h, text_size = size.small)
     table.cell(panel, 1, 3, hTrend == 1 ? "UP" : hTrend == -1 ? "DOWN" : "none yet", text_color = hTrend == 1 ? color.lime : hTrend == -1 ? color.red : color.silver, text_size = size.small)
-    table.cell(panel, 0, 4, ok(stt > 0) + " 2  fresh 4H zone touched", text_color = c4h, text_size = size.small)
-    table.cell(panel, 1, 4, stt > 0 ? ((isL ? lTouch : sTouch) == 1 ? "fresh" : "touched before") : "waiting", text_color = color.white, text_size = size.small)
-    table.cell(panel, 0, 5, ok(stt > 0 and (isL ? lSwept : sSwept)) + " 3  liquidity taken", text_color = color.white, text_size = size.small)
-    table.cell(panel, 1, 5, stt > 0 and (isL ? lSwept : sSwept) ? (isL ? lSwName : sSwName) : "waiting", text_color = color.white, text_size = size.small)
-    table.cell(panel, 0, 6, ok(stt == 2) + " 4  15m break of structure", text_color = c15, text_size = size.small)
-    table.cell(panel, 1, 6, stt == 2 ? "done" : "waiting", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 4, ok(inT or stt > 0) + " 2  fresh 4H zone touched", text_color = c4h, text_size = size.small)
+    table.cell(panel, 1, 4, inT ? "fresh" : stt > 0 ? ((isL ? lTouch : sTouch) == 1 ? "fresh" : "touched before") : "waiting", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 5, ok(inT or (stt > 0 and (isL ? lSwept : sSwept))) + " 3  liquidity taken", text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 5, inT ? gSw : stt > 0 and (isL ? lSwept : sSwept) ? (isL ? lSwName : sSwName) : "waiting", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 6, ok(inT or stt == 2) + " 4  15m break of structure", text_color = c15, text_size = size.small)
+    table.cell(panel, 1, 6, inT or stt == 2 ? "done" : "waiting", text_color = color.white, text_size = size.small)
     table.cell(panel, 0, 7, ok(gDir != 0) + " 5  5m candle close → ENTER", text_color = c5, text_size = size.small)
     table.cell(panel, 1, 7, gDir != 0 ? "entered " + fm(gE) : "waiting", text_color = color.white, text_size = size.small)
 

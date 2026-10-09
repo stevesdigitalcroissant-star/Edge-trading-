@@ -133,6 +133,24 @@ news reminders are checked on every 5-minute TradingView heartbeat, so keep the 
 The Coach (screen watching) needs a computer, because iPhone and iPad browsers can't share a screen. Its
 "act now" alerts still arrive on your phone.
 
+## Replay — Edge finds the setups for you (free)
+
+**Coach → Replay (Edge finds it).** Real past 5-minute candles for gold, crude
+or natural gas (free futures data: GC, CL, NG — the last ~60 days) play back on
+a chart in Edge. `engine.js` runs the same rules as the TradingView script on
+them — 4H zones and trend, fresh touch, liquidity sweep, 15m break, 5m close —
+and only on closed candles, so it never peeks ahead. When every step is done it
+stops, says **A+ LONG/SHORT — enter at …** out loud, and you choose Take or Skip.
+Once taken, it says when to move the stop to break-even, closes at the target,
+the stop or the 16:40 close-out, and logs the result to Journal → Practice by
+itself. Skipped setups show you how they would have ended. "Next A+ setup"
+jumps to three hours before the next one so you watch it form; "Take every A+
+automatically" just lets you watch the rules play out.
+
+For FX Replay itself, the **AI coach** reads your screen and does the same
+(needs `ANTHROPIC_API_KEY`, paid per check); the **FX Replay checklist** is the
+manual, free version.
+
 ## Practice on FX Replay (free)
 
 FX Replay can't run TradingView scripts, so the practice screen (**Coach →

@@ -95,3 +95,12 @@ test("practice trades (FX Replay) are logged apart, with skipped steps as rule b
   assert.equal(st.practice.length, 2);
   assert.equal(st.practiceStats.aPlus.totalR, 3.2);
 });
+
+test("a practice trade closed at the session close-out is the rule, not a rule break", async () => {
+  const store = memory();
+  const all = { "4H trend": true, "fresh zone": true, "liquidity taken": true, "15m break": true, "5m close": true };
+  const r = await core.action(store, broker, { action: "practiceLog", market: "gold", dir: "long", entry: 2400, sl: 2390, steps: all, outcome: "flat", exit: 2425 }, NY(16, 40));
+  assert.equal(r.trade.resultR, 2.5);
+  assert.equal(r.trade.exitReason, "session close-out");
+  assert.deepEqual(r.trade.ruleBreaks, []);
+});
