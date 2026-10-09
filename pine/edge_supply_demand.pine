@@ -171,7 +171,7 @@ if newHtfDem
     dValid := true
     dWasIn := false
     box.delete(dBox)
-    dBox := box.new(bar_index, dTop, bar_index + 1, dBot, border_color = color.new(c4h, 30), bgcolor = color.new(c4h, 82), extend = extend.right, text = "4H DEMAND", text_color = color.new(c4h, 0), text_size = size.small, text_halign = text.align_left)
+    dBox := box.new(bar_index, dTop, bar_index + 1, dBot, border_color = color.new(c4h, 30), bgcolor = color.new(c4h, 82), extend = extend.right, text = "4H DEMAND", text_color = color.new(c4h, 0), text_size = size.small, text_halign = text.align_left, force_overlay = true)
 if newHtfSup
     sTop := hSupTop
     sBot := hSupBot
@@ -179,7 +179,7 @@ if newHtfSup
     sValid := true
     sWasIn := false
     box.delete(sBox)
-    sBox := box.new(bar_index, sTop, bar_index + 1, sBot, border_color = color.new(c4h, 30), bgcolor = color.new(c4h, 90), extend = extend.right, text = "4H SUPPLY", text_color = color.new(c4h, 0), text_size = size.small, text_halign = text.align_left)
+    sBox := box.new(bar_index, sTop, bar_index + 1, sBot, border_color = color.new(c4h, 30), bgcolor = color.new(c4h, 90), extend = extend.right, text = "4H SUPPLY", text_color = color.new(c4h, 0), text_size = size.small, text_halign = text.align_left, force_overlay = true)
 
 bool dIn = dValid and low <= dTop and high >= dBot
 bool sIn = sValid and high >= sBot and low <= sTop
@@ -212,8 +212,8 @@ var label bos5L = na
 drawBos(line old, label oldL, int fromT, int toT, float lvl, color c, string txt, int w, string st) =>
     line.delete(old)
     label.delete(oldL)
-    line ln = line.new(fromT, lvl, toT, lvl, xloc = xloc.bar_time, color = c, width = w, style = st)
-    label lb = label.new(toT, lvl, txt, xloc = xloc.bar_time, style = label.style_label_left, color = color.new(c, 15), textcolor = color.white, size = size.tiny)
+    line ln = line.new(fromT, lvl, toT, lvl, xloc = xloc.bar_time, color = c, width = w, style = st, force_overlay = true)
+    label lb = label.new(toT, lvl, txt, xloc = xloc.bar_time, style = label.style_label_left, color = color.new(c, 15), textcolor = color.white, size = size.tiny, force_overlay = true)
     [ln, lb]
 if hUpT != hUpT[1] and not na(hUpLvl)
     [a, b] = drawBos(bos4, bos4L, hUpFrom, hUpT, hUpLvl, c4h, "4H BOS ↑ trend up", 3, line.style_solid)
@@ -358,18 +358,18 @@ drawPlan(bool isLong, float entry, float sl, string grade) =>
     float be = entry + k * beR * risk
     float tp = entry + k * tpR * risk
     int r = bar_index + 30
-    line.new(bar_index, entry, r, entry, color = color.gray, width = 1)
-    line.new(bar_index, sl, r, sl, color = color.red, width = 2)
-    line.new(bar_index, be, r, be, color = color.orange, style = line.style_dashed)
-    line.new(bar_index, tp, r, tp, color = color.green, width = 2)
-    label.new(r, be, "BE at " + str.tostring(beR) + "R", style = label.style_label_left, color = color.new(color.orange, 70), textcolor = color.white, size = size.tiny)
-    label.new(r, tp, "TP " + str.tostring(tpR) + "R", style = label.style_label_left, color = color.new(color.green, 60), textcolor = color.white, size = size.tiny)
+    line.new(bar_index, entry, r, entry, color = color.gray, width = 1, force_overlay = true)
+    line.new(bar_index, sl, r, sl, color = color.red, width = 2, force_overlay = true)
+    line.new(bar_index, be, r, be, color = color.orange, style = line.style_dashed, force_overlay = true)
+    line.new(bar_index, tp, r, tp, color = color.green, width = 2, force_overlay = true)
+    label.new(r, be, "BE at " + str.tostring(beR) + "R", style = label.style_label_left, color = color.new(color.orange, 70), textcolor = color.white, size = size.tiny, force_overlay = true)
+    label.new(r, tp, "TP " + str.tostring(tpR) + "R", style = label.style_label_left, color = color.new(color.green, 60), textcolor = color.white, size = size.tiny, force_overlay = true)
     label.new(bar_index, isLong ? low : high, (isLong ? "LONG " : "SHORT ") + grade, style = isLong ? label.style_label_up : label.style_label_down,
-         color = grade == "A+" ? color.new(color.green, 0) : color.new(color.gray, 0), textcolor = color.white, size = size.small)
+         color = grade == "A+" ? color.new(color.green, 0) : color.new(color.gray, 0), textcolor = color.white, size = size.small, force_overlay = true)
 
 drawSweep(float lv, string nm, int fromBar) =>
-    line.new(fromBar, lv, bar_index, lv, color = color.new(color.white, 30), style = line.style_dashed)
-    label.new(fromBar, lv, "$$$ " + nm + " taken", style = label.style_label_right, color = color.new(color.white, 80), textcolor = color.white, size = size.tiny)
+    line.new(fromBar, lv, bar_index, lv, color = color.new(color.white, 30), style = line.style_dashed, force_overlay = true)
+    label.new(fromBar, lv, "$$$ " + nm + " taken", style = label.style_label_right, color = color.new(color.white, 80), textcolor = color.white, size = size.tiny, force_overlay = true)
 if longSig and lSwept
     drawSweep(lSwLvl, lSwName, lBar)
 if shortSig and sSwept
@@ -417,7 +417,7 @@ if tDir == -1
     strategy.exit("SX", from_entry = "S", stop = tBE ? tEntry - beOffR * tRisk : tEntry + tRisk, limit = tEntry - tpR * tRisk)
 
 // ---------- Status panel
-var table panel = table.new(position.top_right, 2, 9, bgcolor = color.new(color.black, 20), border_width = 1)
+var table panel = table.new(position.top_right, 2, 9, bgcolor = color.new(color.black, 20), border_width = 1, force_overlay = true)
 if barstate.islast
     string st = lState == 1 ? "Long: zone touched — wait for 15m BOS" : lState == 2 ? "Long: 15m confirmed — wait for 5m entry" :
          sState == 1 ? "Short: zone touched — wait for 15m BOS" : sState == 2 ? "Short: 15m confirmed — wait for 5m entry" : "Waiting for price to reach a zone"
