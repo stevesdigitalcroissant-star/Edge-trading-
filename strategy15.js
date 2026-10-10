@@ -273,9 +273,14 @@
           let grade = missing.length === 0 ? "A+" : missing.length === 1 ? "A" : "B";
           if (warn === -k) grade = grade === "A+" ? "A" : "B";
           const sw = major ? [major[0], major[1]] : setup.ind ? ["inducement", setup.ind.v] : null;
-          const entry = P.entry === "market" ? b.c : P.entry === "retest" ? (k === 1 ? l.upLvl : l.dnLvl) : z5 ? (k === 1 ? z5.top : z5.bot) : null;
+          // "fvg" = limit at the edge of the fair value gap the break left (first price back into it) · "fvgmid" = its middle
+          const fvg = z5 && z5.gapA != null ? { lo: Math.min(z5.gapA, z5.gapB), hi: Math.max(z5.gapA, z5.gapB) } : null;
+          const entry = P.entry === "market" ? b.c : P.entry === "retest" ? (k === 1 ? l.upLvl : l.dnLvl)
+            : P.entry === "fvg" ? (fvg ? (k === 1 ? fvg.hi : fvg.lo) : null) : P.entry === "fvgmid" ? (fvg ? (fvg.lo + fvg.hi) / 2 : null)
+            : z5 ? (k === 1 ? z5.top : z5.bot) : null;
           const z5ok = !!z5 || !P.needZ5;
-          const sl = k === 1 ? z.bot - P.slBufAtr * atr5 : z.top + P.slBufAtr * atr5;
+          // stop: past the 15m zone (default) · "swing" = past the low/high the break started from (tighter)
+          const sl = P.slMode === "swing" ? setup.extreme - k * P.slBufAtr * atr5 : k === 1 ? z.bot - P.slBufAtr * atr5 : z.top + P.slBufAtr * atr5;
           const risk = entry != null ? k * (entry - sl) : 0;
           // the nearest opposing 15m zone limits the target
           const opp = zones.filter((x) => x.valid && x.dir === -k && (k === 1 ? x.bot > (entry ?? b.c) : x.top < (entry ?? b.c)))
