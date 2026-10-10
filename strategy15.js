@@ -31,7 +31,7 @@
     target: "liquidity", // "liquidity" = nearest liquidity ≥ 2R (swing / equal highs / previous day) · "fixed" = 3.2R
     daily: "prevclose", // daily direction filter: "off" · "level" (nearest untouched daily high/low) · "prevclose" · "bias" (+ biasDir)
     exit: "fixed", trendExit: "off", block15: true, // block15 = skip when the last 15m break is against the 4H trend
-    beR: 1.25, tpR: 3.2, beOffR: 0.05, minZoneR: 1.5, slBufAtr: 0.1,
+    beR: 0, tpR: 3.2, beOffR: 0.05, minZoneR: 1.5, slBufAtr: 0.1, // beR 0 = no break-even (tests 2019-2026 did better without it)
     windows: [["02:00", "16:00"]], // when orders may be placed / filled (New York): London + New York
     asia: ["18:00", "02:00"], flatBy: "16:40", maxPerDay: 2, warnBars: 6,
   };
@@ -188,7 +188,7 @@
         else if (hitTp) out = { outcome: "tp", price: pos.tp };
         else if (flat) out = { outcome: "flat", price: b.c };
         else if (against && k * (b.c - pos.entry) > 0) out = { outcome: "trend", price: b.c };
-        else if (!pos.beDone && (k === 1 ? b.h >= pos.be : b.l <= pos.be)) { pos.beDone = true; events.push({ i, type: "be", dir: k, stop: pos.beStop }); }
+        else if (!pos.beDone && pos.be != null && (k === 1 ? b.h >= pos.be : b.l <= pos.be)) { pos.beDone = true; events.push({ i, type: "be", dir: k, stop: pos.beStop }); }
         if (out) { events.push({ i, type: "exit", dir: k, ...out }); last = { ...pos, exitI: i, ...out }; pos = null; }
       }
 
@@ -196,7 +196,7 @@
       if (order && i > order.placedI) {
         const k = order.dir;
         const touchedEntry = k === 1 ? b.l <= order.entry : b.h >= order.entry;
-        const ranAway = k === 1 ? b.h >= order.cancelAt : b.l <= order.cancelAt;
+        const ranAway = order.cancelAt != null && (k === 1 ? b.h >= order.cancelAt : b.l <= order.cancelAt);
         if (touchedEntry) {
           pos = { ...order, i, beDone: false };
           order = null; tradesDay++;
@@ -304,7 +304,7 @@
             : P.exit === "zone" && tpR < P.minZoneR ? `opposing zone only ${tpR.toFixed(1)}R away` : P.exit !== "zone" && roomR != null && roomR < tpR - 1e-9 ? `opposing zone too close (${roomR.toFixed(1)}R)` : "";
           if (why) events.push({ i, type: "skip", dir: k, why, stage: "order" });
           else {
-            order = { dir: k, entry, sl, tp, be: entry + k * P.beR * risk, beStop: entry + k * P.beOffR * risk, cancelAt: entry + k * P.beR * risk, grade, swept: sw ? sw[0] : "", missing, zone: z, z5, placedI: i };
+            order = { dir: k, entry, sl, tp, be: P.beR > 0 ? entry + k * P.beR * risk : null, beStop: entry + k * P.beOffR * risk, cancelAt: P.beR > 0 ? entry + k * P.beR * risk : null, grade, swept: sw ? sw[0] : "", missing, zone: z, z5, placedI: i };
             events.push({ i, type: "order", dir: k, entry, sl, tp, be: order.be, grade, missing, tpR: +tpR.toFixed(2), swept: order.swept, z5top: z5 ? z5.top : null, z5bot: z5 ? z5.bot : null });
             if (P.entry === "market") { // in on the close of the break candle
               pos = { ...order, i, beDone: false }; order = null; tradesDay++;

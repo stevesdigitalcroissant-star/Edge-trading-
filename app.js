@@ -214,7 +214,7 @@
     ["The buy filled. What about the sell stop?", ["Leave it, just in case", "Cancel it now", "Move it closer"], 1, "One trade per market per day. Cancel it the moment the other fills."],
     ["Crude breaks out of its box at 02:30 New York. Do you take it?", ["Yes, straight away", "No — crude orders go live at 03:00"], 1, "Crude's window is 03:00–08:00. Before that, wait."],
     ["A gas zone is 2 days old and price is back at it in your window.", ["Take it — fresh zone", "Skip — zones must be 5+ days old"], 1, "Young zones lost money in the test. Old ones made +42R."],
-    ["You're up 1.2R on crude and it looks weak.", ["Close it, lock the profit", "Stick to the plan: break-even at 1R, then target or stop"], 1, "Every 'close early' rule did worse in the tests. The plan already protects you."],
+    ["You're up 1.2R on crude and it looks weak.", ["Close it, lock the profit", "Stick to the plan: target or stop"], 1, "Every 'close early' rule did worse in the tests. The plan already protects you."],
   ];
   const L = { walk: "london", step: { london: 0, gas: 0 }, q: 0, ans: {}, day: null, play: null, log: { slot: "london:gold", dir: "long", out: "tp", ok: true } };
   const weekDone = () => { try { return JSON.parse(localStorage.getItem("edge.week") || "[]"); } catch { return []; } };
@@ -398,7 +398,7 @@
           ["⏮", "Go back in time", "Click Replay in the top bar and pick a day, around 17:00 New York."],
           ["➡️", "One candle at a time", "Shift + → steps forward. Never peek ahead."],
           ["✏️", "Mark the box", "At 02:00 (03:00 crude) note the box high and low — your two orders."],
-          ["🎯", "Run the plan", "Fill → break-even at its level → target, stop or 16:40."],
+          ["🎯", "Run the plan", "Fill → target, stop or 16:40. The stop never moves."],
           ["📝", "Log it", "20 seconds, right below. Be honest about the rules."],
         ].map(([ic, t, d], i) => `<div class="hcard"><span class="hnum">${i + 1}</span><div class="hic">${ic}</div><b>${t}</b><p class="muted">${d}</p></div>`).join("")}</div>
         <p class="muted" style="margin:10px 0 0;font-size:12.5px">Shortcut: each script's <b>Strategy Tester</b> tab shows the results of these rules on your chart in one click. Replay is still the training — it teaches your eyes and hands.</p></section>
@@ -673,14 +673,14 @@
   const TF = { c4h: "var(--c4h)", c15: "var(--c15)", c5: "var(--c5)", liq: "var(--liq)" };
   function tradeMap(x) {
     const s = S.settings, k = x.dir === "short" ? -1 : 1, R = Math.abs(x.entry - x.sl);
-    const be = x.entry + k * s.beAtR * R, tp = x.entry + k * s.tpAtR * R;
+    const be = s.beAtR > 0 ? x.entry + k * s.beAtR * R : null, tp = x.entry + k * s.tpAtR * R;
     const zTop = x.zoneTop ?? x.sl + k * 0.8 * R, zBot = x.zoneBot ?? x.sl + k * 0.2 * R;
     const zNear = k > 0 ? Math.max(zTop, zBot) : Math.min(zTop, zBot), zFar = k > 0 ? Math.min(zTop, zBot) : Math.max(zTop, zBot);
     const l15 = x.lvl15 ?? x.entry - k * 0.35 * R, l5 = x.lvl5 ?? x.entry - k * 0.1 * R;
     const l4 = x.lvl4h ?? zNear + k * 2.2 * R;
     const oppIn = x.opp != null && k * (x.opp - tp) <= 1.2 * R; // only draw the opposing zone if it's close
     const liq = x.sweep && x.sweepLvl != null && k * (x.sweepLvl - x.sl) > 0 ? x.sweepLvl : null;
-    const prices = [x.sl, x.entry, be, tp, zTop, zBot, l4, l15, l5, ...(oppIn ? [x.opp] : []), ...(liq != null ? [liq] : [])];
+    const prices = [x.sl, x.entry, ...(be != null ? [be] : []), tp, zTop, zBot, l4, l15, l5, ...(oppIn ? [x.opp] : []), ...(liq != null ? [liq] : [])];
     let lo = Math.min(...prices), hi = Math.max(...prices); const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
     const W = 360, H = 300, L = 8, X = 250, y = (p) => 10 + (H - 20) * (1 - (p - lo) / (hi - lo));
     const react = x.sl + k * 0.2 * R;
@@ -691,7 +691,7 @@
     const path = pts.map((p, i) => `${i ? "L" : "M"}${p[0]},${p[1]}`).join(" ");
     const dot = (p, n, c) => `<circle cx="${p[0]}" cy="${p[1]}" r="9" fill="${c}"/><text x="${p[0]}" y="${p[1] + 4}" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">${n}</text>`;
     // right-hand price tags, nudged apart so they never overlap
-    const tags = [[tp, `TP ${fx(tp)}`, "var(--good)"], [be, `BE ${fx(be)}`, "var(--warn)"], [x.entry, `Entry ${fx(x.entry)}`, "var(--text)"], [x.sl, `SL ${fx(x.sl)}`, "var(--bad)"]]
+    const tags = [[tp, `TP ${fx(tp)}`, "var(--good)"], ...(be != null ? [[be, `BE ${fx(be)}`, "var(--warn)"]] : []), [x.entry, `Entry ${fx(x.entry)}`, "var(--text)"], [x.sl, `SL ${fx(x.sl)}`, "var(--bad)"]]
       .map(([p, t, c]) => ({ y: y(p), t, c })).sort((a, b) => a.y - b.y);
     for (let i = 1; i < tags.length; i++) if (tags[i].y - tags[i - 1].y < 15) tags[i].y = tags[i - 1].y + 15;
     const hline = (p, x1, x2, c, dash = "", w = 1.5) => `<line x1="${x1}" x2="${x2}" y1="${y(p)}" y2="${y(p)}" stroke="${c}" stroke-width="${w}" ${dash ? `stroke-dasharray="${dash}"` : ""}/>`;
@@ -703,7 +703,7 @@
       ${oppIn ? `${hline(x.opp, L, X, "var(--c4h)", "2 3", 1.5)}${lab(x.opp, L + 4, `${oppName} starts`, "var(--c4h)", k < 0)}` : ""}
       ${hline(l4, 58, 150, "var(--c4h)", "", 2.5)}${hline(l15, 58, 205, "var(--c15)", "6 4", 2)}${hline(l5, 58, X, "var(--c5)", "2 3", 2)}
       ${left.map((t) => `<text x="${L + 2}" y="${t.y + 4}" font-size="10" font-weight="800" fill="${t.c}">${t.t}</text>`).join("")}
-      ${hline(be, 205, X, "var(--warn)", "4 3")}${hline(tp, 205, X, "var(--good)")}${hline(x.sl, 100, X, "var(--bad)")}${hline(x.entry, 205, X, "var(--text)")}
+      ${be != null ? hline(be, 205, X, "var(--warn)", "4 3") : ""}${hline(tp, 205, X, "var(--good)")}${hline(x.sl, 100, X, "var(--bad)")}${hline(x.entry, 205, X, "var(--text)")}
       ${liq != null ? `${hline(liq, 100, 205, "var(--liq)", "3 3", 1.5)}<text x="${150}" y="${y(liq) + (k > 0 ? -4 : 12)}" font-size="10" font-weight="800" fill="var(--liq)">$$$ taken</text>` : ""}
       <path d="${path}" fill="none" stroke="var(--text)" stroke-width="2.2" stroke-linejoin="round" opacity=".85"/>
       <path d="M214,${y(x.entry)} L246,${y(tp)}" stroke="var(--good)" stroke-width="2" stroke-dasharray="4 3" fill="none"/>

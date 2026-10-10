@@ -29,7 +29,7 @@ test("take from the app → order, break-even and close sent to Tradovate", asyn
   const store = memory();
   const broker = getBroker();
   assert.equal(broker.kind, "traderspost");
-  await core.action(store, broker, { action: "settings", patch: { accountSize: 50000, riskPct: 0.5 } }, NY(9));
+  await core.action(store, broker, { action: "settings", patch: { accountSize: 50000, riskPct: 0.5, beAtR: 2 } }, NY(9)); // break-even on (off by default now)
   await core.action(store, broker, { action: "bias", market: "gold", answers: { dxy: 1, yields: 1 } }, NY(9));
   await core.handleHook(store, broker, setup(), NY(9));
   const st = await core.state(store, broker, NY(9));

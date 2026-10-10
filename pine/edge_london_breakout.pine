@@ -9,9 +9,9 @@
 //      a SELL STOP at the range low. The first one that fills is the trade — cancel the other.
 //   3. Stop loss: the other side of the Asian range.
 //   4. Exits (tested on 2.4 years of hourly futures data, May 2024 – Oct 2026):
-//        gold   : entries 02:00–08:00, target 2R, stop to break-even at +1.5R
-//        crude  : entries 03:00–08:00, target 3R, stop to break-even at +1R
-//        silver : entries 02:00–08:00, target 2R, break-even at +1R, skip days when the
+//        gold   : entries 02:00–08:00, target 2R (no break-even — tests 2019-2026 did better without it)
+//        crude  : entries 03:00–08:00, target 3R
+//        silver : entries 02:00–08:00, target 2R, skip days when the
 //                 Asian range is smaller than 1.5× the 1-hour ATR
 //      Out of everything at the close-out (16:40 New York).
 //   One trade per market per day.
@@ -36,7 +36,7 @@ asiaSess   = input.session("1800-0200", "Asian range (New York time)", group = g
 useTested  = input.bool(true, "Use the tested settings for this market (the four below are ignored)", group = grpS)
 winIn      = input.session("0200-0800", "Entry window (New York time)", group = grpS)
 tpIn       = input.float(2.0, "Take profit (R)", minval = 0.5, step = 0.1, group = grpS)
-beIn       = input.float(1.5, "Stop to break-even at (R, 0 = never)", minval = 0.0, step = 0.1, group = grpS)
+beIn       = input.float(0.0, "Stop to break-even at (R, 0 = never)", minval = 0.0, step = 0.1, group = grpS)
 minRangeIn = input.float(0.0, "Skip if the Asian range is smaller than (× 1-hour ATR)", minval = 0.0, step = 0.1, group = grpS)
 flatSess   = input.session("1640-1800", "Close-out (New York time) — out of every trade", group = grpS)
 
@@ -57,7 +57,7 @@ string mk = mkSel == "Gold" ? "gold" : mkSel == "Crude oil" ? "crude" : mkSel ==
      (root == "SI" or root == "SIL" or str.contains(tk, "XAG") or str.contains(tk, "SILVER")) ? "silver" : "crude"
 string winS  = useTested ? (mk == "crude" ? "0300-0800" : "0200-0800") : winIn
 float tpR    = useTested ? (mk == "crude" ? 3.0 : 2.0) : tpIn
-float beR    = useTested ? (mk == "gold" ? 1.5 : 1.0) : beIn
+float beR    = useTested ? 0.0 : beIn
 float minRng = useTested ? (mk == "silver" ? 1.5 : 0.0) : minRangeIn
 
 bool inAsia = not na(time(timeframe.period, asiaSess, TZ))

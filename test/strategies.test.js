@@ -36,7 +36,7 @@ test("London plan: both stop orders, sized for your risk", async () => {
   assert.equal(p.market, "crude");
   assert.equal(p.tpR, 3);
   assert.equal(p.legs[0].tp, 73);       // 71.2 + 3 × 0.6
-  assert.equal(R.round(p.legs[0].be, 2), 71.8);       // +1R
+  assert.equal(p.legs[0].be, null);     // no break-even in the plan
   assert.equal(p.legs[0].size.contract, "MCL");
   assert.equal(p.legs[0].size.qty, 1);  // $100 risk / $60 a contract
   assert.ok(st.log.some((l) => /CANCEL the other/.test(l.text)));
@@ -45,7 +45,7 @@ test("London plan: both stop orders, sized for your risk", async () => {
   assert.equal(later.plans.length, 0);
 });
 
-test("London breakout setup: own checklist, own exits, break-even at +1R for crude", async () => {
+test("London breakout setup: own checklist, own exits, no break-even", async () => {
   const store = memory();
   let now = NY(4);
   const alert = { secret: "s3cret", type: "setup", strategy: "london", symbol: "MCL1!", dir: "long", entry: 71.2, sl: 70.6, tp: 99, rangeHi: 71.2, rangeLo: 70.6, rangeAtr: 1.4, trend: -1, stopOk: true };
@@ -54,7 +54,7 @@ test("London breakout setup: own checklist, own exits, break-even at +1R for cru
   let st = await core.state(store, broker, now);
   const x = st.setups[0];
   assert.equal(x.tp, 73); // from the tested plan, not the alert's 99
-  assert.deepEqual(x.xp, { tpR: 3, beR: 1 });
+  assert.deepEqual(x.xp, { tpR: 3, beR: 0 });
   assert.match(x.story.headline, /London broke the Asian range high/);
 
   // the alert means the stop order filled: Edge recorded the trade and asks you to check it
@@ -73,11 +73,11 @@ test("London breakout setup: own checklist, own exits, break-even at +1R for cru
   assert.equal(trade.riskUSD, 240);
   await assert.rejects(core.action(store, broker, { action: "confirmTrade", tradeId: trade.id, sl: 72 }, now), /stop must be below/);
 
-  // +1R → move the stop to break-even (not the settings' 2R)
+  // +1R → no break-even any more: the stop stays where it is
   now += 10 * 60e3;
   await core.handleHook(store, broker, { secret: "s3cret", type: "bar", symbol: "MCL1!", price: 71.75, high: 71.82, low: 71.5, bos15: "down" }, now);
   st = await core.state(store, broker, now);
-  assert.ok(st.log.some((l) => /\+1R reached/.test(l.text)));
+  assert.ok(!st.log.some((l) => /R reached/.test(l.text)));
   // supply & demand's 15m structure exit doesn't apply to the tested strategies
   assert.ok(!st.log.some((l) => /structure just broke/.test(l.text)));
   // target at 3R closes it
@@ -109,7 +109,7 @@ test("natural gas zone: too young or touched too often is not the setup", () => 
   assert.equal(R.gradeSetup({ ...z, touch: 3 }, ctx).grade, "B");
   assert.equal(R.gradeSetup(z, { ...ctx, now: NY(10) }).grade, "B"); // between the two windows
   assert.equal(R.gradeSetup(z, { ...ctx, now: NY(11, 30) }).grade, "A+");
-  assert.deepEqual(R.exits(z, S()), { tpR: 3.2, beR: 2 }); // a raw setup without its plan attached → your settings
+  assert.deepEqual(R.exits(z, S()), { tpR: 3.2, beR: 0 }); // a raw setup without its plan attached → your settings (no break-even)
   assert.deepEqual(R.exits({ ...z, tpR: 3, beR: 2 }, S()), { tpR: 3, beR: 2 });
   assert.deepEqual(R.exits({ tpR: 2, beR: 0 }, S()), { tpR: 2, beR: 0 }); // 0 = never move to break-even
 });

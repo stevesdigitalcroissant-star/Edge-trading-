@@ -15,6 +15,7 @@ const NY = (h, m = 0) => zonedTime(2026, 10, 6, h, m, "America/New_York"); // Tu
 
 test("full A+ trade, managed by the rules", async () => {
   const store = memory();
+  await store.set("settings", { beAtR: 2, beV2: true }); // break-even is off by default now; these tests check it still works when you turn it on
   let now = NY(9);
   await core.action(store, broker, { action: "bias", market: "gold", answers: { dxy: 1, yields: 1, fed: 0 } }, now);
 

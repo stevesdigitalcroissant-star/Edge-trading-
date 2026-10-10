@@ -4,10 +4,10 @@
 (function () {
   const NYZ = "America/New_York";
   const MK = {
-    gold: { name: "Gold", sym: "MGC", pv: 10, strategy: "london", tf: "5m", win: [120, 480], tpR: 2, beR: 1.5, dec: 2 },
-    crude: { name: "Crude oil", sym: "MCL", pv: 100, strategy: "london", tf: "5m", win: [180, 480], tpR: 3, beR: 1, dec: 2 },
-    silver: { name: "Silver", sym: "SIL", pv: 1000, strategy: "london", tf: "5m", win: [120, 480], tpR: 2, beR: 1, dec: 3, minRangeAtr: 1.5 },
-    natgas: { name: "Natural gas", sym: "QG", pv: 2500, strategy: "ngzone", tf: "60m", wins: [[360, 540], [660, 720]], tpR: 3, beR: 2, dec: 3 },
+    gold: { name: "Gold", sym: "MGC", pv: 10, strategy: "london", tf: "5m", win: [120, 480], tpR: 2, beR: 0, dec: 2 },
+    crude: { name: "Crude oil", sym: "MCL", pv: 100, strategy: "london", tf: "5m", win: [180, 480], tpR: 3, beR: 0, dec: 2 },
+    silver: { name: "Silver", sym: "SIL", pv: 1000, strategy: "london", tf: "5m", win: [120, 480], tpR: 2, beR: 0, dec: 3, minRangeAtr: 1.5 },
+    natgas: { name: "Natural gas", sym: "QG", pv: 2500, strategy: "ngzone", tf: "60m", wins: [[360, 540], [660, 720]], tpR: 3, beR: 0, dec: 3 },
   };
   const FLAT = 16 * 60 + 40;
   const cache = {};
@@ -147,7 +147,7 @@
     target: "Set the target at the plan's R and leave it.",
     early: "Don't close early. The plan already protects you with break-even.",
     beMissed: "Move the stop to entry the moment the trade reaches its break-even level.",
-    beEarly: "Wait for the break-even level before moving the stop — too early turns winners into scratches.",
+    beEarly: "Leave the stop where you set it. Moving it to entry turns winners into scratches — the tests did better without break-even.",
     other: "When one order fills, cancel the other one straight away.",
     small: "Skip silver when the Asian box is tiny.",
     noZone: "Only trade at old zones (5+ trading days) on their 1st or 2nd touch.",
@@ -199,8 +199,8 @@
       if (hit && (!stop || hit.t <= stop.t)) add("early", `You closed at ${R.toFixed(1)}R — it went on to ${P.tpR}R`, `Price reached the target at ${hm(hit.min)} New York. Holding to the plan would have paid ${P.tpR}R.`, [{ type: "hline", p: tr.e + tr.dir * P.tpR * r0, color: "var(--good)", label: "target hit later" }]);
       else add("early", `You closed early at ${R.toFixed(1)}R`, "This time it didn't reach the target, but closing early is a habit the tests punished. Let the stop and target do the work.", [], false);
     }
-    if (tr.mfe >= P.beR && !tr.beAt && R < -0.5) add("beMissed", `It reached +${P.beR}R — break-even would have saved this`, `Price got to ${fx(beLvl)} (+${P.beR}R). Moving the stop to your entry there turns this loss into a scratch.`, [{ type: "hline", p: beLvl, color: "var(--warn)", label: `break-even level +${P.beR}R` }]);
-    if (tr.beAt != null && tr.beAt < P.beR - 0.15 && Math.abs(R) < 0.15) add("beEarly", `You moved to break-even at +${tr.beAt.toFixed(1)}R`, `The plan waits for +${P.beR}R. Moving earlier got you stopped at entry.`, [{ type: "hline", p: beLvl, color: "var(--warn)", label: `break-even level +${P.beR}R` }]);
+    if (P.beR > 0 && tr.mfe >= P.beR && !tr.beAt && R < -0.5) add("beMissed", `It reached +${P.beR}R — break-even would have saved this`, `Price got to ${fx(beLvl)} (+${P.beR}R). Moving the stop to your entry there turns this loss into a scratch.`, [{ type: "hline", p: beLvl, color: "var(--warn)", label: `break-even level +${P.beR}R` }]);
+    if (tr.beAt != null && Math.abs(R) < 0.15 && (P.beR <= 0 || tr.beAt < P.beR - 0.15)) add("beEarly", `You moved your stop to entry at +${tr.beAt.toFixed(1)}R`, P.beR > 0 ? `The plan waits for +${P.beR}R. Moving earlier got you stopped at entry.` : "The plan has no break-even — the 2019-2026 tests did better leaving the stop alone. Moving it got you stopped at entry.", [{ type: "hline", p: beLvl, color: "var(--warn)", label: `break-even level +${P.beR}R` }]);
     if (tr.widened) add("stopWide", "You moved your stop further away", "Once you're in, the stop only moves toward profit (to entry at the break-even level). Moving it away makes the loss bigger.", [{ type: "hline", p: tr.sl0, color: "var(--bad)", label: "your first stop" }]);
     if (tr.tpMoved) add("target", "You pushed the target further", `The plan's target is ${P.tpR}R. Pushing it out is how winners turn into break-evens.`, []);
     if (tr.otherFilled) add("other", "Your other order filled too", "When one London order fills, cancel the other. Leaving it in flipped or doubled your position.", []);
@@ -913,7 +913,7 @@
     if (hitSL) return exit(p.dir > 0 ? Math.min(p.sl, b.o) : Math.max(p.sl, b.o), b, Math.abs(p.sl - p.e) < r0 * 0.05 ? "break-even" : "stop");
     if (hitTP) return exit(p.tp, b, "target");
     p.mfe = Math.max(p.mfe, (p.dir * ((p.dir > 0 ? b.h : b.l) - p.e)) / r0);
-    if (p.mfe >= S.P.beR && !p.beAt && !p.beHinted) { p.beHinted = true; toast(`+${S.P.beR}R — the plan says: move your stop to entry now.`); }
+    if (S.P.beR > 0 && p.mfe >= S.P.beR && !p.beAt && !p.beHinted) { p.beHinted = true; toast(`+${S.P.beR}R — the plan says: move your stop to entry now.`); }
   }
   function exit(px, b, how) {
     const p = S.pos, r0 = Math.abs(p.e - p.sl0);
@@ -1094,7 +1094,7 @@
     if (S.pos) {
       const p = S.pos, r = (p.dir * (b.c - p.e)) / Math.abs(p.e - p.sl0);
       el.innerHTML = `${clock}<div class="sim-pos ${r >= 0 ? "up" : "down"}"><div><small>${p.dir > 0 ? "LONG" : "SHORT"} from ${p.e.toFixed(dec)}</small><b>${r > 0 ? "+" : ""}${r.toFixed(2)}R</b></div>
-        <div class="levels" style="grid-template-columns:repeat(3,1fr);margin:8px 0"><div><small>Stop</small><b>${p.sl.toFixed(dec)}</b></div><div><small>Target</small><b>${p.tp != null ? p.tp.toFixed(dec) : "—"}</b></div><div><small>BE at +${P.beR}R</small><b>${(p.e + p.dir * P.beR * Math.abs(p.e - p.sl0)).toFixed(dec)}</b></div></div>
+        <div class="levels" style="grid-template-columns:repeat(3,1fr);margin:8px 0"><div><small>Stop</small><b>${p.sl.toFixed(dec)}</b></div><div><small>Target</small><b>${p.tp != null ? p.tp.toFixed(dec) : "—"}</b></div><div><small>${P.beR > 0 ? `BE at +${P.beR}R` : "Risk"}</small><b>${P.beR > 0 ? (p.e + p.dir * P.beR * Math.abs(p.e - p.sl0)).toFixed(dec) : money(Math.abs(p.e - p.sl0) * P.pv * (p.qty || 1))}</b></div></div>
         <div class="row"><small class="muted" style="flex:1">${p.qty} ${P.sym} · ${(r * Math.abs(p.e - p.sl0) * P.pv * p.qty) < 0 ? "−" : "+"}${money(Math.abs(r * Math.abs(p.e - p.sl0) * P.pv * p.qty))}</small><button class="btn small" data-s="be" ${p.beAt != null ? "disabled" : ""}>🛡️ Stop to entry</button><button class="btn small danger" data-s="closepos">Close now</button></div></div>
         ${S.orders.length ? `<div class="sim-orders">${orderRows()}</div>` : ""}`;
       return;

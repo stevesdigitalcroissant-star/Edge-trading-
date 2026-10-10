@@ -25,7 +25,7 @@ test("finds setups and follows each one to a single result", () => {
   const outcomes = new Set();
   for (const seed of [1, 5, 9, 14, 31, 40, 116, 126]) {
     const bars = market(seed);
-    const res = E.run(bars, "gold");
+    const res = E.run(bars, "gold", { beR: 2 }); // break-even on, to check it still works when used
     assert.equal(res.states.length, bars.length);
     let open = null;
     for (const ev of res.events) {

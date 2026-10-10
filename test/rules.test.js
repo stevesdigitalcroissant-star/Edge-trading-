@@ -5,7 +5,7 @@ const { mergeSettings, marketOf, biasFromFactors } = require("../api/_config");
 const { zonedTime, dayKey } = require("../api/_time");
 const { classify, recurringForWeek, blockingEvent } = require("../api/_news");
 
-const s = mergeSettings({});
+const s = mergeSettings({ beAtR: 2, beV2: true }); // break-even switched on for these checks (off by default)
 const NY = (h, m = 0) => zonedTime(2026, 10, 6, h, m, "America/New_York"); // Tuesday
 
 test("TradingView symbols map to markets", () => {
@@ -150,4 +150,10 @@ test("zone visits: a later visit is A+ once liquidity was taken; no sweep on the
   assert.equal(g({ zoneFresh: false, sweep: true }), "A+");
   assert.equal(g({ zoneFresh: true, sweep: false }), "A");
   assert.equal(g({ zoneFresh: false, sweep: false }), "B");
+});
+
+test("break-even is off by default, and an old saved setting doesn't switch it back on", () => {
+  assert.equal(mergeSettings({}).beAtR, 0);
+  assert.equal(mergeSettings({ beAtR: 2 }).beAtR, 0); // saved before break-even was removed
+  assert.equal(mergeSettings({ beAtR: 1.5, beV2: true }).beAtR, 1.5); // you turned it on yourself afterwards
 });

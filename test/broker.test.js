@@ -36,6 +36,7 @@ function fakeBroker() {
 
 test("Edge places the order with SL + 3.2R TP and moves the stop to break-even at 2R", async () => {
   const store = memory();
+  await store.set("settings", { beAtR: 2, beV2: true }); // break-even is off by default now; these tests check it still works when you turn it on
   const broker = fakeBroker();
   let now = NY(9);
   await core.action(store, broker, { action: "bias", market: "gold", answers: { dxy: 1, yields: 1 } }, now);

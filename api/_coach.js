@@ -2,7 +2,7 @@
 // shared screen), reads it with Claude's vision, and tells you the one thing to
 // do now — by YOUR rules. Works on TradingView, FX Replay, Tradovate, NinjaTrader…
 //
-// Claude reads the chart; the hard rules (break-even at 2R, exit at 3.2R, no
+// Claude reads the chart; the hard rules (the stop never moves away, exit at 3.2R, no
 // target moving, A+ only, daily limits, news) are then applied here in code,
 // so the final instruction never depends on the model being in a good mood.
 //
@@ -72,7 +72,7 @@ THE STRATEGY (supply & demand, trend following) — gold, crude oil, natural gas
 3. 15m: after price reaches the zone, a break of structure in the trend's direction on a CLOSED candle.
 4. 5m: entry on the CLOSE of the 5m candle that breaks structure in the trend's direction. Never on an open candle.
 5. Stop beyond the reaction low (long) / high (short) since the zone touch. There must be room to ${s.tpAtR}R before the opposing zone.
-6. Management: stop to break-even at +${s.beAtR}R. Full exit at +${s.tpAtR}R. The target is never moved further away. The stop is never moved further away.
+6. Management: ${s.beAtR > 0 ? `stop to break-even at +${s.beAtR}R` : "no break-even — the stop stays where it was set (the tests did better without it)"}. Full exit at +${s.tpAtR}R. The target is never moved further away. The stop is never moved further away.
 Grade A+ only when every checklist item passes. One failed item = A, two = B, more = C. "unclear" items: grade at most A and tell them which timeframe to check.
 
 THE TESTED STRATEGIES (Edge alerts them; each trade has its own exits — use the numbers Edge gives you for an open trade):

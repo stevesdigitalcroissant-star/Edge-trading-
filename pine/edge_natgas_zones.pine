@@ -12,7 +12,7 @@
 //   Trade  : only zones at least 5 trading days old, on their 1st or 2nd touch, inside
 //            06:00–09:00 or 11:00–12:00 New York (Vancouver 3–6am and 8–9am).
 //            Limit order at the zone edge, stop 0.2× ATR past the far side.
-//   Exits  : target 3R, stop to break-even at +2R, out by 16:40 New York. Max 2 a day.
+//   Exits  : target 3R, no break-even, out by 16:40 New York. Max 2 a day.
 //   Tested on 2.4 years of hourly natural gas futures (May 2024 – Oct 2026): 68 trades,
 //   46% won, +42R.
 //
@@ -36,7 +36,7 @@ maxTouches = input.int(2, "Trade a zone on touch 1 up to touch", minval = 1, gro
 win1       = input.session("0600-0900", "Window 1 (New York time)", group = grpS)
 win2       = input.session("1100-1200", "Window 2 (New York time)", group = grpS)
 tpR        = input.float(3.0, "Take profit (R)", minval = 0.5, step = 0.1, group = grpS)
-beR        = input.float(2.0, "Stop to break-even at (R, 0 = never)", minval = 0.0, step = 0.1, group = grpS)
+beR        = input.float(0.0, "Stop to break-even at (R, 0 = never)", minval = 0.0, step = 0.1, group = grpS)
 bufAtr     = input.float(0.2, "Stop past the zone (× 1-hour ATR)", minval = 0.0, step = 0.05, group = grpS)
 minRiskAtr = input.float(0.5, "Skip zones whose stop is smaller than (× 1-hour ATR)", minval = 0.0, step = 0.1, group = grpS)
 maxPerDay  = input.int(2, "Max trades a day", minval = 1, group = grpS)

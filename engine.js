@@ -11,7 +11,7 @@
     touch: "visit", // a new touch only counts after price really left the zone (wicks in and out = one visit)
     entryMode: "bos", // "bos" = 5m break of structure · "close" = first 5m close in your direction after the 15m break
     stop: "swing", // "zone" = beyond the far edge of the 4H zone · "swing" = beyond the 5m swing the entry broke from · "extreme" = beyond the lowest low / highest high since the touch
-    beR: 2, tpR: 3.2, beOffR: 0.05, slBufAtr: 0.2, minStopAtr: 0.5, maxStopAtr: 6,
+    beR: 0, tpR: 3.2, beOffR: 0.05, slBufAtr: 0.2, minStopAtr: 0.5, maxStopAtr: 6, // beR 0 = no break-even
     session: ["03:00", "12:00"], asia: ["18:00", "02:00"], flatBy: "16:40", // out of everything by then (your close-out rule)
   };
 
@@ -200,11 +200,11 @@
         if (hitStop) { events.push({ i, type: "exit", outcome: gBE ? "be" : "sl", price: stopNow, dir: gDir }); gDir = 0; }
         else if (hitTp) { events.push({ i, type: "exit", outcome: "tp", price: tp, dir: gDir }); gDir = 0; }
         else if (flat) { events.push({ i, type: "exit", outcome: "flat", price: b.c, dir: gDir }); gDir = 0; }
-        else if (!gBE && (gDir === 1 ? b.h >= gE + P.beR * gRisk : b.l <= gE - P.beR * gRisk)) { gBE = true; events.push({ i, type: "be", dir: gDir, stop: gE + gDir * P.beOffR * gRisk }); }
+        else if (!gBE && P.beR > 0 && (gDir === 1 ? b.h >= gE + P.beR * gRisk : b.l <= gE - P.beR * gRisk)) { gBE = true; events.push({ i, type: "be", dir: gDir, stop: gE + gDir * P.beOffR * gRisk }); }
       }
       if (lEnter || sEnter) {
         gDir = lEnter ? 1 : -1; gE = b.c; gSL = lEnter ? lSL : sSL; gRisk = Math.abs(b.c - gSL); gBE = false; gBar = i; gGrade = lEnter ? lGrade : sGrade; gSw = ((lEnter ? sweptL : sweptS) || [""])[0]; const gTouch = lEnter ? lTouch : sTouch;
-        events.push({ i, type: "enter", dir: gDir, entry: gE, sl: gSL, be: gE + gDir * P.beR * gRisk, beStop: gE + gDir * P.beOffR * gRisk, tp: gE + gDir * P.tpR * gRisk, swept: gSw, grade: gGrade, visit: gTouch });
+        events.push({ i, type: "enter", dir: gDir, entry: gE, sl: gSL, be: P.beR > 0 ? gE + gDir * P.beR * gRisk : null, beStop: gE + gDir * P.beOffR * gRisk, tp: gE + gDir * P.tpR * gRisk, swept: gSw, grade: gGrade, visit: gTouch });
       }
 
       const live = (list) => list.filter((z) => z.valid).map((z) => ({ top: z.top, bot: z.bot, from: z.from, touches: z.touches }));
@@ -232,7 +232,7 @@
     const side = s.gDir === 1 ? "LONG" : "SHORT";
     const doNow = s.gDir !== 0
       ? (s.gBE ? `In ${side}: stop at break-even ${f(s.gE + s.gDir * P.beOffR * s.gRisk)} · target ${f(s.gE + s.gDir * P.tpR * s.gRisk)} — hands off`
-        : `In ${side}: stop ${f(s.gSL)} · at ${f(s.gE + s.gDir * P.beR * s.gRisk)} move stop to break-even · target ${f(s.gE + s.gDir * P.tpR * s.gRisk)}`)
+        : `In ${side}: stop ${f(s.gSL)}${P.beR > 0 ? ` · at ${f(s.gE + s.gDir * P.beR * s.gRisk)} move stop to break-even` : " (it stays there)"} · target ${f(s.gE + s.gDir * P.tpR * s.gRisk)}`)
       : !s.inSess ? "Session closed — no new trades"
       : s.lState === 2 ? (s.lSwept ? "Long: wait for a 5m candle to CLOSE above the last 5m high → ENTER" : "Long: 15m confirmed, but liquidity NOT taken yet — no entry until stops are swept")
       : s.sState === 2 ? (s.sSwept ? "Short: wait for a 5m candle to CLOSE below the last 5m low → ENTER" : "Short: 15m confirmed, but liquidity NOT taken yet — no entry until stops are swept")

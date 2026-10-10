@@ -6,7 +6,7 @@ const { memory } = require("../api/_store");
 const coach = require("../api/_coach");
 const core = require("../api/_core");
 const { mergeSettings } = require("../api/_config");
-const s = mergeSettings({});
+const s = mergeSettings({ beAtR: 2, beV2: true }); // break-even switched on for these checks (off by default)
 const IMG = "data:image/jpeg;base64,AAAA";
 
 const read = (o = {}) => ({

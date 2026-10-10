@@ -576,7 +576,8 @@ async function action(store, broker, body, now = Date.now()) {
     const nums = ["riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR", "coachIdleSec", "coachTradeSec", "coachDailyChecks", "flatWarnMin", "noNewTradesMin"];
     for (const k of nums) if (p[k] != null && Number.isFinite(Number(p[k]))) cur[k] = Number(p[k]);
     if (cur.riskPct > 3) throw new Error("Risk per trade above 3% isn't allowed here. That's the greed talking.");
-    if (cur.beAtR <= 0 || cur.tpAtR <= cur.beAtR) throw new Error("Take-profit must be beyond the break-even trigger.");
+    if (cur.beAtR < 0 || (cur.beAtR > 0 && cur.tpAtR <= cur.beAtR)) throw new Error("Take-profit must be beyond the break-even trigger (or set break-even to 0 = off).");
+    cur.beV2 = true;
     for (const k of ["enforceTP"]) if (typeof p[k] === "boolean") cur[k] = p[k];
     if (["warn", "close"].includes(p.newsOpenTrade)) cur.newsOpenTrade = p.newsOpenTrade;
     if (typeof p.flatBy === "string" && /^\d{1,2}:\d{2}$/.test(p.flatBy)) cur.flatBy = p.flatBy;

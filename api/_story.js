@@ -42,7 +42,7 @@ function story(x, s) {
   const name = MARKETS[x.market] ? MARKETS[x.market].name : x.symbol;
   const k = long ? 1 : -1;
   const risk = Math.abs(x.entry - x.sl);
-  const be = x.entry + k * s.beAtR * risk, tp = x.entry + k * s.tpAtR * risk;
+  const be = s.beAtR > 0 ? x.entry + k * s.beAtR * risk : null, tp = x.entry + k * s.tpAtR * risk;
   const zone = long ? "demand" : "supply", opp = long ? "supply" : "demand";
   const word = long ? "above" : "below", arrow = long ? "↑" : "↓";
   const zoneTxt = x.zoneBot != null && x.zoneTop != null ? ` (${fx(x.zoneBot)} – ${fx(x.zoneTop)})` : "";
@@ -59,7 +59,7 @@ function story(x, s) {
 
   const plan = {
     entry: x.entry, sl: x.sl, be, tp,
-    text: `Stop ${fx(x.sl)} (${long ? "below" : "above"} the reaction ${long ? "low" : "high"}). At ${fx(be)} (+${s.beAtR}R) move the stop to break-even. Target ${fx(tp)} (+${s.tpAtR}R)` +
+    text: `Stop ${fx(x.sl)} (${long ? "below" : "above"} the reaction ${long ? "low" : "high"}). ${be != null ? `At ${fx(be)} (+${s.beAtR}R) move the stop to break-even. ` : "The stop stays put — no break-even. "}Target ${fx(tp)} (+${s.tpAtR}R)` +
       (x.opp != null ? ` — the 4H ${opp} zone starts at ${fx(x.opp)}${x.roomR != null ? `, ${Number(x.roomR).toFixed(1)}R away` : ""}.` : ` — no opposing 4H zone in the way.`),
   };
   const swept = x.sweep ? `, ${x.sweepName || "liquidity"} taken` : "";

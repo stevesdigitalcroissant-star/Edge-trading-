@@ -80,15 +80,15 @@ const STRATEGIES = {
   london: {
     name: "London breakout",
     markets: {
-      gold: { tpR: 2, beR: 1.5, window: ["02:00", "08:00"] },
-      crude: { tpR: 3, beR: 1, window: ["03:00", "08:00"] },
-      silver: { tpR: 2, beR: 1, window: ["02:00", "08:00"], minRangeAtr: 1.5 },
+      gold: { tpR: 2, beR: 0, window: ["02:00", "08:00"] },
+      crude: { tpR: 3, beR: 0, window: ["03:00", "08:00"] },
+      silver: { tpR: 2, beR: 0, window: ["02:00", "08:00"], minRangeAtr: 1.5 },
     },
   },
   ngzone: {
     name: "Natural gas zones",
     extra: true,
-    markets: { natgas: { tpR: 3, beR: 2, windows: [["06:00", "09:00"], ["11:00", "12:00"]], minAgeDays: 5, maxTouches: 2 } },
+    markets: { natgas: { tpR: 3, beR: 0, windows: [["06:00", "09:00"], ["11:00", "12:00"]], minAgeDays: 5, maxTouches: 2 } },
   },
 };
 function strategyPlan(strategy, market) {
@@ -100,7 +100,7 @@ const DEFAULT_SETTINGS = {
   tz: "America/New_York",
   riskPct: 1, // % of the account risked per trade
   accountSize: 10000, // used for sizing when no broker is connected
-  beAtR: 2, // move the stop to break-even when the trade reaches +2R
+  beAtR: 0, // move the stop to break-even at +R (0 = never — the 2019-2026 tests did better without it)
   beOffsetR: 0.05, // break-even + a hair, so the spread doesn't turn a BE into a small loss
   tpAtR: 3.2, // full exit
   enforceTP: true, // put the take-profit back to 3.2R if it gets moved further away (greed check)
@@ -185,6 +185,7 @@ function mergeSettings(saved) {
   s.sessions = { ...DEFAULT_SETTINGS.sessions, ...((saved && saved.sessions) || {}) };
   s.lots = { ...DEFAULT_SETTINGS.lots, ...((saved && saved.lots) || {}) };
   s.notify = { ...DEFAULT_SETTINGS.notify, ...((saved && saved.notify) || {}) };
+  if (!(saved && saved.beV2)) s.beAtR = 0; // break-even removed (Oct 2026); only a value saved after that counts
   return s;
 }
 
