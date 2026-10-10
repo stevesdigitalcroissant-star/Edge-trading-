@@ -224,7 +224,7 @@
         <div class="sim-mk">${Object.entries(MK).map(([k, v]) => `<button data-s="mk" data-a="${k}" class="${k === market ? "on" : ""}">${{ gold: "Gold", crude: "Crude", silver: "Silver", natgas: "Gas" }[k]}</button>`).join("")}</div>
         <button class="sim-date" data-s="pick" id="simDate" title="Pick the day to train on">📅</button>
         <button class="sim-x" data-s="fs" title="Full screen (F)">⛶</button>
-        <div class="sim-pnl"><small>Session</small><b id="simPnl">0.00R</b></div></div>
+        <button class="sim-pnl" data-s="acct" title="Your practice account"><small>Balance</small><b id="simBal">—</b><em id="simPnl">0.00R</em></button></div>
       <div class="sim-info" id="simInfo">Loading prices…</div>
       <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><div id="simTB"></div>${toolbarHtml()}<div class="sim-banner" id="simBanner" hidden></div></div>
       <div class="sim-ctl">
@@ -275,6 +275,7 @@
     const hist = P.strategy === "london" ? 160 : 24 * 12;
     S = { market, P, day, bars: all, sess, i: startI, from: Math.max(0, startI - hist), speed: 1, orders: [], pos: null, trades: [], ha: P.strategy === "ngzone", plan: P.strategy === "london" ? londonPlan(sess, P) : null, reviewing: null, tools: [], draws: [], mode: null, pend: null, sel: null, tk: null, tkLines: null, src: useDb ? "db" : "free", month, days: data.days, seq: !!o.seq };
     closeTicket(); closeMenu(); if (S) modeUi();
+    setTimeout(paintPnl, 0);
     buildChart();
     paintAll();
     const d = new Date(day * 864e5); // the New York trading day
@@ -776,6 +777,7 @@
     if (S.orders.length && inWins(S.P, prev.min) && !inWins(S.P, b.min) && prev.min < 18 * 60) { S.orders = []; toast("Window closed — your orders were cancelled, as the plan says."); }
     fills(b);
     if (S.pos) manage(b);
+    paintPnl();
     panel(); markers(); drawLines();
     return true;
   }
@@ -812,7 +814,9 @@
   }
   function exit(px, b, how) {
     const p = S.pos, r0 = Math.abs(p.e - p.sl0);
-    const tr = { ...p, x: px, tOut: b.t, how, R: (p.dir * (px - p.e)) / r0, usd: p.dir * (px - p.e) * S.P.pv * (p.qty || 1) };
+    const gross = p.dir * (px - p.e) * S.P.pv * (p.qty || 1), fee = acct().fee * (p.qty || 1);
+    const tr = { ...p, x: px, tOut: b.t, how, R: (p.dir * (px - p.e)) / r0, usd: gross - fee, fee };
+    book(tr);
     S.pos = null; S.trades.push(tr); if (S.sel === "pos") S.sel = null;
     tr.findings = review(S, tr);
     tr.rulesOk = !tr.findings.some((x) => x.rule);
@@ -832,7 +836,52 @@
     const style = { stopFrac: box ? +(r0 / box).toFixed(3) : null, tpR: tr.tp0 != null ? +((tr.dir * (tr.tp0 - tr.e)) / r0).toFixed(2) : null, beAt: tr.beAt != null ? +tr.beAt.toFixed(2) : null };
     api({ action: "backtestLog", strategy: P.strategy, market: S.market, dir: tr.dir > 0 ? "long" : "short", outcome: out, r: tr.R.toFixed(2), date: new Date(tr.tIn).toISOString().slice(0, 10), rulesOk: tr.rulesOk, style, note: `simulator · ${tr.findings.map((f) => f.title).join(" · ")}`.slice(0, 480) }).catch(() => {});
   }
-  function paintPnl() { const tot = S.trades.reduce((x, t) => x + t.R, 0); const el = $("#simPnl"); el.textContent = `${tot > 0 ? "+" : ""}${tot.toFixed(2)}R`; el.className = tot > 0.01 ? "good" : tot < -0.01 ? "bad" : ""; }
+  // ---------- your practice account: a balance that every win adds to and every loss takes from (kept on this device)
+  const ACCT = "edge.sim.account";
+  function acct() {
+    let a = null; try { a = JSON.parse(localStorage.getItem(ACCT) || "null"); } catch {}
+    if (!a || !(a.start > 0)) { const st = window.Edge && window.Edge.state && window.Edge.state(); const s0 = (st && st.settings && st.settings.accountSize) || 50000; a = { start: s0, balance: s0, fee: 0, peak: s0, log: [] }; }
+    return a;
+  }
+  const saveAcct = (a) => { try { localStorage.setItem(ACCT, JSON.stringify(a)); } catch {} };
+  function book(tr) {
+    const a = acct();
+    a.balance = +(a.balance + tr.usd).toFixed(2); a.peak = Math.max(a.peak || a.start, a.balance);
+    a.log = [{ t: Date.now(), day: S.day, m: S.market, dir: tr.dir, qty: tr.qty || 1, usd: +tr.usd.toFixed(2), R: +tr.R.toFixed(2), bal: a.balance }, ...(a.log || [])].slice(0, 200);
+    saveAcct(a);
+  }
+  const signed = (x) => `${x < -0.004 ? "−" : "+"}${money(Math.abs(x))}`;
+  function paintPnl() {
+    if (!S) return;
+    const a = acct(), tot = S.trades.reduce((x, t) => x + t.R, 0), usd = S.trades.reduce((x, t) => x + t.usd, 0);
+    const open = S.pos ? S.pos.dir * (S.bars[S.i].c - S.pos.e) * S.P.pv * (S.pos.qty || 1) : 0, bal = a.balance + open;
+    const b = $("#simBal"), el = $("#simPnl"); if (!b || !el) return;
+    b.textContent = money(bal); b.className = bal > a.start + 0.5 ? "good" : bal < a.start - 0.5 ? "bad" : "";
+    el.textContent = S.trades.length || S.pos ? `${signed(usd + open)} today · ${tot > 0 ? "+" : ""}${tot.toFixed(2)}R` : "today: —";
+    el.className = usd + open > 0.5 ? "good" : usd + open < -0.5 ? "bad" : "";
+  }
+  function openAcct() {
+    stop();
+    const a = acct(), pl = a.balance - a.start, dd = (a.peak || a.start) - a.balance, wins = (a.log || []).filter((x) => x.usd > 0).length;
+    let el = $("#simAcct"); if (!el) { el = document.createElement("div"); el.id = "simAcct"; el.className = "tv-tk-wrap"; $("#sim").appendChild(el); el.addEventListener("click", (e) => { if (e.target === el) el.remove(); }); }
+    el.innerHTML = `<div class="tv-tk">
+      <div class="tv-tk-h"><b>Practice account</b><span class="muted">saved on this device</span><button class="sim-x" data-s="acctclose" aria-label="Close">✕</button></div>
+      <div class="acct-big ${pl > 0.5 ? "good" : pl < -0.5 ? "bad" : ""}"><small>Balance</small><b>${money(a.balance)}</b><span>${signed(pl)} since you started (${((pl / a.start) * 100).toFixed(1)}%)</span></div>
+      <div class="tv-info"><span>Trades <b>${(a.log || []).length}</b></span><span>Won <b>${(a.log || []).length ? Math.round((wins / a.log.length) * 100) + "%" : "—"}</b></span><span>Best <b>${money(a.peak || a.start)}</b></span><span>Down from best <b>${dd > 0.5 ? "−" + money(dd) : "$0"}</b></span></div>
+      <label class="tv-row"><span>Start with $</span><input id="acctStart" inputmode="decimal" value="${a.start}"><small></small><small></small></label>
+      <label class="tv-row"><span>Fees / contract</span><input id="acctFee" inputmode="decimal" value="${a.fee || 0}"><small>round trip</small><small></small></label>
+      <div class="row"><button class="btn small" data-s="acctsave">Save</button><button class="btn small danger" data-s="acctreset">Start over at $${Number(a.start).toLocaleString("en-US")}</button></div>
+      ${(a.log || []).length ? `<div class="acct-log">${a.log.slice(0, 30).map((x) => `<div><span>${x.dir > 0 ? "▲" : "▼"} ${MK[x.m] ? MK[x.m].sym : x.m} ×${x.qty} <small class="muted">${new Date(x.day * 864e5).toLocaleDateString([], { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" })}</small></span><b class="${x.usd > 0 ? "good" : x.usd < 0 ? "bad" : ""}">${signed(x.usd)}</b><small class="muted">${money(x.bal)}</small></div>`).join("")}</div>` : `<p class="muted" style="margin:0">Your trades will show here, each one adding to or taking from the balance.</p>`}</div>`;
+  }
+  function acctSave(reset) {
+    const a = acct(), s = Number($("#acctStart").value), f = Number($("#acctFee").value);
+    if (!(s >= 100)) return toast("Start with at least $100.");
+    const fresh = reset || s !== a.start;
+    if (fresh) { a.start = s; a.balance = s; a.peak = s; a.log = []; }
+    a.fee = f >= 0 ? f : 0;
+    saveAcct(a); paintPnl(); openAcct();
+    toast(fresh ? `Fresh start: ${money(s)}.` : "Saved.");
+  }
 
   function play() {
     if (timer) return stop();
@@ -954,7 +1003,7 @@
     }
     const body = !S.trades.length
       ? `<p>No trades this session.</p>${missed || `<div class="insight good"><span>🧘</span><div><b>Nothing to take today — and you didn't force it.</b><p>That's the job some days.</p></div></div>`}`
-      : `<div class="levels" style="grid-template-columns:repeat(3,1fr)"><div><small>Trades</small><b>${S.trades.length}</b></div><div><small>Result</small><b class="${tot > 0 ? "good" : tot < 0 ? "bad" : ""}">${tot > 0 ? "+" : ""}${tot.toFixed(2)}R</b></div><div><small>Rules kept</small><b>${S.trades.filter((t) => t.rulesOk).length}/${S.trades.length}</b></div></div>
+      : `<div class="levels" style="grid-template-columns:repeat(3,1fr)"><div><small>Trades</small><b>${S.trades.length}</b></div><div><small>Result</small><b class="${tot > 0 ? "good" : tot < 0 ? "bad" : ""}">${tot > 0 ? "+" : ""}${tot.toFixed(2)}R</b><small>${signed(S.trades.reduce((x, t) => x + t.usd, 0))} · balance ${money(acct().balance)}</small></div><div><small>Rules kept</small><b>${S.trades.filter((t) => t.rulesOk).length}/${S.trades.length}</b></div></div>
         ${common.length ? `<h3 style="margin:12px 0 6px">What to work on</h3>${common.slice(0, 3).map(([c, n]) => `<div class="insight bad"><span>🎯</span><div><b>${esc(S.trades.flatMap((t) => t.findings).find((f) => f.code === c).title)}${n > 1 ? ` (${n}×)` : ""}</b><p>${esc(ADVICE[c] || "")}</p></div></div>`).join("")}`
           : `<div class="insight good"><span>✅</span><div><b>Clean session — nothing to add.</b><p>Every trade followed the plan. Keep doing exactly this.</p></div></div>`}${missed}`;
     const list = S.trades.map((t, n) => `<div class="row between sim-tline"><span>${t.dir > 0 ? "▲ Buy" : "▼ Sell"} ${local(t.tIn)} · <b class="${t.R > 0.1 ? "good" : t.R < -0.1 ? "bad" : ""}">${t.R > 0 ? "+" : ""}${t.R.toFixed(2)}R</b> ${t.rulesOk ? "✅" : "⚠️"}</span><button class="btn small" data-s="review" data-a="${n}">🔍 Review</button></div>`).join("");
@@ -971,6 +1020,10 @@
     switch (b.dataset.s) {
       case "close": return close();
       case "pick": return openPicker();
+      case "acct": return openAcct();
+      case "acctclose": { const el = $("#simAcct"); if (el) el.remove(); return; }
+      case "acctsave": return acctSave(false);
+      case "acctreset": return acctSave(true);
       case "pkclose": return closePicker();
       case "pksrc": PK.src = a; try { localStorage.setItem("edge.sim.src", a); } catch {} return pkLoad();
       case "pkyear": PK.year = Number(a); PK.month = Math.min(PK.month, lastMonth(PK.year)); return pkLoad();

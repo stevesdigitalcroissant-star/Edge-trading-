@@ -393,7 +393,8 @@ body.sim-on .tabs { display: none; }
 .sim-mk { display: flex; gap: 4px; flex: 1; overflow-x: auto; }
 .sim-mk button { border: 1px solid var(--line); background: var(--panel2); color: var(--muted); border-radius: 10px; padding: 7px 10px; font: 600 12.5px var(--font); cursor: pointer; white-space: nowrap; }
 .sim-mk button.on { color: var(--text); border-color: var(--accent); }
-.sim-pnl { text-align: right; flex: none; } .sim-pnl small { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; } .sim-pnl b { font: 700 16px var(--display); }
+.sim-pnl { text-align: right; flex: none; border: 0; background: none; color: var(--text); cursor: pointer; padding: 0; font: inherit; }
+.sim-pnl em { display: block; font: 600 10.5px var(--font); font-style: normal; color: var(--muted); white-space: nowrap; } .sim-pnl em.good { color: var(--good); } .sim-pnl em.bad { color: var(--bad); } .sim-pnl small { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; } .sim-pnl b { font: 700 16px var(--display); }
 .sim-pnl b.good, .sim-clock .good { color: var(--good); } .sim-pnl b.bad { color: var(--bad); }
 .sim-info { padding: 6px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
 .sim-chart { position: relative; flex: 1 1 auto; min-height: 220px; overflow: hidden; }
@@ -516,3 +517,10 @@ label.tv-row, .tv-row:not(:has(.tv-tog)) { grid-template-columns: 82px 1fr auto 
 .pk-days button.on { border-color: #2962ff; }
 .pk-seq { grid-template-columns: auto 1fr !important; font-size: 13px; }
 @media (max-width: 420px) { .sim-mk button { padding: 7px 8px; } }
+.acct-big { text-align: center; padding: 6px 0; } .acct-big small { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
+.acct-big b { display: block; font: 700 32px var(--display); } .acct-big span { font-size: 13px; color: var(--muted); }
+.acct-big.good b, .acct-big.good span { color: var(--good); } .acct-big.bad b, .acct-big.bad span { color: var(--bad); }
+.acct-log { display: grid; gap: 2px; max-height: 220px; overflow-y: auto; font-size: 13px; }
+.acct-log > div { display: grid; grid-template-columns: 1fr auto 80px; gap: 8px; padding: 6px 2px; border-bottom: 1px solid var(--line); align-items: center; }
+.acct-log > div > small { text-align: right; } .acct-log .good { color: var(--good); } .acct-log .bad { color: var(--bad); }
+@media (max-width: 520px) { .sim-top [data-s="fs"] { display: none; } .sim-top { gap: 6px; } }
