@@ -43,6 +43,13 @@ module.exports = async (req, res) => {
     if (url.searchParams.get("status")) return res.status(200).json({ databento: !!db.key(), yahoo: true });
     // ?src=db&fill=1&from=2019-01&to=2026-09 — buy the missing months into the archive (each month once, ever)
     // ?src=db&have=1 — which months are archived
+    // Databento data is licensed to you: only your signed-in app (or your private data downloader) may load it
+    if (url.searchParams.get("src") === "db") {
+      const store = require("./_store").getStore();
+      const dt = process.env.EDGE_DATA_TOKEN, given = req.headers["x-edge-data"];
+      const okToken = dt && given && require("crypto").timingSafeEqual(require("crypto").createHash("sha256").update(String(given)).digest(), require("crypto").createHash("sha256").update(dt).digest());
+      if (!okToken && !(await require("./_auth").authorized(store, req.headers))) return res.status(401).json({ error: "Sign in to Edge to load these prices." });
+    }
     if (url.searchParams.get("src") === "db" && url.searchParams.get("have")) return res.status(200).json({ market, months: await require("./_bars").have(market) });
     if (url.searchParams.get("src") === "db" && url.searchParams.get("fill")) {
       const r = await db.fill(require("./_store").getStore(), market, url.searchParams.get("from") || "2019-01", url.searchParams.get("to") || "2099-12");
@@ -51,7 +58,7 @@ module.exports = async (req, res) => {
     if (url.searchParams.get("src") === "db") {
       const tf = url.searchParams.get("i") || "5m", month = url.searchParams.get("month") || "";
       const bars = await db.month(require("./_store").getStore(), market, month, tf);
-      res.setHeader("Cache-Control", month < new Date().toISOString().slice(0, 7) ? "public, s-maxage=86400" : "public, s-maxage=1800");
+      res.setHeader("Cache-Control", month < new Date().toISOString().slice(0, 7) ? "private, max-age=604800" : "private, max-age=1800"); // your browser keeps it; never a shared cache
       return res.status(200).json({ market, source: "databento", month, interval: tf, bars });
     }
     const interval = INTERVALS[url.searchParams.get("i")] ? url.searchParams.get("i") : "5m";

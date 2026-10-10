@@ -64,14 +64,18 @@ async function fetchMonth(market, month, fetchImpl = fetch) {
 
 // One month of 1-minute candles: from the archive (free) when Edge already bought it, otherwise
 // from Databento once — a finished month then goes into the archive for good.
+// Never in Redis: that database is small, in-memory and holds your journal — candles don't belong there.
+// A warm function keeps the last few months in memory; the browser and Vercel's edge cache the replies.
+const recent = new Map();
 async function oneMinute(store, market, monthStr, fetchImpl = fetch) {
-  const done = monthStr < new Date().toISOString().slice(0, 7);
-  if (done) { const a = await archive.get(market, monthStr); if (a) return a; }
-  const ck = `db1:${market}:${monthStr}`; // fallback cache when there's no archive (local runs) and for the running month
-  if (!done || !archive.ready()) { const c = await store.get(ck); if (c && (done || Date.now() - c.at < 3600e3)) return c.bars; }
+  const done = monthStr < new Date().toISOString().slice(0, 7), ck = `${market}:${monthStr}`;
+  const hit = recent.get(ck);
+  if (hit && (done || Date.now() - hit.at < 3600e3)) return hit.bars;
+  if (done) { const a = await archive.get(market, monthStr).catch(() => null); if (a) return a; }
   const one = await fetchMonth(market, monthStr, fetchImpl);
-  if (done && archive.ready()) await archive.put(market, monthStr, one);
-  else await store.set(ck, { at: Date.now(), bars: one }).catch(() => {}); // too big for the store? just don't cache
+  if (done) await archive.put(market, monthStr, one).catch(() => {}); // the archive is optional (e.g. a suspended Blob store)
+  recent.set(ck, { at: Date.now(), bars: one });
+  while (recent.size > 6) recent.delete(recent.keys().next().value);
   return one;
 }
 

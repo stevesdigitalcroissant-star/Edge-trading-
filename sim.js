@@ -35,7 +35,8 @@
   const srcPref = () => { try { return localStorage.getItem("edge.sim.src") || "free"; } catch { return "free"; } };
   async function getBars(url) {
     if (cache[url]) return cache[url];
-    const r = await fetch(url);
+    const tok = window.Edge && window.Edge.token && window.Edge.token();
+    const r = await fetch(url, tok && url.includes("src=db") ? { headers: { Authorization: `Bearer ${tok}` } } : undefined);
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || "Couldn't load prices — try again in a minute.");
     return (cache[url] = j.bars);
