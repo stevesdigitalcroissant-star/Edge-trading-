@@ -19,21 +19,21 @@
 
   const DEFAULTS = {
     htfLen: 3, mtfLen: 2, ltfLen: 2,
-    bigMult: 1.5, // the big candle's body ≥ 1.5 × the average body of the 20 candles before it
+    bigMult: 1.2, // the big candle's body ≥ 1.2 × the average body of the 20 candles before it
     ltfMin: 5, // entry timeframe in minutes (5 or 1) — the bars passed in must be this size
-    waitMin: 480, // minutes from the zone touch to the entry break (8 hours)
+    waitMin: 240, // minutes from the zone touch to the entry break (4 hours)
     trendTF: "4h", // the trend that decides long or short: "4h" or "15m" (more trades)
-    maxTouches: 1, // 1 = first touch only · 2 = a second touch is also tradeable
+    maxTouches: 2, // 1 = first touch only · 2 = a second touch is also tradeable
     entry: "zone5", // "zone5" = limit at the 5m zone · "retest" = limit at the broken 5m level · "market" = in on the 5m break close
-    needZ5: true, // the 5m break must leave a gap (imbalance) — the best filter in the 6-month test
-    z5Fallback: "skip", // the entry move left no gap: "skip" or "opposite" (use the last opposite candle)
+    needZ5: false, // the 5m break must leave a gap (imbalance) — the best filter in the 6-month test
+    z5Fallback: "opposite", // the entry move left no gap: "skip" or "opposite" (use the last opposite candle)
     discount: true, // buy only in the lower half of the last 4H swing range, sell only in the upper half
     target: "liquidity", // "liquidity" = nearest liquidity ≥ 2R (swing / equal highs / previous day) · "fixed" = 3.2R
-    daily: "off", // daily direction filter: "off" · "level" (nearest untouched daily high/low) · "prevclose" · "bias" (+ biasDir)
+    daily: "prevclose", // daily direction filter: "off" · "level" (nearest untouched daily high/low) · "prevclose" · "bias" (+ biasDir)
     exit: "fixed", trendExit: "off", block15: true, // block15 = skip when the last 15m break is against the 4H trend
-    beR: 2, tpR: 3.2, beOffR: 0.05, minZoneR: 2, slBufAtr: 0.1,
-    windows: [["03:00", "12:00"]], // when orders may be placed / filled (New York)
-    asia: ["18:00", "02:00"], flatBy: "16:40", maxPerDay: 3, warnBars: 6,
+    beR: 1.25, tpR: 3.2, beOffR: 0.05, minZoneR: 1.5, slBufAtr: 0.1,
+    windows: [["02:00", "16:00"]], // when orders may be placed / filled (New York): London + New York
+    asia: ["18:00", "02:00"], flatBy: "16:40", maxPerDay: 2, warnBars: 6,
   };
   const WINDOWS = { sessions: [["03:00", "12:00"]], killzones: [["02:00", "05:00"], ["08:30", "11:00"]] };
 
@@ -79,9 +79,9 @@
   function run(bars, market, opt = {}) {
     const P = { ...DEFAULTS, ...opt };
     // each rule: "required" (fails → no trade) · "grade" (fails → one grade lower) · "off"
-    // defaults from the 6-month gold test (Apr–Sep 2026): the 4H-zone rule never occurred and the 15m-against
-    // block made results worse, so both are off; discount, inducement and strength only affect the grade
-    P.rules = { discount: P.discount === false ? "off" : P.discount === true && opt.discount === true ? "required" : "grade", m15: P.block15 === true && opt.block15 === true ? "required" : "off", inducement: "grade", zone4h: "off", strength: "grade", major: "off", ...(opt.rules || {}) };
+    // defaults from the 3¾-year gold search (2023 → Sep 2026, tuned on 2023–mid 2025, checked on the rest):
+    // discount, 15m-against, inducement, 4H zone and strength made results worse or never happened → off by default
+    P.rules = { discount: P.discount === false ? "off" : P.discount === true && opt.discount === true ? "required" : "off", m15: P.block15 === true && opt.block15 === true ? "required" : "off", inducement: "off", zone4h: "off", strength: "off", major: "off", ...(opt.rules || {}) };
     const RQ = (k) => P.rules[k] === "required", GR = (k) => P.rules[k] === "grade";
     if (typeof P.windows === "string") P.windows = WINDOWS[P.windows] || DEFAULTS.windows;
     const H4 = new TF((m) => Math.floor((m - 1080) / 240), P.htfLen);
