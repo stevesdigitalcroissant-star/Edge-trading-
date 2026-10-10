@@ -50,7 +50,7 @@ async function fetchMonth(market, month, fetchImpl = fetch) {
   const endD = new Date(Math.min(Date.UTC(y, m, 1), Date.now() - 864e5));
   const end = endD.toISOString().slice(0, 10);
   if (end <= start) throw new Error("That month isn't available yet");
-  const q = new URLSearchParams({ dataset: "GLBX.MDP3", symbols: `${root}.c.0`, stype_in: "continuous", schema: "ohlcv-1m", start, end, encoding: "csv", pretty_px: "true", pretty_ts: "true", map_symbols: "true" });
+  const q = new URLSearchParams({ dataset: "GLBX.MDP3", symbols: `${root}.v.0`, stype_in: "continuous", schema: "ohlcv-1m", start, end, encoding: "csv", pretty_px: "true", pretty_ts: "true", map_symbols: "true" });
   const r = await fetchImpl(`${API}?${q}`, { headers: { Authorization: "Basic " + Buffer.from(key() + ":").toString("base64") }, signal: AbortSignal.timeout(50000) });
   const text = await r.text();
   if (!r.ok) {
@@ -62,11 +62,12 @@ async function fetchMonth(market, month, fetchImpl = fetch) {
 }
 
 // cached month of candles at the asked timeframe
+// (".v.0" = the contract with the most volume each day, like TradingView's GC1! — the nearest expiry is often barely traded)
 async function month(store, market, monthStr, tf = "5m", fetchImpl = fetch) {
   if (!/^\d{4}-\d{2}$/.test(monthStr)) throw new Error("month must look like 2024-03");
   const mins = TF[tf];
   if (!mins) throw new Error("timeframe must be 5m, 15m or 60m");
-  const ck = `db:${market}:${monthStr}:${tf}`;
+  const ck = `db2:${market}:${monthStr}:${tf}`;
   const cached = await store.get(ck);
   const thisMonth = new Date().toISOString().slice(0, 7);
   if (cached && (monthStr < thisMonth || Date.now() - cached.at < 3600e3)) return cached.bars;
