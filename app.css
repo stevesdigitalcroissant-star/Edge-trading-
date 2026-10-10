@@ -500,3 +500,19 @@ label.tv-row, .tv-row:not(:has(.tv-tog)) { grid-template-columns: 82px 1fr auto 
 .tv-go.buy { background: #2962ff; } .tv-go.sell { background: #ef5350; } .tv-go:disabled { opacity: .45; cursor: not-allowed; }
 .sim-toolrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: var(--panel2); border-left: 3px solid #2962ff; margin-bottom: 6px; font-size: 13px; }
 .sim-toolrow.short { border-left-color: #ef5350; }
+.sim-date { flex: none; height: 34px; padding: 0 10px; border-radius: 17px; border: 1px solid var(--line2); background: var(--panel2); color: var(--text); font: 600 12.5px var(--font); cursor: pointer; white-space: nowrap; }
+.pk .tv-tabs button:disabled { opacity: .4; }
+.pk-note { font-size: 12px; margin: -4px 0 0; }
+.pk-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.pk-row button, .pk-months button { flex: none; border: 1px solid var(--line); background: var(--panel2); color: var(--muted); border-radius: 9px; padding: 7px 11px; font: 600 13px var(--font); cursor: pointer; }
+.pk-months { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.pk-row button.on, .pk-months button.on { border-color: #2962ff; color: var(--text); background: color-mix(in srgb, #2962ff 22%, var(--panel2)); }
+.pk-months button:disabled { opacity: .3; cursor: default; }
+.pk-h { display: flex; justify-content: space-between; align-items: baseline; margin-top: 4px; } .pk-h b { font-size: 13px; }
+.pk-days { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px; max-height: 190px; overflow-y: auto; }
+.pk-days button { position: relative; border: 1px solid var(--line); background: var(--panel2); color: var(--text); border-radius: 10px; padding: 6px 2px; cursor: pointer; display: grid; gap: 1px; }
+.pk-days button small { font-size: 10px; color: var(--muted); } .pk-days button b { font: 700 15px var(--display); }
+.pk-days button.seen::after { content: "✓"; position: absolute; top: 2px; right: 5px; font-size: 10px; color: var(--good); }
+.pk-days button.on { border-color: #2962ff; }
+.pk-seq { grid-template-columns: auto 1fr !important; font-size: 13px; }
+@media (max-width: 420px) { .sim-mk button { padding: 7px 8px; } }

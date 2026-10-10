@@ -58,8 +58,8 @@
     if (src === "db" && month) {
       const [y, m] = month.split("-").map(Number), prev = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
       const [a, b] = await Promise.all([getBars(`/api/candles?m=${market}&src=db&i=${P.tf}&month=${prev}`).catch(() => []), getBars(`/api/candles?m=${market}&src=db&i=${P.tf}&month=${month}`)]);
-      const d = prep([...a, ...b], P.tf), first = Date.UTC(y, m - 1, 1) / 864e5;
-      return { bars: d.bars, days: d.days.filter((x) => x >= first) };
+      const d = prep([...a, ...b], P.tf), first = Date.UTC(y, m - 1, 1) / 864e5, last = Date.UTC(y, m, 1) / 864e5;
+      return { bars: d.bars, days: d.days.filter((x) => x >= first && x < last) };
     }
     const key = `${market}:${P.tf}`;
     if (cache[key]) return cache[key];
@@ -222,7 +222,7 @@
     el.innerHTML = `<div class="sim-top">
         <button class="sim-x" data-s="close" aria-label="Close">✕</button>
         <div class="sim-mk">${Object.entries(MK).map(([k, v]) => `<button data-s="mk" data-a="${k}" class="${k === market ? "on" : ""}">${{ gold: "Gold", crude: "Crude", silver: "Silver", natgas: "Gas" }[k]}</button>`).join("")}</div>
-        <button class="sim-x" data-s="src" id="simSrc" title="Where the prices come from">60d</button>
+        <button class="sim-date" data-s="pick" id="simDate" title="Pick the day to train on">📅</button>
         <button class="sim-x" data-s="fs" title="Full screen (F)">⛶</button>
         <div class="sim-pnl"><small>Session</small><b id="simPnl">0.00R</b></div></div>
       <div class="sim-info" id="simInfo">Loading prices…</div>
@@ -238,7 +238,6 @@
     document.body.classList.add("sim-on");
     el.addEventListener("click", onClick);
     document.addEventListener("keydown", onKey);
-    dbReady().then((ok) => { const b = $("#simSrc"); if (b) { b.textContent = ok && srcPref() === "db" ? "2019+" : "60d"; b.hidden = !ok; } });
     start(market, day).catch((e) => { $("#simInfo").textContent = e.message; });
   }
   function close() {
@@ -251,11 +250,16 @@
     S = null;
   }
 
-  async function start(market, dayPick = null) {
+  // o: { day, month ("2024-03"), src ("db" | "free"), at (New York minutes to start from), seq (Next = the following day) }
+  async function start(market, o = {}) {
+    if (o == null) o = {};
+    if (typeof o === "number") o = { day: o };
     stop();
-    const useDb = srcPref() === "db" && (await dbReady());
+    const useDb = (o.src || srcPref()) === "db" && (await dbReady());
+    const month = useDb ? o.month || (o.day != null ? new Date(o.day * 864e5).toISOString().slice(0, 7) : randomMonth()) : null;
     $("#simInfo").textContent = useDb ? "Loading a month from Databento…" : "Loading prices…";
-    const P = MK[market], data = await load(market, useDb ? "db" : "free", useDb ? randomMonth() : null);
+    const P = MK[market], data = await load(market, useDb ? "db" : "free", month);
+    const dayPick = o.day;
     if (!data.days.length) throw new Error("No complete sessions in the data yet.");
     const seenKey = `edge.sim.${market}`;
     let seen = []; try { seen = JSON.parse(localStorage.getItem(seenKey) || "[]"); } catch {}
@@ -265,13 +269,16 @@
     const all = data.bars, first = all.findIndex((b) => b.cme === day);
     const sess = all.filter((b) => b.cme === day);
     // start: London → the evening the box starts (18:00); gas → 03:00 New York with plenty of history for old zones
-    const startI = P.strategy === "london" ? first : Math.max(first, all.findIndex((b) => b.cme === day && b.min >= 180 && b.min < 18 * 60));
+    let startI = P.strategy === "london" ? first : Math.max(first, all.findIndex((b) => b.cme === day && b.min >= 180 && b.min < 18 * 60));
+    const at = o.at ?? startAt(market);
+    if (at != null && at !== 18 * 60) { const j = all.findIndex((b, k) => k >= startI && b.cme === day && b.min >= at && b.min < 18 * 60); if (j > 0) startI = j; } // your chosen start time
     const hist = P.strategy === "london" ? 160 : 24 * 12;
-    S = { market, P, day, bars: all, sess, i: startI, from: Math.max(0, startI - hist), speed: 1, orders: [], pos: null, trades: [], ha: P.strategy === "ngzone", plan: P.strategy === "london" ? londonPlan(sess, P) : null, reviewing: null, tools: [], draws: [], mode: null, pend: null, sel: null, tk: null, tkLines: null };
+    S = { market, P, day, bars: all, sess, i: startI, from: Math.max(0, startI - hist), speed: 1, orders: [], pos: null, trades: [], ha: P.strategy === "ngzone", plan: P.strategy === "london" ? londonPlan(sess, P) : null, reviewing: null, tools: [], draws: [], mode: null, pend: null, sel: null, tk: null, tkLines: null, src: useDb ? "db" : "free", month, days: data.days, seq: !!o.seq };
     closeTicket(); closeMenu(); if (S) modeUi();
     buildChart();
     paintAll();
     const d = new Date(day * 864e5); // the New York trading day
+    const db = $("#simDate"); if (db) db.textContent = `📅 ${d.toLocaleDateString([], { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" })}`;
     $("#simInfo").innerHTML = `<b>${P.name}</b> · ${d.toLocaleDateString([], { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" })} · ${P.tf === "5m" ? "5-minute" : "1-hour Heikin Ashi"} candles · ${P.strategy === "london" ? `orders live ${winTxt(P)}` : `windows ${winTxt(P)}`}`;
     $("#simSkip").textContent = P.strategy === "london" ? `⏩ to ${hm(P.win[0])} NY` : "⏩ to 06:00 NY";
     panel();
@@ -856,6 +863,61 @@
   }
   const orderRows = () => S.orders.map((o, i) => `<div class="row between"><span>${o.side > 0 ? "▲ BUY" : "▼ SELL"} ${o.type.toUpperCase()} ${o.qty || ""} <b>${fmt(o.price)}</b> <small class="muted">SL ${fmt(o.sl)} · TP ${o.tp != null ? fmt(o.tp) : "—"}</small></span><span class="row"><button class="btn small" data-s="tk" data-a="ord:${i}">Edit</button><button class="btn small" data-s="del" data-a="ord:${i}">Cancel</button></span></div>`).join("");
 
+  // ---------- pick the day you train on: any day since 2019 (Databento) or the last 60 days, and when the replay starts
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const STARTS = { london: [[18 * 60, "Asian 18:00"], [120, "London 02:00"], [480, "New York 08:00"]], ngzone: [[180, "03:00"], [360, "Window 06:00"], [660, "Window 11:00"]] };
+  function startAt(market) { try { const v = localStorage.getItem(`edge.sim.at.${market}`); if (v != null) return Number(v); } catch {} return null; }
+  const lastMonth = (y) => { const n = new Date(Date.now() - 864e5); return y < n.getUTCFullYear() ? 12 : n.getUTCMonth() + 1; };
+  const pkMonthStr = () => `${PK.year}-${String(PK.month).padStart(2, "0")}`;
+  let PK = null;
+  async function openPicker() {
+    stop();
+    const ok = await dbReady(), d = new Date(S.day * 864e5);
+    PK = { market: S.market, src: ok ? S.src : "free", db: ok, year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, at: startAt(S.market) ?? STARTS[S.P.strategy][0][0], seq: S.seq || true, days: null };
+    pkLoad();
+  }
+  function closePicker() { const el = $("#simPick"); if (el) el.remove(); PK = null; }
+  async function pkLoad() {
+    PK.days = null; PK.err = ""; pkRender();
+    const want = PK.src === "db" ? pkMonthStr() : "free";
+    try {
+      const data = await load(PK.market, PK.src, PK.src === "db" ? want : null);
+      if (!PK || (PK.src === "db" ? pkMonthStr() : "free") !== want) return; // you picked something else meanwhile
+      PK.days = data.days;
+    } catch (e) { if (PK) { PK.err = e.message; PK.days = []; } }
+    if (PK) pkRender();
+  }
+  function pkRender() {
+    let el = $("#simPick");
+    if (!el) { el = document.createElement("div"); el.id = "simPick"; el.className = "tv-tk-wrap"; $("#sim").appendChild(el); el.addEventListener("click", (e) => { if (e.target === el) closePicker(); }); }
+    const P = MK[PK.market], now = new Date(), seen = (() => { try { return JSON.parse(localStorage.getItem(`edge.sim.${PK.market}`) || "[]"); } catch { return []; } })();
+    const years = []; for (let y = 2019; y <= now.getUTCFullYear(); y++) years.push(y);
+    const days = PK.days == null ? `<p class="muted">Loading the days${PK.src === "db" ? ` of ${MON[PK.month - 1]} ${PK.year}` : ""}…</p>`
+      : !PK.days.length ? `<p class="muted">${esc(PK.err || "No full trading days here.")}</p>`
+      : `<div class="pk-days">${PK.days.map((d) => { const t = new Date(d * 864e5); return `<button data-s="pkday" data-a="${d}" class="${seen.includes(d) ? "seen" : ""} ${S && d === S.day ? "on" : ""}"><small>${t.toLocaleDateString([], { timeZone: "UTC", weekday: "short" })}</small><b>${t.getUTCDate()}</b>${PK.src === "free" ? `<small>${MON[t.getUTCMonth()]}</small>` : ""}</button>`; }).join("")}</div>`;
+    el.innerHTML = `<div class="tv-tk pk">
+      <div class="tv-tk-h"><b>Pick your day</b><span class="muted">${P.name}</span><button class="sim-x" data-s="pkclose" aria-label="Close">✕</button></div>
+      <div class="tv-tabs" style="grid-template-columns:1fr 1fr"><button data-s="pksrc" data-a="db" class="${PK.src === "db" ? "on" : ""}" ${PK.db ? "" : "disabled"}>Any day since 2019</button><button data-s="pksrc" data-a="free" class="${PK.src === "free" ? "on" : ""}">Last 60 days</button></div>
+      ${PK.db ? "" : `<p class="muted pk-note">Connect Databento to train on any day since 2019.</p>`}
+      ${PK.src === "db" ? `<div class="pk-row">${years.map((y) => `<button data-s="pkyear" data-a="${y}" class="${y === PK.year ? "on" : ""}">${y}</button>`).join("")}</div>
+      <div class="pk-months">${MON.map((m, i) => `<button data-s="pkmonth" data-a="${i + 1}" class="${i + 1 === PK.month ? "on" : ""}" ${i + 1 > lastMonth(PK.year) ? "disabled" : ""}>${m}</button>`).join("")}</div>` : ""}
+      <div class="pk-h"><b>Day</b><small class="muted">✓ = already practised</small></div>
+      ${days}
+      <div class="pk-h"><b>Start the replay at</b><small class="muted">New York time</small></div>
+      <div class="tv-tabs">${STARTS[P.strategy].map(([m, l]) => `<button data-s="pkat" data-a="${m}" class="${m === PK.at ? "on" : ""}">${l}</button>`).join("")}</div>
+      <div class="tv-row pk-seq">${`<button class="tv-tog ${PK.seq ? "on" : ""}" data-s="pkseq" role="switch" aria-checked="${PK.seq}"><i></i></button>`}<span style="min-width:0">Go day by day — <b>Next session</b> opens the following day</span></div>
+      <button class="tv-go buy" data-s="pkrand" ${PK.days && PK.days.length ? "" : "disabled"}>🎲 Surprise me${PK.src === "db" ? ` — any day in ${MON[PK.month - 1]} ${PK.year}` : ""}</button></div>`;
+  }
+  // Next session: the following trading day when you go day by day, otherwise a random fresh one
+  async function nextSession() {
+    if (!S.seq) return start(S.market, { src: S.src });
+    const nx = S.days.find((d) => d > S.day);
+    if (nx != null) return start(S.market, { day: nx, src: S.src, month: S.month, seq: true });
+    if (S.src === "db") { const [y, m] = S.month.split("-").map(Number), n = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7); const nd = await load(S.market, "db", n).catch(() => ({ days: [] })); if (nd.days.length) return start(S.market, { day: nd.days[0], src: "db", month: n, seq: true }); }
+    toast("That was the last day available — here's a random one.");
+    return start(S.market, { src: S.src });
+  }
+
   // ---------- review, one point at a time
   function startReview(n) {
     const tr = S.trades[n];
@@ -908,15 +970,22 @@
     const a = b.dataset.a;
     switch (b.dataset.s) {
       case "close": return close();
-      case "src": { const nx = srcPref() === "db" ? "free" : "db"; try { localStorage.setItem("edge.sim.src", nx); } catch {} b.textContent = nx === "db" ? "2019+" : "60d"; toast(nx === "db" ? "Any day since 2019 (Databento) — next session." : "Last 60 days (free) — next session."); return start(S.market).catch((e) => toast(e.message)); }
+      case "pick": return openPicker();
+      case "pkclose": return closePicker();
+      case "pksrc": PK.src = a; try { localStorage.setItem("edge.sim.src", a); } catch {} return pkLoad();
+      case "pkyear": PK.year = Number(a); PK.month = Math.min(PK.month, lastMonth(PK.year)); return pkLoad();
+      case "pkmonth": PK.month = Number(a); return pkLoad();
+      case "pkat": PK.at = Number(a); try { localStorage.setItem(`edge.sim.at.${PK.market}`, a); } catch {} return pkRender();
+      case "pkseq": PK.seq = !PK.seq; return pkRender();
+      case "pkday": case "pkrand": { const day = b.dataset.s === "pkday" ? Number(a) : PK.days[Math.floor(Math.random() * PK.days.length)]; if (day == null) return; const { market, src: s, at, seq } = PK, month = s === "db" ? pkMonthStr() : null; closePicker(); return start(market, { day, src: s, month, at, seq: b.dataset.s === "pkday" && seq }).catch((e) => toast(e.message)); }
       case "fs": return fullScreen();
-      case "mk": return document.querySelectorAll(".sim-mk button").forEach((x) => x.classList.toggle("on", x === b)), start(a).catch((e) => toast(e.message));
+      case "mk": return document.querySelectorAll(".sim-mk button").forEach((x) => x.classList.toggle("on", x === b)), start(a, S && S.seq ? { day: S.day, src: S.src, seq: true } : {}).catch((e) => toast(e.message));
       case "play": return play();
       case "step": stop(); return void step();
       case "speed": S.speed = S.speed >= 8 ? 1 : S.speed * 2; b.textContent = `${S.speed}×`; if (timer) { stop(); play(); } return;
       case "skip": { stop(); const target = S.P.strategy === "london" ? S.P.win[0] : 360; let n = 0; while (n++ < 600 && !(S.bars[S.i].min >= target && S.bars[S.i].min < 18 * 60) && step()); return; }
       case "end": return endSession();
-      case "next": return start(S.market).catch((e) => toast(e.message));
+      case "next": return nextSession().catch((e) => toast(e.message));
       case "mode": return setMode(a);
       case "plan": return planTools();
       case "clearall": case "delall": S.draws = []; S.tools = []; S.sel = null; closeMenu(); drawLines(); return panel();
