@@ -32,7 +32,7 @@ test("a month is fetched once with your key, then served from storage", async ()
   assert.equal(a.length, 2);
   assert.deepEqual(a, b);
   assert.match(seen.url, /dataset=GLBX\.MDP3/);
-  assert.match(seen.url, /symbols=GC\.c\.0/);
+  assert.match(seen.url, /symbols=GC\.v\.0/);
   assert.match(seen.url, /schema=ohlcv-1m/);
   assert.equal(seen.auth, "Basic " + Buffer.from("db-test:").toString("base64"));
   const bad = async () => ({ ok: false, status: 401, text: async () => JSON.stringify({ detail: "Invalid API key" }) });
