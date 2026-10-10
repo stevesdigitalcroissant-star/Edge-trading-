@@ -8,7 +8,9 @@ const zlib = require("zlib");
 
 let blob = null;
 try { blob = require("@vercel/blob"); } catch {}
-const ready = () => !!(blob && (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID));
+// Off unless EDGE_ARCHIVE_BLOB=1: the Blob store connected to this project belongs to Illume Studio
+// (its accounts and media), and Edge must never use up that store's free allowance.
+const ready = () => !!(blob && process.env.EDGE_ARCHIVE_BLOB === "1" && (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID));
 
 const SCALE = { gold: 100, crude: 100, silver: 1000, natgas: 1000, es: 100 };
 const path = (market, month) => `edge-data/${market}/${month}.1m.json.gz`;
