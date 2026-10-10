@@ -2,6 +2,35 @@
 // Dukascopy's 1-minute candles (spot gold, WTI crude, natural gas CFDs), turned into 5-minute
 // candles. One file per day; prices come as integers, scaled per instrument. Public data, cached.
 const lzma = require("lzma");
+const zlib = require("zlib");
+
+// Gold also from Binance's public archive: PAXG (a token backed 1:1 by gold) — 5m candles, monthly zip files.
+// Trades 24/7, so weekends have candles too; the price follows spot gold closely.
+function unzipFirst(buf) {
+  let e = buf.length - 22;
+  while (e >= 0 && buf.readUInt32LE(e) !== 0x06054b50) e--;
+  if (e < 0) throw new Error("not a zip");
+  const cd = buf.readUInt32LE(e + 16);
+  const method = buf.readUInt16LE(cd + 10), size = buf.readUInt32LE(cd + 20), local = buf.readUInt32LE(cd + 42);
+  const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+  const data = buf.subarray(start, start + size);
+  return method === 0 ? data : zlib.inflateRawSync(data);
+}
+async function paxgMonth(y, m) {
+  const url = `https://data.binance.vision/data/spot/monthly/klines/PAXGUSDT/5m/PAXGUSDT-5m-${y}-${String(m).padStart(2, "0")}.zip`;
+  const r = await fetch(url);
+  if (r.status === 404) return [];
+  if (!r.ok) throw new Error(`gold archive ${r.status}`);
+  const csv = unzipFirst(Buffer.from(await r.arrayBuffer())).toString("utf8");
+  const out = [];
+  for (const line of csv.split("\n")) {
+    const c = line.split(",");
+    if (c.length < 5 || !/^\d/.test(c[0])) continue;
+    let t = Number(c[0]); if (t > 1e14) t = Math.floor(t / 1000); // newer files use microseconds
+    out.push([t, +c[1], +c[2], +c[3], +c[4]]);
+  }
+  return out;
+}
 
 const INSTR = { gold: { sym: "XAUUSD", range: [500, 10000] }, crude: { sym: "LIGHT.CMD.USD", range: [10, 300] }, natgas: { sym: "GAS.CMD.USD", range: [0.5, 30] } };
 
@@ -75,6 +104,14 @@ module.exports = async (req, res) => {
     const market = url.searchParams.get("m") || "gold";
     const from = /^\d{4}-\d{2}$/.test(url.searchParams.get("from") || "") ? url.searchParams.get("from") : "2025-01";
     const months = Math.max(1, Math.min(3, Number(url.searchParams.get("months")) || 1));
+    if (url.searchParams.get("src") === "paxg") {
+      if (market !== "gold") throw new Error("The free long history is only available for gold");
+      const [y, m] = from.split("-").map(Number);
+      const bars = [];
+      for (let k = 0; k < months; k++) bars.push(...(await paxgMonth(y + Math.floor((m - 1 + k) / 12), ((m - 1 + k) % 12) + 1)));
+      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
+      return res.status(200).json({ market, from, months, source: "binance PAXG (tracks spot gold)", bars });
+    }
     const { bars, div } = await load(market, from, months);
     res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
     res.status(200).json({ market, from, months, source: "dukascopy", scale: div, bars });
@@ -84,3 +121,4 @@ module.exports = async (req, res) => {
 };
 module.exports.decode = decode;
 module.exports.toFive = toFive;
+module.exports.unzipFirst = unzipFirst;

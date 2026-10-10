@@ -87,3 +87,16 @@ test("history files: 1-minute candles become 5-minute candles, empty minutes ski
   assert.deepEqual(five[0], [t0, 2650, 2652.004, 2649, 2650.504]);
   assert.deepEqual(five[1], [t0 + 300e3, 2650.005, 2652.005, 2649.005, 2650.505]);
 });
+
+test("gold archive: reads the CSV out of a zip file", () => {
+  const { unzipFirst } = require("../api/history");
+  const zlib = require("zlib");
+  const csv = Buffer.from("1735689600000,2620.1,2621.5,2619.9,2621.0,12\n");
+  const comp = zlib.deflateRawSync(csv), name = Buffer.from("a.csv");
+  const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(8, 8); local.writeUInt32LE(comp.length, 18); local.writeUInt16LE(name.length, 26);
+  const cdOff = 30 + name.length + comp.length;
+  const cd = Buffer.alloc(46); cd.writeUInt32LE(0x02014b50, 0); cd.writeUInt16LE(8, 10); cd.writeUInt32LE(comp.length, 20); cd.writeUInt16LE(name.length, 28); cd.writeUInt32LE(0, 42);
+  const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt32LE(cdOff, 16);
+  const zip = Buffer.concat([local, name, comp, cd, name, end]);
+  assert.equal(unzipFirst(zip).toString(), csv.toString());
+});
