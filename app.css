@@ -421,3 +421,19 @@ body.sim-on .tabs { display: none; }
 @media (min-width: 900px) { .sim { display: grid; grid-template-columns: 1fr 360px; grid-template-rows: auto auto 1fr auto; } .sim-top, .sim-info { grid-column: 1 / -1; } .sim-chart { grid-column: 1; grid-row: 3; } .sim-ctl { grid-column: 1; grid-row: 4; } .sim-panel { grid-column: 2; grid-row: 3 / 5; max-height: none; border-left: 1px solid var(--line); border-top: 0; } }
 
 .sim-tline { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; } .sim-tline .good { color: var(--good); } .sim-tline .bad { color: var(--bad); }
+
+/* Style lab */
+.lab-body { flex: 1; overflow-y: auto; }
+.lab-grid { display: grid; gap: 14px; padding: 14px; max-width: 1200px; margin: 0 auto; }
+@media (min-width: 900px) { .lab-grid { grid-template-columns: 380px 1fr; } .lab.sim { display: flex; } }
+.lab-h { font: 700 19px var(--display); margin: 0 0 4px; } .lab-p { margin: 0 0 10px; }
+.lab-src { margin: 10px 0; } .lab-src button { font-size: 11.5px; }
+.lab-sl { display: grid; gap: 6px; margin: 12px 0; font-size: 13.5px; } .lab-sl span { display: flex; justify-content: space-between; }
+.lab-sl input[type=range] { width: 100%; accent-color: #d9b46c; }
+.lab-cmp { background: var(--panel2); border: 1px solid var(--line); border-radius: 14px; padding: 6px 12px; }
+.lab-row { display: grid; grid-template-columns: 1.2fr 1fr 1fr; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; align-items: center; }
+.lab-row:last-child { border-bottom: 0; } .lab-row.head b { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.lab-row b { text-align: right; } .lab-row b.good { color: var(--good); } .lab-row b.bad { color: var(--bad); }
+.lab-legend { display: flex; gap: 14px; font-size: 12px; margin: 10px 0 4px; } .lab-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.lab-chart { height: 240px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); margin-bottom: 10px; }
+.sim:fullscreen, .sim:-webkit-full-screen { padding: 0; }

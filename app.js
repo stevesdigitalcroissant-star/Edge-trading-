@@ -26,6 +26,8 @@
 
   // ---------- notifications on this device (Web Push; iPhone/iPad need Edge on the Home Screen)
   const TABS = ["now", "learn", "coach", "setups", "bias", "journal", "rules"];
+  // a link like …/#sim-gold opens the simulator straight away (bookmark it on the laptop / iPad)
+  setTimeout(() => { const m = /^#(sim|lab)-(gold|crude|silver|natgas)$/.exec(location.hash); if (m && window.EdgeSim) window.EdgeSim[m[1] === "sim" ? "open" : "openLab"](m[2]); }, 1500);
   const fromHash = () => { const h = location.hash.slice(1); if (TABS.includes(h)) { tab = h; try { localStorage.setItem("edge.tab", tab); } catch {} } };
   fromHash();
   addEventListener("hashchange", () => { fromHash(); if (S) render(); });
@@ -374,6 +376,12 @@
       <section class="card simcard" data-tour="sim"><div class="card-head"><h2>🕹 Practice simulator</h2><span class="muted">real past prices</span></div>
         <p class="muted" style="margin:0 0 10px">Like TradingView, on a real past day. Play the candles, place your orders, and after each trade tap <b>Review</b> — Edge shows you on the chart what you missed, one point at a time. At the end, your session summary.</p>
         <div class="chips">${[["gold", "🥇 Gold"], ["crude", "🛢️ Crude"], ["silver", "🥈 Silver"], ["natgas", "🔥 Gas"]].map(([m, l]) => `<button type="button" data-sim="${m}">${l}</button>`).join("")}</div>
+        <p class="muted" style="margin:8px 0 0;font-size:12.5px">On a laptop or iPad: ⛶ for full screen. Keys: Space play · → next candle · B / S buy or sell · 1 2 3 price, stop, target · Enter place.</p>
+      </section>
+
+      <section class="card" data-tour="lab"><div class="card-head"><h2>🧪 Style lab</h2><span class="muted">your stop & target</span></div>
+        <p class="muted" style="margin:0 0 10px">Think the stop is too big? Set your own stop size and target and see how they did on real history next to the tested plan. Edge starts from how you place trades in the simulator. If yours does better, use it for your live alerts.</p>
+        <div class="chips three">${[["gold", "🥇 Gold"], ["crude", "🛢️ Crude"], ["silver", "🥈 Silver"]].map(([m, l]) => `<button type="button" data-lab="${m}">${l}${S.settings.style && S.settings.style[m] ? " ✓" : ""}</button>`).join("")}</div>
       </section>
 
       <section class="card"><div class="card-head"><h2>⏱ Right now</h2><span class="muted">your time</span></div><div id="lClock" data-tour="lClock">${clockHtml()}</div></section>
@@ -473,6 +481,7 @@
     ],
     learn: [
       ["sim", "Practice like it's real", "Pick a market: a real past day opens in a TradingView-style chart. Step through candles, place orders, and get a review after every trade."],
+      ["lab", "Your own stop and target", "Too-big stop? Try a smaller one here and see how it did on real history next to the tested plan. If yours wins, use it for live alerts."],
       ["lClock", "Your trading clock", "Which windows are open right now, in your own time. Green = go time."],
       ["lWalk", "Watch a trade", "Each strategy drawn step by step. Tap Next, or ▶ Play."],
       ["lQuiz", "Check yourself", "7 quick questions. If you get them all, you know the rules."],
@@ -1029,6 +1038,7 @@
     }));
     if (tab === "learn") bindLearn(); else stopPlay();
     v.querySelectorAll("[data-sim]").forEach((b) => b.addEventListener("click", () => window.EdgeSim ? window.EdgeSim.open(b.dataset.sim) : toast("Simulator still loading — try again.")));
+    v.querySelectorAll("[data-lab]").forEach((b) => b.addEventListener("click", () => window.EdgeSim ? window.EdgeSim.openLab(b.dataset.lab) : toast("Still loading — try again.")));
     v.querySelectorAll("[data-savebias]").forEach((b) => b.addEventListener("click", () => {
       const card = b.closest("[data-biascard]"), answers = {};
       card.querySelectorAll("[data-factor]").forEach((s) => (answers[s.dataset.factor] = Number(s.dataset.v)));

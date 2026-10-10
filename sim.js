@@ -26,61 +26,91 @@
   const winTxt = (P) => (P.wins || [P.win]).map(([a, b]) => `${hm(a)}–${hm(b)}`).join(" and ") + " New York";
 
   // ---------- data
-  async function load(market) {
-    const P = MK[market], key = `${market}:${P.tf}`;
-    if (cache[key]) return cache[key];
-    const r = await fetch(`/api/candles?m=${market}&i=${P.tf}`);
-    if (!r.ok) throw new Error("Couldn't load prices — try again in a minute.");
-    const j = await r.json();
-    const bars = j.bars.map(([t, o, h, l, c]) => { const n = nyInfo(t); return { t, o, h, l, c, min: n.min, cme: n.cme }; });
-    // Heikin Ashi (for the gas zones)
+  // prices: Yahoo (free: 60 days of 5-minute, 2 years of 1-hour) or Databento (official CME, any month since 2019)
+  let dbStatus = null;
+  async function dbReady() {
+    if (dbStatus == null) dbStatus = await fetch("/api/candles?status=1").then((r) => r.json()).then((j) => !!j.databento).catch(() => false);
+    return dbStatus;
+  }
+  const srcPref = () => { try { return localStorage.getItem("edge.sim.src") || "free"; } catch { return "free"; } };
+  async function getBars(url) {
+    if (cache[url]) return cache[url];
+    const r = await fetch(url);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "Couldn't load prices — try again in a minute.");
+    return (cache[url] = j.bars);
+  }
+  // add New York time, the CME day, Heikin Ashi and ATR to raw [t,o,h,l,c] candles
+  function prep(raw, tf) {
+    const bars = raw.map(([t, o, h, l, c]) => { const n = nyInfo(t); return { t, o, h, l, c, min: n.min, cme: n.cme }; });
     let ho = null, hc = null;
     for (const b of bars) { const c = (b.o + b.h + b.l + b.c) / 4, o = ho == null ? (b.o + b.c) / 2 : (ho + hc) / 2; b.ha = { o, c, h: Math.max(b.h, o, c), l: Math.min(b.l, o, c) }; ho = o; hc = c; }
-    // ATR(14) on this timeframe
     let a = 0; bars.forEach((b, i) => { const p = bars[i - 1]; const tr = p ? Math.max(b.h - b.l, Math.abs(b.h - p.c), Math.abs(b.l - p.c)) : b.h - b.l; a = i ? a + (tr - a) / 14 : tr; b.atr = a; });
-    // complete sessions: has candles from the evening start through 16:40 New York
+    const len = tf === "60m" ? 60 : 5;
     const days = [...new Set(bars.map((b) => b.cme))].filter((d) => {
       const s = bars.filter((b) => b.cme === d);
-      const len = P.tf === "60m" ? 60 : 5;
       return s.length && s[0].min >= 17 * 60 + 55 - len && s.some((b) => b.min < 18 * 60 && b.min + len >= FLAT - 10);
     });
-    return (cache[key] = { bars, days: days.slice(P.tf === "60m" ? 10 : 1, -1) });
+    return { bars, days };
+  }
+  async function load(market, src = "free", month = null) {
+    const P = MK[market];
+    if (src === "db" && month) {
+      const [y, m] = month.split("-").map(Number), prev = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
+      const [a, b] = await Promise.all([getBars(`/api/candles?m=${market}&src=db&i=${P.tf}&month=${prev}`).catch(() => []), getBars(`/api/candles?m=${market}&src=db&i=${P.tf}&month=${month}`)]);
+      const d = prep([...a, ...b], P.tf), first = Date.UTC(y, m - 1, 1) / 864e5;
+      return { bars: d.bars, days: d.days.filter((x) => x >= first) };
+    }
+    const key = `${market}:${P.tf}`;
+    if (cache[key]) return cache[key];
+    const d = prep(await getBars(`/api/candles?m=${market}&i=${P.tf}`), P.tf);
+    return (cache[key] = { bars: d.bars, days: d.days.slice(P.tf === "60m" ? 10 : 1, -1) });
+  }
+  function randomMonth() {
+    const now = new Date(), from = Date.UTC(2019, 0, 1), to = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
+    return new Date(from + Math.random() * (to - from)).toISOString().slice(0, 7);
   }
 
   // ---------- strategy answers (what the plan would have done) — used by the review
-  function londonPlan(sess, P) {
+  function londonPlan(sess, P, style = null) {
     const box = sess.filter((b) => b.min >= 18 * 60 || b.min < 120);
-    if (box.length < 10) return null;
+    if (box.length < 6) return null; // 8 one-hour or 96 five-minute candles in a full box
     const hi = Math.max(...box.map((b) => b.h)), lo = Math.min(...box.map((b) => b.l));
     const boxStart = box[0].t, boxEnd = box[box.length - 1].t;
     // 1-hour ATR ≈ 5-minute ATR × √12
-    const atrH = (box[box.length - 1].atr || 0) * Math.sqrt(12);
+    const atrH = (box[box.length - 1].atr || 0) * ((sess[1] && sess[1].t - sess[0].t >= 3600e3) ? 1 : Math.sqrt(12));
     const tooSmall = P.minRangeAtr && atrH > 0 && (hi - lo) / atrH < P.minRangeAtr;
     let trade = null;
     for (const b of sess) {
       if (b.min >= 18 * 60 || !inWins(P, b.min)) continue;
       const up = b.h >= hi, dn = b.l <= lo;
-      if (up === dn) { if (up) break; continue; }
-      const dir = up ? 1 : -1, e = up ? Math.max(hi, b.o) : Math.min(lo, b.o), sl = up ? lo : hi, r = Math.abs(e - sl);
-      trade = { dir, e, sl, tp: e + dir * P.tpR * r, be: e + dir * P.beR * r, t: b.t };
+      if (up === dn) continue; // neither, or both inside one candle (can't tell which came first): wait
+      const frac = style ? style.stopFrac : 1;
+      const dir = up ? 1 : -1, e = up ? Math.max(hi, b.o) : Math.min(lo, b.o), sl = frac >= 1 ? (up ? lo : hi) : e - dir * frac * (hi - lo), r = Math.abs(e - sl);
+      const tpR = style ? style.tpR : P.tpR, beR = style ? style.beR : P.beR;
+      trade = { dir, e, sl, tp: e + dir * tpR * r, be: beR > 0 ? e + dir * beR * r : null, t: b.t, tpR };
       break;
     }
-    if (trade) trade.result = simulate(sess, trade, P);
+    if (trade) trade.result = simulate(sess, trade, { ...P, tpR: trade.tpR });
     return { hi, lo, boxStart, boxEnd, trade, tooSmall, rangeAtr: atrH ? (hi - lo) / atrH : null };
   }
   // walk a trade forward with the plan's exits (break-even at beR), conservative inside a candle
   function simulate(sess, tr, P) {
-    let sl = tr.sl, started = false;
+    let sl = tr.sl, started = false, last = null;
+    const len = sess.length > 1 ? Math.round((sess[1].t - sess[0].t) / 60e3) : 5;
+    const out = (px, how, t) => ({ R: (tr.dir * (px - tr.e)) / Math.abs(tr.e - tr.sl), how, t });
     for (const b of sess) {
       if (b.t < tr.t) continue;
-      if (b.t > tr.t && b.min >= FLAT && b.min < 18 * 60) return { R: (tr.dir * (b.o - tr.e)) / Math.abs(tr.e - tr.sl), how: "16:40 close-out", t: b.t };
+      if (b.t > tr.t && b.min >= FLAT && b.min < 18 * 60) return out(b.o, "16:40 close-out", b.t);
+      last = b;
       const hitSL = tr.dir > 0 ? b.l <= sl : b.h >= sl, hitTP = started && (tr.dir > 0 ? b.h >= tr.tp : b.l <= tr.tp);
       if (hitSL) return { R: (tr.dir * (sl - tr.e)) / Math.abs(tr.e - tr.sl), how: sl === tr.e ? "break-even" : "stop", t: b.t };
       if (hitTP) return { R: P.tpR, how: "target", t: b.t };
-      if (started && (tr.dir > 0 ? b.h >= tr.be : b.l <= tr.be)) sl = tr.e;
+      if (started && tr.be != null && (tr.dir > 0 ? b.h >= tr.be : b.l <= tr.be)) sl = tr.e;
       started = true;
+      if (b.min < 18 * 60 && b.min + len > FLAT) return out(b.c, "16:40 close-out", b.t); // the candle that runs past 16:40
     }
-    return { R: 0, how: "open", t: null };
+    return last ? out(last.c, "16:40 close-out", last.t) : { R: 0, how: "open", t: null };
   }
   // natural gas zones from Heikin Ashi candles, as they stood at bar index `upto`
   function gasZones(bars, upto) {
@@ -190,6 +220,8 @@
     el.innerHTML = `<div class="sim-top">
         <button class="sim-x" data-s="close" aria-label="Close">✕</button>
         <div class="sim-mk">${Object.entries(MK).map(([k, v]) => `<button data-s="mk" data-a="${k}" class="${k === market ? "on" : ""}">${{ gold: "Gold", crude: "Crude", silver: "Silver", natgas: "Gas" }[k]}</button>`).join("")}</div>
+        <button class="sim-x" data-s="src" id="simSrc" title="Where the prices come from">60d</button>
+        <button class="sim-x" data-s="fs" title="Full screen (F)">⛶</button>
         <div class="sim-pnl"><small>Session</small><b id="simPnl">0.00R</b></div></div>
       <div class="sim-info" id="simInfo">Loading prices…</div>
       <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><div class="sim-banner" id="simBanner" hidden></div></div>
@@ -203,10 +235,14 @@
     document.body.appendChild(el);
     document.body.classList.add("sim-on");
     el.addEventListener("click", onClick);
+    document.addEventListener("keydown", onKey);
+    dbReady().then((ok) => { const b = $("#simSrc"); if (b) { b.textContent = ok && srcPref() === "db" ? "2019+" : "60d"; b.hidden = !ok; } });
     start(market, day).catch((e) => { $("#simInfo").textContent = e.message; });
   }
   function close() {
     stop();
+    document.removeEventListener("keydown", onKey);
+    if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document).catch?.(() => {});
     if (chart) { chart.remove(); chart = null; }
     const el = $("#sim"); if (el) el.remove();
     document.body.classList.remove("sim-on");
@@ -215,7 +251,9 @@
 
   async function start(market, dayPick = null) {
     stop();
-    const P = MK[market], data = await load(market);
+    const useDb = srcPref() === "db" && (await dbReady());
+    $("#simInfo").textContent = useDb ? "Loading a month from Databento…" : "Loading prices…";
+    const P = MK[market], data = await load(market, useDb ? "db" : "free", useDb ? randomMonth() : null);
     if (!data.days.length) throw new Error("No complete sessions in the data yet.");
     const seenKey = `edge.sim.${market}`;
     let seen = []; try { seen = JSON.parse(localStorage.getItem(seenKey) || "[]"); } catch {}
@@ -359,7 +397,9 @@
     const P = S.P, out = tr.how === "target" || Math.abs(tr.R - P.tpR) < 0.1 ? "tp" : Math.abs(tr.R) < 0.1 ? "be" : tr.how === "stop" && tr.R <= -0.9 ? "sl" : "flat";
     const api = window.Edge && window.Edge.api;
     if (!api) return;
-    api({ action: "backtestLog", strategy: P.strategy, market: S.market, dir: tr.dir > 0 ? "long" : "short", outcome: out, r: tr.R.toFixed(2), date: new Date(tr.tIn).toISOString().slice(0, 10), rulesOk: tr.rulesOk, note: `simulator · ${tr.findings.map((f) => f.title).join(" · ")}`.slice(0, 480) }).catch(() => {});
+    const r0 = Math.abs(tr.e - tr.sl0), box = S.plan ? S.plan.hi - S.plan.lo : null;
+    const style = { stopFrac: box ? +(r0 / box).toFixed(3) : null, tpR: tr.tp0 != null ? +((tr.dir * (tr.tp0 - tr.e)) / r0).toFixed(2) : null, beAt: tr.beAt != null ? +tr.beAt.toFixed(2) : null };
+    api({ action: "backtestLog", strategy: P.strategy, market: S.market, dir: tr.dir > 0 ? "long" : "short", outcome: out, r: tr.R.toFixed(2), date: new Date(tr.tIn).toISOString().slice(0, 10), rulesOk: tr.rulesOk, style, note: `simulator · ${tr.findings.map((f) => f.title).join(" · ")}`.slice(0, 480) }).catch(() => {});
   }
   function paintPnl() { const tot = S.trades.reduce((x, t) => x + t.R, 0); const el = $("#simPnl"); el.textContent = `${tot > 0 ? "+" : ""}${tot.toFixed(2)}R`; el.className = tot > 0.01 ? "good" : tot < -0.01 ? "bad" : ""; }
 
@@ -465,6 +505,8 @@
     const a = b.dataset.a;
     switch (b.dataset.s) {
       case "close": return close();
+      case "src": { const nx = srcPref() === "db" ? "free" : "db"; try { localStorage.setItem("edge.sim.src", nx); } catch {} b.textContent = nx === "db" ? "2019+" : "60d"; toast(nx === "db" ? "Any day since 2019 (Databento) — next session." : "Last 60 days (free) — next session."); return start(S.market).catch((e) => toast(e.message)); }
+      case "fs": return fullScreen();
       case "mk": return document.querySelectorAll(".sim-mk button").forEach((x) => x.classList.toggle("on", x === b)), start(a).catch((e) => toast(e.message));
       case "play": return play();
       case "step": stop(); return void step();
@@ -486,5 +528,158 @@
     }
   }
 
-  window.EdgeSim = { open, close, _state: () => S, _review: review, _londonPlan: londonPlan, _gasZones: gasZones, MK };
+  // laptop / iPad keyboard: Space play/pause · → next candle · B buy · S sell · 1/2/3 price/stop/target · Enter place · F full screen · Esc close the review
+  function onKey(e) {
+    if (!S || e.target.closest("input,textarea,select")) return;
+    const k = e.key.toLowerCase(), go = (fn) => { e.preventDefault(); fn(); };
+    if (k === " ") return go(play);
+    if (k === "arrowright") return go(() => { stop(); step(); });
+    if (k === "b") return go(() => { S.ticket.side = 1; panel(); });
+    if (k === "s") return go(() => { S.ticket.side = -1; panel(); });
+    if (["1", "2", "3"].includes(k)) return go(() => { S.ticket.field = ["entry", "sl", "tp"][Number(k) - 1]; panel(); });
+    if (k === "enter" && !S.reviewing) return go(place);
+    if (k === "f") return go(fullScreen);
+    if (k === "escape" && S.reviewing) return go(endReview);
+  }
+  function fullScreen() {
+    const el = $("#sim"), d = document;
+    if (d.fullscreenElement || d.webkitFullscreenElement) return (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+    const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (fn) Promise.resolve(fn.call(el)).catch(() => toast("Full screen isn't allowed here — on iPad, add Edge to the Home Screen for a full-screen app."));
+    else toast("On iPhone/iPad: Share → Add to Home Screen gives Edge a full-screen app.");
+  }
+
+
+  // ---------- Style lab: your stop size, target and break-even vs the tested plan, on real history
+  function labRun(data, P, style) {
+    if (!data.byDay) { data.byDay = new Map(); for (const b of data.bars) { if (!data.byDay.has(b.cme)) data.byDay.set(b.cme, []); data.byDay.get(b.cme).push(b); } }
+    const out = [];
+    for (const d of data.days) {
+      const L = londonPlan(data.byDay.get(d) || [], P, style);
+      if (!L || !L.trade || L.tooSmall || L.trade.result.how === "open") continue;
+      out.push({ t: L.trade.t, R: L.trade.result.R - 0.03 }); // ~costs
+    }
+    return out;
+  }
+  function labStats(tr) {
+    let eq = 0, pk = 0, dd = 0, run = 0, ls = 0;
+    for (const t of tr) { eq += t.R; pk = Math.max(pk, eq); dd = Math.min(dd, eq - pk); run = t.R < -0.2 ? run + 1 : 0; ls = Math.max(ls, run); }
+    const n = tr.length;
+    return { n, win: n ? Math.round((tr.filter((t) => t.R > 0.2).length / n) * 100) : 0, R: eq, avg: n ? eq / n : 0, dd, ls };
+  }
+  let L = null, labChart = null;
+  function learned(market) {
+    const st = window.Edge && window.Edge.state && window.Edge.state();
+    const xs = ((st && st.practice) || []).filter((t) => t.market === market && t.style && t.style.stopFrac > 0);
+    const med = (a) => { const v = a.filter((x) => x != null && Number.isFinite(x)).sort((p, q) => p - q); return v.length ? v[Math.floor(v.length / 2)] : null; };
+    return { n: xs.length, stopFrac: med(xs.map((t) => t.style.stopFrac)), tpR: med(xs.map((t) => t.style.tpR)) };
+  }
+  async function openLab(market = "gold") {
+    close(); closeLab();
+    const el = document.createElement("div");
+    el.id = "lab"; el.className = "sim lab";
+    el.innerHTML = `<div class="sim-top"><button class="sim-x" data-l2="close" aria-label="Close">✕</button>
+        <div class="sim-mk">${["gold", "crude", "silver"].map((k) => `<button data-l2="mk" data-a="${k}" class="${k === market ? "on" : ""}">${MK[k].name.split(" ")[0]}</button>`).join("")}</div>
+        <button class="sim-x" data-l2="fs" title="Full screen">⛶</button></div>
+      <div class="lab-body" id="labBody"><p class="muted" style="padding:16px">Loading prices…</p></div>`;
+    document.body.appendChild(el);
+    document.body.classList.add("sim-on");
+    el.addEventListener("click", labClick);
+    el.addEventListener("input", (e) => { if (e.target.dataset.lr) { L.style[e.target.dataset.lr] = Number(e.target.value); labCompute(); } });
+    await labLoad(market, "60m");
+  }
+  function closeLab() { if (labChart) { labChart.remove(); labChart = null; } const el = $("#lab"); if (el) el.remove(); if (!$("#sim")) document.body.classList.remove("sim-on"); L = null; }
+  async function labLoad(market, src) {
+    await dbReady();
+    const P = MK[market], lr = learned(market);
+    const app = window.Edge && window.Edge.state && window.Edge.state();
+    const saved = ((app && app.settings && app.settings.style) || {})[market];
+    L = { market, P, src, data: null, style: saved ? { stopFrac: saved.stopFrac, tpR: saved.tpR, beR: saved.beR } : { stopFrac: lr.stopFrac ? Math.max(0.2, Math.min(1, Math.round(lr.stopFrac * 20) / 20)) : 1, tpR: lr.tpR ? Math.max(1, Math.min(6, Math.round(lr.tpR * 2) / 2)) : P.tpR, beR: P.beR }, learned: lr, saved };
+    const body = $("#labBody");
+    try {
+      if (src === "db") {
+        const now = new Date(), months = [];
+        for (let k = 24; k >= 1; k--) months.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - k, 1)).toISOString().slice(0, 7));
+        const raw = [];
+        for (let k = 0; k < months.length; k++) { body.innerHTML = `<p class="muted" style="padding:16px">Loading Databento month ${k + 1} of ${months.length}… (first time only — then it's saved)</p>`; raw.push(...(await getBars(`/api/candles?m=${market}&src=db&i=5m&month=${months[k]}`))); }
+        L.data = prep(raw, "5m");
+      } else {
+        const tf = src === "5m" ? "5m" : "60m";
+        L.data = prep(await getBars(`/api/candles?m=${market}&i=${tf}`), tf);
+        L.data.days = L.data.days.slice(1, -1);
+      }
+    } catch (e) { body.innerHTML = `<p class="err" style="padding:16px">${esc(e.message)}</p>`; return; }
+    L.plan = labStats(labRun(L.data, P, null));
+    L.planTrades = labRun(L.data, P, null);
+    labRender();
+  }
+  function labRender() {
+    const P = L.P, s = L.style, lr = L.learned;
+    const db = dbStatus;
+    $("#labBody").innerHTML = `<div class="lab-grid"><div class="lab-left">
+      <h2 class="lab-h">🧪 Style lab · ${P.name}</h2>
+      <p class="muted lab-p">Set your stop and target. Edge replays every London breakout in the data with your numbers and with the tested plan, side by side.</p>
+      ${lr.n ? `<div class="insight info"><span>🧠</span><div><b>From your ${lr.n} simulator trades</b><p>You usually put the stop at <b>${Math.round(lr.stopFrac * 100)}%</b> of the Asian box${lr.tpR ? ` and the target at <b>${lr.tpR.toFixed(1)}R</b>` : ""}. The sliders start there.</p></div></div>` : `<div class="insight info"><span>🧠</span><div><b>Edge learns your style from the simulator</b><p>Trade a few sessions there — your usual stop and target will show up here.</p></div></div>`}
+      <div class="chips three lab-src">${[["60m", "2 years · 1-hour"], ["5m", "60 days · 5-min"], ...(db ? [["db", "Databento · 2 yrs 5-min"]] : [])].map(([k, l]) => `<button data-l2="src" data-a="${k}" class="${L.src === k ? "on" : ""}">${l}</button>`).join("")}</div>
+      <label class="lab-sl"><span>Stop size <b id="lvStop">${Math.round(s.stopFrac * 100)}% of the box</b></span><input type="range" min="0.2" max="1" step="0.05" value="${s.stopFrac}" data-lr="stopFrac"></label>
+      <label class="lab-sl"><span>Target <b id="lvTp">${s.tpR}R</b></span><input type="range" min="1" max="6" step="0.5" value="${s.tpR}" data-lr="tpR"></label>
+      <div class="lab-sl"><span>Break-even</span><div class="chips">${[0, 1, 1.5, 2].map((v) => `<button data-l2="be" data-a="${v}" class="${s.beR === v ? "on" : ""}">${v ? `+${v}R` : "Off"}</button>`).join("")}</div></div>
+      <p class="muted lab-p" style="font-size:12.5px">💡 A smaller stop doesn't lower your risk in dollars — Edge gives you more contracts for the same risk. It changes how often you're stopped out. What matters is the total in R.</p>
+    </div><div class="lab-right">
+      <div class="lab-cmp" id="labCmp"></div>
+      <div class="lab-legend"><span><i style="background:#8a94a6"></i>Tested plan</span><span><i style="background:#d9b46c"></i>Your style</span></div>
+      <div class="lab-chart" id="labChart"></div>
+      <div id="labVerdict"></div>
+    </div></div>`;
+    labCompute();
+  }
+  function labCompute() {
+    const P = L.P, s = L.style;
+    const mine = labRun(L.data, P, s), m = labStats(mine), p = L.plan;
+    const lv = $("#lvStop"); if (lv) lv.textContent = `${Math.round(s.stopFrac * 100)}% of the box`;
+    const lt = $("#lvTp"); if (lt) lt.textContent = `${s.tpR}R`;
+    const row = (lbl, a, b, f, better) => `<div class="lab-row"><span>${lbl}</span><b>${f(a)}</b><b class="${better(b, a) ? "good" : better(a, b) ? "bad" : ""}">${f(b)}</b></div>`;
+    const R = (x) => `${x > 0 ? "+" : ""}${x.toFixed(1)}R`;
+    $("#labCmp").innerHTML = `<div class="lab-row head"><span></span><b>Tested plan</b><b>Your style</b></div>
+      ${row("Trades", p.n, m.n, (x) => x, () => false)}
+      ${row("Won", p.win, m.win, (x) => x + "%", (a, b) => a > b + 2)}
+      ${row("Total", p.R, m.R, R, (a, b) => a > b + 0.5)}
+      ${row("Per trade", p.avg, m.avg, (x) => `${x > 0 ? "+" : ""}${x.toFixed(2)}R`, (a, b) => a > b + 0.01)}
+      ${row("Worst dip", p.dd, m.dd, R, (a, b) => a > b + 0.5)}
+      ${row("Losses in a row", p.ls, m.ls, (x) => x, (a, b) => a < b)}`;
+    const diff = m.R - p.R, same = Math.abs(s.stopFrac - 1) < 0.01 && s.tpR === P.tpR && s.beR === P.beR;
+    const note = L.src === "60m" && s.stopFrac < 0.9 ? " Hourly candles are harsh on tight stops (a stop touched anywhere in the hour counts) — check it on 5-minute data or Databento too." : L.src === "5m" ? " 60 days is a small sample — treat it as a hint." : "";
+    $("#labVerdict").innerHTML = `<div class="insight ${same ? "info" : diff > 0 ? "good" : "bad"}"><span>${same ? "📏" : diff > 0 ? "📈" : "📉"}</span><div><b>${same ? "This is the tested plan" : diff > 0 ? `Your style made ${R(diff)} more` : `Your style made ${R(-diff).replace("+", "")} less`}</b><p>${same ? "Move the sliders to try your own stop and target." : `Over ${m.n} trades.${note}`}</p></div></div>
+      <div class="row" style="margin-top:8px">${same ? "" : `<button class="btn ${diff > 0 ? "primary" : ""}" data-l2="use">Use my style for live alerts</button>`}${L.saved ? `<button class="btn" data-l2="reset">Back to the tested plan</button>` : ""}</div>`;
+    labDraw(mine);
+  }
+  function labDraw(mine) {
+    const el = $("#labChart"), LW = window.LightweightCharts;
+    if (!el || !LW) return;
+    if (labChart) { labChart.remove(); labChart = null; }
+    labChart = LW.createChart(el, { autoSize: true, localization: { locale: "en-US", timeFormatter: (t) => new Date(t * 1000).toLocaleDateString([], { day: "numeric", month: "short", year: "2-digit" }) }, layout: { background: { type: "solid", color: css("--panel2") }, textColor: css("--muted") }, grid: { vertLines: { visible: false }, horzLines: { color: css("--line") } }, rightPriceScale: { borderVisible: false }, timeScale: { borderVisible: false }, handleScroll: false, handleScale: false });
+    const curve = (tr) => { let eq = 0; const seen = new Set(); return tr.map((t) => ({ time: Math.floor(t.t / 1000), value: +(eq += t.R).toFixed(2) })).filter((x) => !seen.has(x.time) && seen.add(x.time)); };
+    labChart.addLineSeries({ color: "#8a94a6", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "plan" }).setData(curve(L.planTrades));
+    labChart.addLineSeries({ color: "#d9b46c", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "you" }).setData(curve(mine));
+    labChart.timeScale().fitContent();
+  }
+  async function labClick(ev) {
+    const b = ev.target.closest("[data-l2]"); if (!b) return;
+    const a = b.dataset.a;
+    switch (b.dataset.l2) {
+      case "close": return closeLab();
+      case "fs": { const el = $("#lab"), fn = el.requestFullscreen || el.webkitRequestFullscreen; if (document.fullscreenElement) return document.exitFullscreen(); if (fn) Promise.resolve(fn.call(el)).catch(() => {}); return; }
+      case "mk": document.querySelectorAll("#lab .sim-mk button").forEach((x) => x.classList.toggle("on", x === b)); return labLoad(a, L.src);
+      case "src": return labLoad(L.market, a);
+      case "be": L.style.beR = Number(a); return labRender();
+      case "use": case "reset": {
+        const api = window.Edge && window.Edge.api; if (!api) return;
+        const st = b.dataset.l2 === "use" ? { ...L.style, tested: `${labStats(labRun(L.data, L.P, L.style)).R.toFixed(1)}R vs plan ${L.plan.R.toFixed(1)}R (${L.src})` } : null;
+        try { await api({ action: "settings", patch: { style: { [L.market]: st } } }); toast(st ? `${L.P.name}: live London orders now use your style.` : `${L.P.name}: back to the tested plan.`); if (window.Edge.refresh) window.Edge.refresh(); L.saved = st; labRender(); }
+        catch (e) { toast(e.message); }
+      }
+    }
+  }
+
+  window.EdgeSim = { open, close, openLab, _labRun: labRun, _state: () => S, _review: review, _londonPlan: londonPlan, _gasZones: gasZones, MK };
 })();

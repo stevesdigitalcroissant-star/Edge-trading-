@@ -38,6 +38,15 @@ module.exports = async (req, res) => {
   try {
     const url = new URL(req.url, "http://x");
     const market = url.searchParams.get("m") || "gold";
+    // Databento: ?src=db&month=2024-03&i=5m (years back) · ?status=1 says whether it's connected
+    const db = require("./_databento");
+    if (url.searchParams.get("status")) return res.status(200).json({ databento: !!db.key(), yahoo: true });
+    if (url.searchParams.get("src") === "db") {
+      const tf = url.searchParams.get("i") || "5m", month = url.searchParams.get("month") || "";
+      const bars = await db.month(require("./_store").getStore(), market, month, tf);
+      res.setHeader("Cache-Control", month < new Date().toISOString().slice(0, 7) ? "public, s-maxage=86400" : "public, s-maxage=1800");
+      return res.status(200).json({ market, source: "databento", month, interval: tf, bars });
+    }
     const interval = INTERVALS[url.searchParams.get("i")] ? url.searchParams.get("i") : "5m";
     const bars = await load(market, INTERVALS[interval], interval);
     res.setHeader("Cache-Control", "public, s-maxage=1800, stale-while-revalidate=3600");

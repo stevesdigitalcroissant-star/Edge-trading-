@@ -77,18 +77,27 @@ async function handleHook(store, broker, body, now = Date.now()) {
   return { status: 400, json: { error: `Unknown alert type: ${msg.type}` } };
 }
 
+// Your own style for a London market (Learn → Style lab): stop as a share of the Asian box, target, break-even.
+function withStyle(sp, s, market) {
+  const st = sp && sp.strategy === "london" && s.style && s.style[market];
+  if (!st) return sp;
+  return { ...sp, tpR: st.tpR || sp.tpR, beR: st.beR ?? sp.beR, stopFrac: st.stopFrac || 1, mine: true };
+}
+const styleSl = (sp, dir, entry, hi, lo) => (sp.stopFrac && sp.stopFrac < 1 && hi > lo ? entry - R.sign(dir) * sp.stopFrac * (hi - lo) : null);
+
 // The orders to place BEFORE the move, for a tested strategy:
 //   london: the Asian range is set → a buy stop at its high and a sell stop at its low (whichever fills first
 //           is the trade — then cancel the other), stop at the other side of the range.
 //   ngzone: the nearest qualifying natural gas zones → a buy limit at the demand zone, a sell limit at the supply zone.
 // Each leg comes with its contracts for your risk, the stop and the target, so you can place them and walk away.
 async function createPlan(store, market, msg, now) {
-  const sp = strategyPlan(msg.strategy, market);
-  if (!sp) return { error: `No ${msg.strategy} strategy for ${market}` };
   const s = mergeSettings(await store.get("settings"));
+  const sp = withStyle(strategyPlan(msg.strategy, market), s, market);
+  if (!sp) return { error: `No ${msg.strategy} strategy for ${market}` };
   const legs = [];
   for (const L of Array.isArray(msg.legs) ? msg.legs.slice(0, 4) : []) {
-    const dir = L.dir === "short" ? "short" : "long", entry = num(L.entry), sl = num(L.sl);
+    const dir = L.dir === "short" ? "short" : "long", entry = num(L.entry);
+    const sl = styleSl(sp, dir, entry, num(msg.rangeHi), num(msg.rangeLo)) ?? num(L.sl);
     if (entry == null || sl == null || R.sign(dir) * (entry - sl) <= 0) continue;
     const k = R.sign(dir), risk = Math.abs(entry - sl);
     const leg = { dir, entry, sl, tp: rp(entry + k * sp.tpR * risk), be: sp.beR > 0 ? rp(entry + k * sp.beR * risk) : null, order: msg.strategy === "london" ? "stop" : "limit", note: String(L.note || "").slice(0, 60) };
@@ -97,7 +106,7 @@ async function createPlan(store, market, msg, now) {
   }
   if (!legs.length) return { error: "plan without valid orders" };
   const plan = {
-    market, strategy: msg.strategy, name: sp.name, symbol: String(msg.symbol || "").slice(0, 30), at: now,
+    market, strategy: msg.strategy, name: sp.name + (sp.mine ? " · your style" : ""), symbol: String(msg.symbol || "").slice(0, 30), at: now,
     expires: now + (num(msg.validMin) || 6 * 60) * 60e3, tpR: sp.tpR, beR: sp.beR, legs,
     rangeHi: num(msg.rangeHi), rangeLo: num(msg.rangeLo),
   };
@@ -113,7 +122,7 @@ async function createPlan(store, market, msg, now) {
 // A setup from the TradingView alert or read off the chart: store it, grade it, tell the phone.
 async function createSetup(store, market, msg, now, { source = "alert", broker = null } = {}) {
   const s = mergeSettings(await store.get("settings"));
-  const sp = msg.strategy ? strategyPlan(String(msg.strategy), market) : null;
+  const sp = msg.strategy ? withStyle(strategyPlan(String(msg.strategy), market), s, market) : null;
   if (msg.strategy && !sp) return { error: `No ${msg.strategy} strategy for ${market}` };
   const setup = {
     id: id(), market, source, symbol: msg.symbol, tv: msg.tv, dir: msg.dir === "short" ? "short" : "long",
@@ -129,8 +138,9 @@ async function createSetup(store, market, msg, now, { source = "alert", broker =
   };
   if (sp) {
     // the exits come from the tested plan, never from the alert
+    if (sp.mine) { const sl2 = styleSl(sp, setup.dir, setup.entry, num(msg.rangeHi), num(msg.rangeLo)); if (sl2 != null) setup.sl = rp(sl2); }
     Object.assign(setup, {
-      strategy: sp.strategy, tpR: sp.tpR, beR: sp.beR, extra: sp.extra,
+      strategy: sp.strategy, tpR: sp.tpR, beR: sp.beR, extra: sp.extra, stopFrac: sp.stopFrac || null, mine: !!sp.mine,
       rangeHi: num(msg.rangeHi), rangeLo: num(msg.rangeLo), rangeAtr: num(msg.rangeAtr), trend: num(msg.trend),
       zoneAgeDays: num(msg.zoneAgeDays), touch: num(msg.touch),
     });
@@ -574,6 +584,17 @@ async function action(store, broker, body, now = Date.now()) {
     if (["notify", "close", "off"].includes(p.structureExit)) cur.structureExit = p.structureExit;
     if (typeof p.tz === "string" && p.tz) cur.tz = p.tz;
     if (p.notify) for (const k of Object.keys(cur.notify)) if (typeof p.notify[k] === "boolean") cur.notify[k] = p.notify[k];
+    if (p.style) {
+      cur.style = { ...(cur.style || {}) };
+      for (const m of ["gold", "crude", "silver"]) {
+        const v = p.style[m];
+        if (v === null) { delete cur.style[m]; continue; }
+        if (!v) continue;
+        const stopFrac = Number(v.stopFrac), tpR = Number(v.tpR), beR = Number(v.beR);
+        if (!(stopFrac >= 0.2 && stopFrac <= 1) || !(tpR >= 1 && tpR <= 6) || !(beR >= 0 && beR < tpR)) throw new Error("Style: stop 20–100% of the box, target 1–6R, break-even below the target.");
+        cur.style[m] = { stopFrac, tpR, beR, tested: v.tested ? String(v.tested).slice(0, 200) : "", at: now };
+      }
+    }
     if (p.sessions) for (const m of Object.keys(MARKETS)) if (Array.isArray(p.sessions[m]) && p.sessions[m].every((x) => /^\d{1,2}:\d{2}$/.test(x))) cur.sessions[m] = p.sessions[m].slice(0, 2);
     await store.set("settings", cur);
     return { ok: true, settings: cur };
@@ -704,6 +725,9 @@ async function action(store, broker, body, now = Date.now()) {
       grade: rulesOk ? "A+" : "unplanned", ruleBreaks: rulesOk ? [] : ["didn't follow the rules"], openedAt: when, closedAt: when, resultR,
       exitReason: { tp: "target", be: "break-even", sl: "stop", flat: "session close-out" }[outcome] + " (replay)", note: String(body.note || "").slice(0, 500), maxR: null,
     };
+    // how you placed it (the Style lab learns your stop and target from these)
+    const st = body.style || {};
+    if (Number.isFinite(Number(st.stopFrac)) || Number.isFinite(Number(st.tpR))) j.style = { stopFrac: num(st.stopFrac), tpR: num(st.tpR), beAt: num(st.beAt) };
     await store.hset("journal", j.id, j);
     return { trade: j };
   }

@@ -168,3 +168,23 @@ test("an auto-recorded trade you didn't take can be removed", async () => {
   assert.equal(st.journal.length, 0);
   assert.equal(st.setups[0].status, "skipped");
 });
+
+test("your style (from the Style lab) changes the stop, target and break-even of London orders", async () => {
+  const store = memory();
+  const now = NY(3);
+  await core.action(store, broker, { action: "settings", patch: { style: { crude: { stopFrac: 0.5, tpR: 4, beR: 1.5 } } } }, now);
+  await assert.rejects(core.action(store, broker, { action: "settings", patch: { style: { gold: { stopFrac: 0.1, tpR: 2, beR: 1 } } } }, now), /Style/);
+  await core.handleHook(store, broker, { secret: "s3cret", type: "plan", strategy: "london", symbol: "MCL1!", rangeHi: 71.2, rangeLo: 70.6, legs: [{ dir: "long", entry: 71.2, sl: 70.6 }] }, now);
+  let st = await core.state(store, broker, now);
+  assert.equal(R.round(st.plans[0].legs[0].sl, 2), 70.9);  // half the box
+  assert.equal(R.round(st.plans[0].legs[0].tp, 2), 72.4);  // 4R of 0.3
+  assert.match(st.plans[0].name, /your style/);
+  const r = await core.handleHook(store, broker, { secret: "s3cret", type: "setup", strategy: "london", symbol: "MCL1!", dir: "long", entry: 71.2, sl: 70.6, rangeHi: 71.2, rangeLo: 70.6, stopOk: true }, NY(4));
+  assert.equal(r.json.grade, "A+");
+  st = await core.state(store, broker, NY(4));
+  assert.equal(st.setups[0].sl, 70.9);
+  assert.deepEqual(st.setups[0].xp, { tpR: 4, beR: 1.5 });
+  // back to the tested plan
+  await core.action(store, broker, { action: "settings", patch: { style: { crude: null } } }, now);
+  assert.equal((await core.state(store, broker, now)).settings.style.crude, undefined);
+});

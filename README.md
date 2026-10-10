@@ -49,6 +49,22 @@ Scripts: `pine/edge_london_breakout.pine` (5-minute charts: MGC1!, MCL1!, SIL1!)
 (1-hour chart, normal candles: QG1! / MNG1!). Rules → TradingView setup has a copy button for each. Each script is also a
 TradingView strategy, so the Strategy Tester shows the same rules on your chart.
 
+## Databento — years of real CME candles (optional)
+
+Free data only keeps 60 days of 5-minute candles. Databento sells the official CME futures data
+(gold, crude, gas, silver, S&P) back to 2010, pay as you go, with free credit for new accounts.
+
+1. Sign up at databento.com (free credit to start).
+2. Portal → **API keys** → copy your key (it starts with `db-`).
+3. Vercel → project **edge-trading** → Settings → **Environment Variables** → add `DATABENTO_API_KEY` = your key
+   (Production) → Save → Deployments → **Redeploy**.
+
+What changes:
+- Simulator: tap **60d** in the top bar → **2019+**: every session is a random day since 2019.
+- Style lab: a **Databento · 2 yrs 5-min** button tests your stop and target on 5-minute candles.
+- Each month is downloaded once as 1-minute candles, rolled up, and kept in Edge's storage, so you pay for
+  a month only once (connect Upstash/Redis storage so it's kept between visits).
+
 ## You don't do the analysis — each setup comes with a picture
 
 When a setup is A+, the phone alert says it in one line ("Uptrend · fresh 4H demand · 15m + 5m broke up. Buy

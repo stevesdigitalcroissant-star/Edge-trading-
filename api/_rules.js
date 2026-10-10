@@ -31,7 +31,9 @@ function strategyChecks(setup, now) {
     const checks = [
       { id: "range", label: "Asian range is set (18:00–02:00 New York)", pass: Number.isFinite(hi) && Number.isFinite(lo) && hi > lo, note: Number.isFinite(hi) && Number.isFinite(lo) ? `${lo} – ${hi}` : "" },
       { id: "window", label: `Breakout inside the London window (${winTxt})`, pass: inWin },
-      { id: "stopside", label: "Stop at the other side of the Asian range", pass: Number.isFinite(otherSide) && width > 0 && Math.abs(setup.sl - otherSide) <= width * 0.1 },
+      setup.stopFrac && setup.stopFrac < 1
+        ? { id: "stopside", label: `Stop at ${Math.round(setup.stopFrac * 100)}% of the Asian range (your style)`, pass: width > 0 && Math.abs(setup.sl - (setup.entry - sign(setup.dir) * setup.stopFrac * width)) <= width * 0.1 }
+        : { id: "stopside", label: "Stop at the other side of the Asian range", pass: Number.isFinite(otherSide) && width > 0 && Math.abs(setup.sl - otherSide) <= width * 0.1 },
       stopOk,
     ];
     if (cfg.minRangeAtr) checks.push({ id: "rangesize", label: `Asian range big enough (at least ${cfg.minRangeAtr}× the hourly ATR)`, pass: setup.rangeAtr == null || Number(setup.rangeAtr) >= cfg.minRangeAtr, note: setup.rangeAtr != null ? `${round(setup.rangeAtr, 1)}×` : "" });
