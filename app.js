@@ -173,135 +173,276 @@
     bind();
   }
 
-  // ---------- LEARN: the two tested strategies in plain words, how to backtest them, a one-week plan and a practice log
+  // ---------- LEARN: interactive — live session clock, step-by-step chart walkthroughs, a quiz, the week, a practice log
   const LEARN_WEEK = [
-    ["Read & look", "Read the two strategies below (10 minutes). Put the Edge scripts on your TradingView charts (Rules → TradingView setup). Scroll back 10 days on gold: find the Asian box and which side broke each morning."],
-    ["Gold London breakout", "Bar Replay, 5-minute MGC1!. Replay 20 mornings, one by one. Log each trade below."],
-    ["Crude London breakout", "Same on MCL1!: 20 mornings. Remember: crude entries only from 03:00 New York."],
-    ["Silver + natural gas", "10 silver mornings (skip the days the Asian box is tiny). Then 1-hour QG1!: mark old zones (5+ days), replay 10 sessions of the gas windows."],
-    ["A full day, like real", "Replay 5 full days with all markets together and the daily rules: 2 London trades max, gas zones on top, stop for the day at −2R."],
-    ["Review", "Compare your numbers below with the test. Did you follow the rules on 95%+ of your trades? Write down the 3 mistakes you made most."],
-    ["Live, tiny", "Switch Edge on with your prop evaluation (or demo) account: 1 micro contract, follow the alerts exactly. Log how you felt on every trade."],
+    ["Read & look", "📖", "Play both walkthroughs below and take the quiz. Put the Edge scripts on TradingView (Rules → TradingView setup). Scroll back 10 days on gold: find the box and which side broke each morning."],
+    ["Gold", "🥇", "Bar Replay on 5-minute MGC1!. Replay 20 mornings, one candle at a time. Log each trade below."],
+    ["Crude", "🛢️", "Same on MCL1!: 20 mornings. Crude orders only go live at 03:00 New York."],
+    ["Silver + gas", "⚡", "10 silver mornings (skip tiny boxes). Then 1-hour QG1!: mark old zones (5+ days) and replay 10 sessions of the gas windows."],
+    ["Full days", "🗓️", "Replay 5 full days with every market and the daily rules: 2 London trades max, gas zones on top, stop for the day at −2R."],
+    ["Review", "🔍", "Compare your numbers with the test below. Rules kept on 95%+? Write down your 3 most common mistakes."],
+    ["Live, tiny", "🚀", "Edge on with your prop evaluation (or demo): 1 micro contract, follow the alerts exactly. Log how you felt each time."],
   ];
   const TEST = { "london:gold": [43, 0.13], "london:crude": [30, 0.13], "london:silver": [39, 0.1], "ngzone:natgas": [47, 0.65] };
-  const SLOTS = [["london:gold", "Gold · London breakout"], ["london:crude", "Crude · London breakout"], ["london:silver", "Silver · London breakout"], ["ngzone:natgas", "Natural gas · zones"]];
+  const SLOTS = [["london:gold", "Gold", "🥇"], ["london:crude", "Crude", "🛢️"], ["london:silver", "Silver", "🥈"], ["ngzone:natgas", "Gas", "🔥"]];
+  const WALK = {
+    london: { name: "London breakout", sub: "gold · crude oil · silver", steps: [
+      ["The quiet hours", "From 18:00 to 02:00 New York, Asia is quiet. Its high and low make the box."],
+      ["Two orders, set and forget", "Buy stop at the box high, sell stop at the box low — stop and target attached to each."],
+      ["London picks a side", "The first order that fills is your trade. Cancel the other one straight away."],
+      ["Stop and target", "Stop at the other side of the box. Target 2R for gold and silver, 3R for crude."],
+      ["Lock it in", "At +1.5R (gold) or +1R (crude, silver) move the stop to your entry. Edge pings you."],
+      ["Let it pay", "Hands off until target, stop or 16:40 New York. One winner pays for 2–3 losers."],
+    ] },
+    gas: { name: "Natural gas zones", sub: "your idea, tested", steps: [
+      ["Spot the explosion", "On the 1-hour Heikin Ashi chart: a candle about twice as big as the last 20."],
+      ["Draw the zone", "On the candle just before it: from its wick to the start of its body. Valid until a candle closes through it."],
+      ["Let it age", "Only zones at least 5 trading days old. Fresh ones lost money in the test."],
+      ["Wait for your window", "Price comes back (1st or 2nd touch) inside 06:00–09:00 or 11:00–12:00 New York. Your limit fills."],
+      ["Stop and target", "Stop just past the far side of the zone. Target 3R."],
+      ["Lock it, let it pay", "Break-even at +2R, then hands off. 47% of these won: +0.65R a trade on average."],
+    ] },
+  };
+  const QUIZ = [
+    ["Gold's Asian box: high 2412, low 2402. Where does the buy stop go?", ["2402", "2407", "2412"], 2, "On the box high. If London breaks up, you're in."],
+    ["Your gold buy filled at 2412. Where's the stop?", ["2402 — the box low", "2407 — the middle", "2392 — extra room"], 0, "The other side of the box. Middle-of-box stops lost badly in the test."],
+    ["Risk is 10 points. Gold's target is 2R. Where do you take profit?", ["2422", "2432", "2442"], 1, "2412 + 2 × 10 = 2432."],
+    ["The buy filled. What about the sell stop?", ["Leave it, just in case", "Cancel it now", "Move it closer"], 1, "One trade per market per day. Cancel it the moment the other fills."],
+    ["Crude breaks out of its box at 02:30 New York. Do you take it?", ["Yes, straight away", "No — crude orders go live at 03:00"], 1, "Crude's window is 03:00–08:00. Before that, wait."],
+    ["A gas zone is 2 days old and price is back at it in your window.", ["Take it — fresh zone", "Skip — zones must be 5+ days old"], 1, "Young zones lost money in the test. Old ones made +42R."],
+    ["You're up 1.2R on crude and it looks weak.", ["Close it, lock the profit", "Stick to the plan: break-even at 1R, then target or stop"], 1, "Every 'close early' rule did worse in the tests. The plan already protects you."],
+  ];
+  const L = { walk: "london", step: { london: 0, gas: 0 }, q: 0, ans: {}, day: null, play: null, log: { slot: "london:gold", dir: "long", out: "tp", ok: true } };
   const weekDone = () => { try { return JSON.parse(localStorage.getItem("edge.week") || "[]"); } catch { return []; } };
 
-  function londonPic() {
-    // Asian box, then the London breakout up: buy stop fills, stop at the box low, target 2R above
-    return `<svg viewBox="0 0 340 180" class="learnpic" role="img" aria-label="London breakout picture">
-      <rect x="20" y="78" width="140" height="44" fill="var(--c4h)" opacity=".14" stroke="var(--c4h)" stroke-opacity=".6"/>
-      <text x="26" y="72" font-size="10" font-weight="700" fill="var(--c4h)">ASIA 18:00 → 02:00 (the box)</text>
-      <line x1="160" y1="78" x2="330" y2="78" stroke="var(--good)" stroke-dasharray="5 4" stroke-width="1.6"/>
-      <text x="236" y="74" font-size="9.5" font-weight="700" fill="var(--good)">BUY STOP = box high</text>
-      <line x1="160" y1="122" x2="330" y2="122" stroke="var(--bad)" stroke-dasharray="5 4" stroke-width="1.6"/>
-      <text x="236" y="134" font-size="9.5" font-weight="700" fill="var(--bad)">SELL STOP = box low</text>
-      <line x1="200" y1="10" x2="330" y2="10" stroke="var(--good)" stroke-width="2"/><text x="250" y="22" font-size="9.5" font-weight="700" fill="var(--good)">TARGET (2R gold)</text>
-      <line x1="200" y1="56" x2="330" y2="56" stroke="var(--warn)" stroke-dasharray="3 3"/><text x="250" y="52" font-size="9" fill="var(--warn)">break-even here</text>
-      <path d="M20,100 L40,90 L55,108 L75,95 L92,115 L110,86 L128,104 L145,96 L160,110 L175,100 L190,92 L200,78 L214,66 L226,72 L242,50 L258,58 L276,34 L292,40 L310,14" fill="none" stroke="var(--text)" stroke-width="2" stroke-linejoin="round"/>
-      <circle cx="200" cy="78" r="5" fill="var(--good)"/><text x="20" y="156" font-size="9.5" fill="var(--muted)">① box set at 02:00 · ② place both orders · ③ one fills → cancel other</text>
-      <text x="20" y="171" font-size="9.5" fill="var(--bad)">stop for a buy = box low · stop for a sell = box high</text>
+  // New York time ↔ this device: today's offset, in minutes
+  function nyOffset() {
+    const now = new Date();
+    const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(now);
+    const ny = Number(p.find((x) => x.type === "hour").value) * 60 + Number(p.find((x) => x.type === "minute").value);
+    const loc = now.getHours() * 60 + now.getMinutes();
+    return { off: (((loc - ny) % 1440) + 1440) % 1440, loc };
+  }
+  const hhmm = (m) => { m = ((m % 1440) + 1440) % 1440; return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; };
+  const dur = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : `${m} min`);
+  const LANES = [
+    ["Asian box forms", "var(--c4h)", [[18 * 60, 26 * 60]]],
+    ["Gold & silver orders", "var(--gold)", [[2 * 60, 8 * 60]]],
+    ["Crude orders", "var(--c15)", [[3 * 60, 8 * 60]]],
+    ["Gas zone windows", "var(--good)", [[6 * 60, 9 * 60], [11 * 60, 12 * 60]]],
+  ];
+  function clockHtml() {
+    const { off, loc } = nyOffset();
+    const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone.split("/").pop().replace(/_/g, " "); } catch { return "your time"; } })();
+    const pct = (m) => `${((((m % 1440) + 1440) % 1440) / 1440) * 100}%`;
+    const lanes = LANES.map(([name, col, wins]) => {
+      let segs = "", state = null;
+      for (const [a0, b0] of wins) {
+        const a = a0 + off, b = b0 + off; // local minutes (may pass midnight)
+        for (const [x, y] of [[a, b], [a - 1440, b - 1440], [a + 1440, b + 1440]]) {
+          const s = Math.max(0, x), e = Math.min(1440, y);
+          if (e > s) segs += `<i style="left:${(s / 1440) * 100}%;width:${((e - s) / 1440) * 100}%;background:${col}"></i>`;
+          if (loc >= x && loc < y) state = { open: true, left: y - loc };
+        }
+        if (!state || !state.open) {
+          const until = (((a - loc) % 1440) + 1440) % 1440;
+          if (!state || until < state.until) state = { open: false, until };
+        }
+      }
+      const chip = state.open ? `<b class="lopen">● open · ${dur(state.left)} left</b>` : `<span class="muted">opens in ${dur(state.until)}</span>`;
+      return `<div class="lane"><div class="lname"><span><i style="background:${col}"></i>${name}</span>${chip}</div><div class="ltrack">${segs}<b class="tnow" style="left:${pct(loc)}"></b></div></div>`;
+    }).join("");
+    const ticks = [0, 6, 12, 18].map((h) => `<span style="left:${(h / 24) * 100}%">${String(h).padStart(2, "0")}:00</span>`).join("");
+    return `<div class="lclock">${lanes}<div class="lticks">${ticks}<b class="tnowlbl" style="left:${pct(loc)}">now ${hhmm(loc)}</b></div></div>
+      <p class="muted" style="margin:10px 0 0;font-size:12.5px">In ${esc(tz)} time · New York is ${hhmm(loc - off)} · close-out ${hhmm(16 * 60 + 40 + off)} your time</p>`;
+  }
+
+  // The animated chart: elements of earlier steps stay, the current step's elements animate in
+  function walkSvg(kind, st) {
+    const g = (n, inner) => (n > st ? "" : `<g class="${n === st ? "enter" : ""}">${inner}</g>`);
+    const p = (n, d, stroke = "var(--text)", w = 2.2, extra = "") => (n > st ? "" : `<path d="${d}" pathLength="1" class="${n === st ? "draw" : ""}" fill="none" stroke="${stroke}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round" ${extra}/>`);
+    const tx = (x, y, t, c = "var(--text)", a = "start", w = 700) => `<text x="${x}" y="${y}" fill="${c}" font-size="10" font-weight="${w}" text-anchor="${a}" paint-order="stroke" stroke="var(--panel2)" stroke-width="3.5" stroke-linejoin="round">${t}</text>`;
+    const ln = (x1, y, x2, c, dash = "") => `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="${c}" stroke-width="1.8" ${dash ? `stroke-dasharray="${dash}"` : ""}/>`;
+    const dot = (x, y, c) => `<circle cx="${x}" cy="${y}" r="5" fill="${c}"/><circle cx="${x}" cy="${y}" r="5" fill="none" stroke="${c}" class="ping"/>`;
+    const badge = (x, y, t, c) => `<rect x="${x - 26}" y="${y - 12}" width="52" height="20" rx="10" fill="${c}"/><text x="${x}" y="${y + 2}" fill="#fff" font-size="10.5" font-weight="800" text-anchor="middle">${t}</text>`;
+    if (kind === "london") {
+      return `<svg viewBox="0 0 340 190" class="walksvg">
+        ${g(0, `<rect x="20" y="100" width="130" height="30" rx="3" fill="var(--c4h)" opacity=".16" stroke="var(--c4h)" stroke-opacity=".7"/>${tx(24, 94, "ASIA BOX · 18:00 → 02:00", "var(--c4h)")}`)}
+        ${p(0, "M20,115 L35,106 L50,122 L65,108 L80,126 L95,104 L110,118 L125,110 L140,124 L150,116")}
+        ${g(1, `${ln(150, 100, 330, "var(--good)", "5 4")}${st < 3 ? tx(328, 112, "BUY STOP", "var(--good)", "end") : ""}`)}
+        ${st < 2 ? g(1, `${ln(150, 130, 330, "var(--bad)", "5 4")}${tx(328, 144, "SELL STOP", "var(--bad)", "end")}`) : g(1, `${ln(150, 130, 330, "var(--bad)", "2 6")}`)}
+        ${p(2, "M150,116 L165,120 L180,108 L192,100 L205,92", "var(--text)")}
+        ${g(2, `${dot(192, 100, "var(--good)")}${tx(196, 160, "✕ sell stop cancelled", "var(--bad)")}${tx(160, 86, "FILLED", "var(--good)")}`)}
+        ${st >= 3 && st < 4 ? g(3, `${ln(192, 130, 330, "var(--bad)")}${tx(200, 144, "STOP = box low", "var(--bad)")}`) : ""}
+        ${g(3, `${ln(150, 40, 330, "var(--good)")}${tx(152, 34, "TARGET · 2R (crude 3R)", "var(--good)")}`)}
+        ${p(4, "M205,92 L215,98 L230,74 L242,80 L258,55 L270,62", "var(--text)")}
+        ${g(4, `${ln(150, 55, 330, "var(--warn)", "3 3")}${tx(152, 51, "+1.5R → move the stop", "var(--warn)")}<g class="slide">${ln(192, 100, 330, "var(--bad)")}${tx(212, 116, "stop now at entry", "var(--bad)")}</g>`)}
+        ${p(5, "M270,62 L290,44 L305,48 L318,38", "var(--text)")}
+        ${g(5, badge(300, 20, "+2R ✓", "var(--good)"))}
+      </svg>`;
+    }
+    const c = (x, o, cl, h, l, col, glow = "") => `<line x1="${x + 6}" y1="${h}" x2="${x + 6}" y2="${l}" stroke="${col}" stroke-width="1.5"/><rect x="${x}" y="${Math.min(o, cl)}" width="12" height="${Math.max(2, Math.abs(cl - o))}" rx="2" fill="${col}" ${glow}/>`;
+    return `<svg viewBox="0 0 340 190" class="walksvg">
+      ${g(3, `<rect x="232" y="14" width="100" height="160" rx="6" fill="var(--c15)" opacity=".08"/>${tx(282, 184, "06:00–09:00 NY", "var(--c15)", "middle")}`)}
+      ${g(1, `<rect x="38" y="124" width="292" height="14" rx="2" fill="var(--good)" opacity=".2" stroke="var(--good)" stroke-opacity=".7"/>${tx(42, 154, "ZONE: wick → start of the body", "var(--good)")}`)}
+      ${g(0, `${c(20, 118, 126, 114, 132, "var(--bad)")}${c(38, 124, 130, 122, 138, "var(--bad)")}${c(56, 130, 70, 66, 132, "var(--good)", st === 0 ? `class="glow"` : "")}${st === 0 ? tx(74, 80, "← 2× bigger: explosive", "var(--text)") : ""}`)}
+      ${p(2, "M62,66 L90,60 L110,72 L135,50 L160,64 L185,58 L205,80 L225,100")}
+      ${g(2, `<path d="M70,30 L222,30" stroke="var(--muted)" stroke-width="1.2" marker-end="url(#arr)" marker-start="url(#arr)"/>${tx(146, 24, "5+ trading days", "var(--muted)", "middle")}`)}
+      ${p(3, "M225,100 L245,116 L258,124")}
+      ${g(3, `${dot(258, 124, "var(--good)")}${tx(252, 116, "LIMIT BUY", "var(--good)", "end")}`)}
+      ${g(4, `${ln(240, 142, 334, "var(--bad)")}${tx(330, 156, "STOP", "var(--bad)", "end")}${ln(240, 70, 334, "var(--good)")}${tx(330, 64, "TARGET 3R", "var(--good)", "end")}`)}
+      ${p(5, "M258,124 L270,112 L282,100 L294,104 L306,86 L318,80 L330,68")}
+      ${g(5, `${ln(240, 88, 334, "var(--warn)", "3 3")}${tx(236, 84, "+2R → stop to entry", "var(--warn)", "end")}${badge(300, 40, "+3R ✓", "var(--good)")}`)}
+      <defs><marker id="arr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10z" fill="var(--muted)"/></marker></defs>
     </svg>`;
   }
-  function gasPic() {
-    // base candle + explosive candle → zone (wick → body start), price comes back days later, limit buy, stop under, 3R
-    const c = (x, o, cl, h, l, col) => `<line x1="${x + 6}" y1="${h}" x2="${x + 6}" y2="${l}" stroke="${col}"/><rect x="${x}" y="${Math.min(o, cl)}" width="12" height="${Math.max(2, Math.abs(cl - o))}" fill="${col}"/>`;
-    return `<svg viewBox="0 0 340 180" class="learnpic" role="img" aria-label="Natural gas zone picture">
-      <rect x="40" y="118" width="290" height="16" fill="var(--good)" opacity=".18" stroke="var(--good)" stroke-opacity=".6"/>
-      <text x="44" y="146" font-size="9.5" font-weight="700" fill="var(--good)">DEMAND ZONE: base candle wick → start of its body</text>
-      ${c(22, 104, 118, 100, 134, "var(--bad)")}${c(40, 118, 122, 112, 134, "var(--bad)")}${c(58, 118, 60, 56, 120, "var(--good)")}
-      <text x="80" y="110" font-size="9.5" font-weight="700" fill="var(--text)">← explosive Heikin Ashi candle</text>
-      <path d="M76,60 L110,40 L140,55 L170,30 L200,48 L228,80 L250,100 L268,118" fill="none" stroke="var(--text)" stroke-width="2" stroke-linejoin="round"/>
-      <text x="160" y="80" font-size="9.5" fill="var(--muted)">5+ trading days later…</text>
-      <circle cx="268" cy="118" r="5" fill="var(--good)"/>
-      <path d="M268,118 L284,96 L300,70 L318,30" fill="none" stroke="var(--text)" stroke-width="2" stroke-dasharray="4 3"/>
-      <line x1="262" y1="152" x2="334" y2="152" stroke="var(--bad)" stroke-width="1.6"/><text x="300" y="166" font-size="9.5" font-weight="700" fill="var(--bad)">STOP</text>
-      <line x1="262" y1="22" x2="334" y2="22" stroke="var(--good)" stroke-width="2"/><text x="276" y="16" font-size="9.5" font-weight="700" fill="var(--good)">TARGET 3R</text>
-      <text x="150" y="176" font-size="9.5" fill="var(--muted)">limit BUY at the zone top</text>
-    </svg>`;
+  function walkHtml() {
+    const k = L.walk, w = WALK[k], st = L.step[k], n = w.steps.length, [title, text] = w.steps[st];
+    return `<div class="seg pills" style="grid-template-columns:1fr 1fr">${Object.entries(WALK).map(([id, x]) => `<button type="button" data-l="walk" data-a="${id}" class="${id === k ? "on" : ""}">${x.name}</button>`).join("")}</div>
+      <div class="walkstage">${walkSvg(k, st)}</div>
+      <div class="walkcap"><span class="stepno">${st + 1}/${n}</span><div><b>${title}</b><p>${text}</p></div></div>
+      <div class="walknav">
+        <button class="btn small" data-l="prev" ${st ? "" : "disabled"}>‹ Back</button>
+        <div class="dots">${w.steps.map((_, i) => `<button type="button" data-l="go" data-a="${i}" class="${i === st ? "on" : i < st ? "done" : ""}" aria-label="step ${i + 1}"></button>`).join("")}</div>
+        ${st < n - 1 ? `<button class="btn small primary" data-l="next">Next ›</button>` : `<button class="btn small primary" data-l="go" data-a="0">↺ Again</button>`}
+      </div>
+      <button class="btn small ghostbtn" data-l="play">${L.play ? "⏸ Pause" : "▶ Play it for me"}</button>`;
+  }
+
+  function quizHtml() {
+    if (L.q >= QUIZ.length) {
+      const score = QUIZ.filter((q, i) => L.ans[i] === q[2]).length;
+      return `<div class="quizdone"><div class="bigscore">${score}<small>/${QUIZ.length}</small></div>
+        <p>${score === QUIZ.length ? "Perfect. You know the rules — now train your hands with Bar Replay." : score >= 5 ? "Nearly there. Replay the walkthrough for the ones you missed." : "Play the walkthroughs again, then retry."}</p>
+        <button class="btn small primary" data-l="qreset">↺ Try again</button></div>`;
+    }
+    const [q, opts, ok, why] = QUIZ[L.q], a = L.ans[L.q];
+    return `<div class="qbar"><i style="width:${(L.q / QUIZ.length) * 100}%"></i></div>
+      <p class="muted" style="margin:8px 0 2px;font-size:12px">Question ${L.q + 1} of ${QUIZ.length}</p>
+      <h3 class="qq">${q}</h3>
+      <div class="qopts">${opts.map((o, i) => `<button type="button" data-l="ans" data-a="${i}" ${a != null ? "disabled" : ""} class="${a == null ? "" : i === ok ? "right" : i === a ? "wrong" : "faded"}">${o}${a != null && i === ok ? " ✓" : a === i && i !== ok ? " ✕" : ""}</button>`).join("")}</div>
+      ${a != null ? `<div class="qwhy ${a === ok ? "good" : "bad"}"><b>${a === ok ? "Right." : "Not quite."}</b> ${why}</div><button class="btn small primary" data-l="qnext" style="margin-top:10px">${L.q < QUIZ.length - 1 ? "Next question ›" : "See my score"}</button>` : ""}`;
+  }
+
+  function weekHtml() {
+    const done = weekDone();
+    if (L.day == null) { L.day = LEARN_WEEK.findIndex((_, i) => !done.includes(i)); if (L.day < 0) L.day = 6; }
+    const [t, ic, d] = LEARN_WEEK[L.day], isDone = done.includes(L.day);
+    return `<div class="daychips">${LEARN_WEEK.map(([tt, icon], i) => `<button type="button" data-l="day" data-a="${i}" class="${i === L.day ? "on" : ""} ${done.includes(i) ? "done" : ""}"><span>${done.includes(i) ? "✓" : icon}</span><small>Day ${i + 1}</small></button>`).join("")}</div>
+      <div class="daycard ${isDone ? "done" : ""}"><div class="row between"><b>Day ${L.day + 1} · ${t}</b><span class="pill ${isDone ? "good" : ""}">${isDone ? "done" : "to do"}</span></div>
+        <p class="muted" style="margin:6px 0 10px">${d}</p>
+        <button class="btn small ${isDone ? "" : "primary"}" data-l="daydone">${isDone ? "Undo" : "✓ Mark day done"}</button></div>`;
+  }
+
+  function logHtml() {
+    const lg = L.log, bt = (S.practice || []).filter((t) => t.source === "backtest");
+    const chip = (key, val, label, on) => `<button type="button" data-l="${key}" data-a="${val}" class="${on ? "on" : ""}">${label}</button>`;
+    const cards = SLOTS.map(([slot, name, ic]) => {
+      const [stg, mk] = slot.split(":"), a = bt.filter((t) => t.strategy === stg && t.market === mk);
+      const n = a.length, won = a.filter((t) => t.resultR > 0.1).length, tot = Math.round(a.reduce((x, t) => x + t.resultR, 0) * 100) / 100;
+      const ok = a.filter((t) => t.grade === "A+").length, [tw, ta] = TEST[slot], wr = n ? Math.round((won / n) * 100) : 0;
+      return `<div class="rcard"><div class="row between"><b>${ic} ${name}</b><b class="${cls(tot)}">${n ? rs(tot) : "—"}</b></div>
+        <div class="rbar" title="your win rate ${wr}% · test ${tw}%"><i style="width:${wr}%"></i><em style="left:${tw}%"></em></div>
+        <small>won <b>${n ? wr + "%" : "—"}</b> <span class="muted">· test ${tw}%</span></small>
+        <small class="muted">${n} trade${n === 1 ? "" : "s"} · rules ${n ? Math.round((ok / n) * 100) + "%" : "—"}</small></div>`;
+    }).join("");
+    return `<div class="chips">${SLOTS.map(([v, l, ic]) => chip("lslot", v, `${ic} ${l}`, lg.slot === v)).join("")}</div>
+      <div class="chips two">${chip("ldir", "long", "▲ Buy", lg.dir === "long")}${chip("ldir", "short", "▼ Sell", lg.dir === "short")}</div>
+      <div class="chips outs">${chip("lout", "tp", "🎯<br>Target", lg.out === "tp")}${chip("lout", "be", "🛡️<br>Break-even", lg.out === "be")}${chip("lout", "sl", "✋<br>Stop", lg.out === "sl")}${chip("lout", "flat", "⏰<br>16:40 out", lg.out === "flat")}</div>
+      ${lg.out === "flat" ? `<label class="f">Your R at 16:40 (e.g. 0.6 or −0.4)<input id="btR" inputmode="decimal"></label>` : ""}
+      <div class="grid2"><label class="f">Day you replayed<input id="btDate" type="date"></label><label class="f">Note<input id="btNote" placeholder="what you saw / felt"></label></div>
+      <button type="button" class="switch ${lg.ok ? "on" : ""}" data-l="lok"><i></i>I followed every rule on this one</button>
+      <button class="btn primary" data-l="save" style="width:100%;margin-top:10px">Save trade</button>
+      <div class="rgrid">${cards}</div>
+      <p class="muted" style="margin:8px 0 0;font-size:12.5px">The marker on each bar is the test's win rate. After 20 trades you can easily be 15 points off — that's luck. This week, watch the rules column.</p>`;
   }
 
   function viewLearn() {
-    const done = weekDone();
-    const bt = (S.practice || []).filter((t) => t.source === "backtest");
-    const row = ([slot, label]) => {
-      const [stg, mk] = slot.split(":"), a = bt.filter((t) => t.strategy === stg && t.market === mk);
-      const n = a.length, won = a.filter((t) => t.resultR > 0.1).length, tot = Math.round(a.reduce((x, t) => x + t.resultR, 0) * 100) / 100;
-      const ok = a.filter((t) => t.grade === "A+").length, [tw, ta] = TEST[slot];
-      return `<tr><td>${label}</td><td>${n}</td><td>${n ? Math.round((won / n) * 100) + "%" : "—"} <small class="muted">(${tw}%)</small></td><td class="${cls(tot)}">${n ? rs(tot) : "—"}</td><td>${n ? rs(Math.round((tot / n) * 100) / 100) : "—"} <small class="muted">(+${ta})</small></td><td>${n ? Math.round((ok / n) * 100) + "%" : "—"}</td></tr>`;
-    };
-    const total = bt.length, okAll = bt.filter((t) => t.grade === "A+").length;
+    const done = weekDone(), bt = (S.practice || []).filter((t) => t.source === "backtest");
+    const total = bt.length, okAll = bt.filter((t) => t.grade === "A+").length, C = 2 * Math.PI * 40;
     const ready = total >= 60 && okAll / Math.max(1, total) >= 0.95;
-    return `<section class="card hero" style="--state:var(--accent)"><div>
-        <div class="state">Learn · one week</div>
-        <div class="headline">Two strategies. One week of practice. Then Edge.</div>
-        <p class="sub">The <b>London breakout</b> (gold, crude oil, silver) and <b>natural gas zones</b>. Tested on 2.4 years of futures data. Learn them by replaying the past, one candle at a time.</p></div></section>
+    return `<section class="card hero" style="--state:var(--accent)">
+        <div><div class="state">Learn · your first week</div>
+          <div class="headline">Two strategies. Seven days. Then Edge.</div>
+          <p class="sub">${ready ? "✅ Ready: 60+ replayed trades with the rules kept." : `${total}/60 replayed trades · rules kept ${total ? Math.round((okAll / total) * 100) : 0}% (need 95%)`}</p></div>
+        <div class="ring"><svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="7"/>
+          <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="url(#goldGrad)" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - done.length / 7)}"/></svg>
+          <div class="lbl"><b>${done.length}/7</b><small>days</small></div></div></section>
 
-      <section class="card"><h2>Your week</h2>
-        <ol class="week">${LEARN_WEEK.map(([t, d], i) => `<li><label><input type="checkbox" data-week="${i}" ${done.includes(i) ? "checked" : ""}><span><b>Day ${i + 1} · ${t}</b><br><span class="muted">${d}</span></span></label></li>`).join("")}</ol>
-        <p class="${ready ? "" : "muted"}" style="margin:10px 0 0">${ready ? "✅ You're ready for Day 7: 60+ replayed trades with the rules followed." : `Ready for live when: <b>60 replayed trades</b> logged (you have ${total}) and the rules followed on <b>95%</b> of them.`}</p>
-      </section>
+      <section class="card"><div class="card-head"><h2>⏱ Right now</h2><span class="muted">your time</span></div><div id="lClock">${clockHtml()}</div></section>
 
-      <section class="card"><h2>1 · London breakout — gold, crude oil, silver</h2>
-        ${londonPic()}
-        <ol class="steps">
-          <li><b>The box.</b> From 18:00 to 02:00 New York the market is quiet (Asia). Its highest and lowest price make the box.</li>
-          <li><b>Two orders.</b> When London opens, place a <b>buy stop</b> at the box high and a <b>sell stop</b> at the box low. Each one with its stop loss and target attached.</li>
-          <li><b>One fills, cancel the other.</b> The side London breaks is your trade. One trade per market per day.</li>
-          <li><b>Stop</b> = the other side of the box. <b>Target</b> = 2R (gold, silver) or 3R (crude).</li>
-          <li><b>Break-even</b> when price reaches +1.5R (gold) or +1R (crude, silver). Then hands off until target, stop or 16:40 New York.</li>
-        </ol>
-        <table class="ltable"><tr><th></th><th>Orders live (New York)</th><th>Dubai Mar–Nov</th><th>Dubai Nov–Mar</th><th>Break-even</th><th>Target</th></tr>
-          <tr><td>Gold</td><td>02:00–08:00</td><td>10:00–16:00</td><td>11:00–17:00</td><td>+1.5R</td><td>2R</td></tr>
-          <tr><td>Crude</td><td>03:00–08:00</td><td>11:00–16:00</td><td>12:00–17:00</td><td>+1R</td><td>3R</td></tr>
-          <tr><td>Silver</td><td>02:00–08:00 · skip if the box is tiny</td><td>10:00–16:00</td><td>11:00–17:00</td><td>+1R</td><td>2R</td></tr></table>
-        <p class="muted">You'll lose more often than you win (30–43% winners). That's normal: each winner pays 2–3 losers. Never close early because it "looks weak" — the tests did worse every time.</p>
-      </section>
+      <section class="card"><div class="card-head"><h2>🎬 See it step by step</h2></div><div id="lWalk">${walkHtml()}</div></section>
 
-      <section class="card"><h2>2 · Natural gas zones (your own idea, tested)</h2>
-        ${gasPic()}
-        <ol class="steps">
-          <li><b>Find an explosive move</b> on the 1-hour Heikin Ashi chart: a candle about twice as big as the ones before it.</li>
-          <li><b>Draw the zone</b> on the candle just before it (the base): from its wick to the start of its body. It stays valid until a candle <b>closes through</b> it.</li>
-          <li><b>Only old zones:</b> at least <b>5 trading days</b> old, and only on the <b>1st or 2nd</b> time price comes back.</li>
-          <li><b>Only in your windows:</b> 06:00–09:00 and 11:00–12:00 New York (Dubai 14:00–17:00 and 19:00–20:00 Mar–Nov, one hour later Nov–Mar).</li>
-          <li><b>Limit order</b> at the zone edge, stop just past the far side, <b>target 3R</b>, break-even at +2R.</li>
-        </ol>
-        <p class="muted">About 2 trades a month, but the best ones in the plan: 47% winners, +0.65R a trade on average.</p>
-      </section>
+      <section class="card"><div class="card-head"><h2>🧠 Quick quiz</h2><span class="muted">${QUIZ.length} questions</span></div><div id="lQuiz">${quizHtml()}</div></section>
 
-      <section class="card"><h2>How to backtest (TradingView Bar Replay)</h2>
-        <ol class="steps">
-          <li>Open the chart (5-minute MGC1! / MCL1! / SIL1!, or 1-hour QG1! for gas) with the Edge script on it.</li>
-          <li>Click <b>Replay</b> (top toolbar) and pick a day in the past, around 17:00 New York.</li>
-          <li>Press <b>▶ forward</b> one candle at a time (Shift + →). Never look ahead — hide the future.</li>
-          <li>At 02:00 (03:00 crude): write down the box high and low, and where your two orders would go. Then keep stepping.</li>
-          <li>When an order fills, follow the plan: break-even at its level, out at target, stop or 16:40.</li>
-          <li><b>Log it below</b> — 20 seconds. Honest: tick "I followed the rules" only if you did.</li>
-        </ol>
-        <p class="muted">The scripts also run in the <b>Strategy Tester</b> (bottom panel), which shows the results of the same rules over your chart's history in one click. Replay is still the training: it teaches your eyes and hands.</p>
-      </section>
+      <section class="card"><div class="card-head"><h2>🗓 Your week</h2></div><div id="lWeek">${weekHtml()}</div></section>
 
-      <section class="card"><h2>Log a replayed trade</h2>
-        <div class="grid2">
-          <label class="f">Strategy · market<select id="btSlot">${SLOTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
-          <label class="f">Day you replayed<input id="btDate" type="date"></label>
-        </div>
-        <div class="seg" id="btDir" style="grid-template-columns:repeat(2,1fr);margin:8px 0"><button type="button" data-val="long" class="on">Buy</button><button type="button" data-val="short">Sell</button></div>
-        <div class="seg" id="btOut" style="grid-template-columns:repeat(4,1fr);margin:8px 0"><button type="button" data-val="tp">Target</button><button type="button" data-val="be">Break-even</button><button type="button" data-val="sl">Stop</button><button type="button" data-val="flat">16:40 out</button></div>
-        <label class="f" id="btRwrap" hidden>R at 16:40 (e.g. 0.6 or −0.4)<input id="btR" inputmode="decimal"></label>
-        <label class="f" style="flex-direction:row;display:flex;gap:8px;align-items:center"><input type="checkbox" id="btOk" checked style="width:auto"> I followed every rule on this one</label>
-        <label class="f">Note (optional)<input id="btNote" placeholder="what you saw, what you felt"></label>
-        <button class="btn primary" id="btSave">Save</button>
-        <h3 style="margin-top:16px">Your replay results <small class="muted">(test result in brackets)</small></h3>
-        <div style="overflow-x:auto"><table class="ltable"><tr><th></th><th>Trades</th><th>Won</th><th>Total</th><th>Per trade</th><th>Rules kept</th></tr>${SLOTS.map(row).join("")}</table></div>
-        <p class="muted" style="margin-bottom:0">After 20 trades your win rate can easily be 15 points off the test — that's normal luck. What matters this week: the rules kept column.</p>
-      </section>
+      <section class="card"><div class="card-head"><h2>⏪ How to backtest</h2><span class="muted">swipe →</span></div>
+        <div class="hscroll">${[
+          ["📈", "Open the chart", "5-min MGC1! / MCL1! / SIL1! — or 1-hour QG1! for gas — with the Edge script on it."],
+          ["⏮", "Go back in time", "Click Replay in the top bar and pick a day, around 17:00 New York."],
+          ["➡️", "One candle at a time", "Shift + → steps forward. Never peek ahead."],
+          ["✏️", "Mark the box", "At 02:00 (03:00 crude) note the box high and low — your two orders."],
+          ["🎯", "Run the plan", "Fill → break-even at its level → target, stop or 16:40."],
+          ["📝", "Log it", "20 seconds, right below. Be honest about the rules."],
+        ].map(([ic, t, d], i) => `<div class="hcard"><span class="hnum">${i + 1}</span><div class="hic">${ic}</div><b>${t}</b><p class="muted">${d}</p></div>`).join("")}</div>
+        <p class="muted" style="margin:10px 0 0;font-size:12.5px">Shortcut: each script's <b>Strategy Tester</b> tab shows the results of these rules on your chart in one click. Replay is still the training — it teaches your eyes and hands.</p></section>
 
-      <section class="card"><h2>Better charts for backtesting</h2>
-        <p class="muted" style="margin-top:0">Free price data only keeps 60 days of 15-minute candles. To go back years: TradingView <b>Premium</b> replays all its intraday history (lower plans replay months, not years). For Edge's own tests, <b>Databento</b> sells official CME futures data (gold, crude, gas, silver, S&amp;P) back 15+ years, pay as you go, with free credit for new accounts.</p>
-      </section>`;
+      <section class="card"><div class="card-head"><h2>📝 Log a replayed trade</h2></div><div id="lLog">${logHtml()}</div></section>
+
+      <section class="card"><h2>📡 Longer, sharper history</h2>
+        <p class="muted" style="margin:0">Free data only keeps 60 days of 15-minute candles. <b>TradingView Premium</b> replays all its intraday history (years). For Edge's own tests, <b>Databento</b> has official CME futures data back 15+ years, pay as you go, with free credit to start.</p></section>`;
   }
+
+  // Learn interactions: swap one widget at a time (no full re-render, so animations and typing aren't lost)
+  function learnSwap(id, html) { const el = $("#" + id); if (el) { el.innerHTML = html; bindLearn(); } }
+  function learnAct(k, a) {
+    const W = WALK[L.walk];
+    if (k === "walk") { L.walk = a; stopPlay(); return learnSwap("lWalk", walkHtml()); }
+    if (k === "next") { L.step[L.walk] = Math.min(W.steps.length - 1, L.step[L.walk] + 1); return learnSwap("lWalk", walkHtml()); }
+    if (k === "prev") { L.step[L.walk] = Math.max(0, L.step[L.walk] - 1); stopPlay(); return learnSwap("lWalk", walkHtml()); }
+    if (k === "go") { L.step[L.walk] = Number(a); stopPlay(); return learnSwap("lWalk", walkHtml()); }
+    if (k === "play") {
+      if (L.play) { stopPlay(); return learnSwap("lWalk", walkHtml()); }
+      if (L.step[L.walk] >= W.steps.length - 1) L.step[L.walk] = 0;
+      L.play = setInterval(() => {
+        if (tab !== "learn" || !$("#lWalk")) return stopPlay();
+        if (L.step[L.walk] >= WALK[L.walk].steps.length - 1) { stopPlay(); return learnSwap("lWalk", walkHtml()); }
+        L.step[L.walk]++; learnSwap("lWalk", walkHtml());
+      }, 2600);
+      return learnSwap("lWalk", walkHtml());
+    }
+    if (k === "ans") { L.ans[L.q] = Number(a); return learnSwap("lQuiz", quizHtml()); }
+    if (k === "qnext") { L.q++; return learnSwap("lQuiz", quizHtml()); }
+    if (k === "qreset") { L.q = 0; L.ans = {}; return learnSwap("lQuiz", quizHtml()); }
+    if (k === "day") { L.day = Number(a); return learnSwap("lWeek", weekHtml()); }
+    if (k === "daydone") {
+      const d = new Set(weekDone()); d.has(L.day) ? d.delete(L.day) : d.add(L.day);
+      try { localStorage.setItem("edge.week", JSON.stringify([...d])); } catch {}
+      if (d.has(L.day)) { const nx = LEARN_WEEK.findIndex((_, i) => !d.has(i)); if (nx >= 0) L.day = nx; toast("Day done. 👏"); }
+      return render();
+    }
+    const keep = () => ({ date: ($("#btDate") || {}).value || "", note: ($("#btNote") || {}).value || "" });
+    const restore = (v) => { if ($("#btDate")) $("#btDate").value = v.date; if ($("#btNote")) $("#btNote").value = v.note; };
+    if (["lslot", "ldir", "lout", "lok"].includes(k)) {
+      const v = keep();
+      if (k === "lslot") L.log.slot = a; if (k === "ldir") L.log.dir = a; if (k === "lout") L.log.out = a; if (k === "lok") L.log.ok = !L.log.ok;
+      learnSwap("lLog", logHtml()); return restore(v);
+    }
+    if (k === "save") {
+      const [strategy, market] = L.log.slot.split(":"), v = keep();
+      return act({ action: "backtestLog", strategy, market, dir: L.log.dir, outcome: L.log.out, r: (($("#btR") || {}).value || "").replace("−", "-"), date: v.date, rulesOk: L.log.ok, note: v.note }, "Saved ✓")
+        .then((r) => { if (r) { L.log.ok = true; render(); } });
+    }
+  }
+  function stopPlay() { if (L.play) { clearInterval(L.play); L.play = null; } }
+  function bindLearn() {
+    document.querySelectorAll("#view [data-l]:not([data-bound])").forEach((b) => {
+      b.dataset.bound = "1";
+      b.addEventListener("click", () => learnAct(b.dataset.l, b.dataset.a));
+    });
+  }
+  setInterval(() => { if (tab === "learn" && $("#lClock") && !document.hidden) $("#lClock").innerHTML = clockHtml(); }, 30000);
 
   // ---------- NOW
   function viewNow() {
@@ -783,16 +924,7 @@
       const seg = b.parentElement; seg.dataset.v = b.dataset.val;
       seg.querySelectorAll("button").forEach((y) => y.classList.toggle("on", y === b));
     }));
-    v.querySelectorAll("[data-week]").forEach((el) => el.addEventListener("change", () => {
-      const d = new Set(weekDone()); el.checked ? d.add(Number(el.dataset.week)) : d.delete(Number(el.dataset.week));
-      try { localStorage.setItem("edge.week", JSON.stringify([...d])); } catch {}
-    }));
-    const bo = $("#btOut"); if (bo) bo.addEventListener("click", () => { $("#btRwrap").hidden = bo.dataset.v !== "flat"; });
-    const bs = $("#btSave"); if (bs) bs.addEventListener("click", async () => {
-      const [strategy, market] = $("#btSlot").value.split(":");
-      const r = await act({ action: "backtestLog", strategy, market, dir: $("#btDir").dataset.v || "long", outcome: bo.dataset.v, r: $("#btR").value.replace("−", "-"), date: $("#btDate").value, rulesOk: $("#btOk").checked, note: $("#btNote").value }, "Logged.");
-      if (r) render();
-    });
+    if (tab === "learn") bindLearn(); else stopPlay();
     v.querySelectorAll("[data-savebias]").forEach((b) => b.addEventListener("click", () => {
       const card = b.closest("[data-biascard]"), answers = {};
       card.querySelectorAll("[data-factor]").forEach((s) => (answers[s.dataset.factor] = Number(s.dataset.v)));
@@ -847,6 +979,6 @@
 
   if (token) refresh(); else showLogin();
   // no auto-refresh on Bias / Rules: it would wipe what you are typing
-  setInterval(() => { if (token && !document.hidden && !$("#modal").open && !["bias", "rules", "coach"].includes(tab)) refresh(); }, 15000);
+  setInterval(() => { if (token && !document.hidden && !$("#modal").open && !["bias", "rules", "coach", "learn"].includes(tab)) refresh(); }, 15000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && token) refresh(); });
 })();
