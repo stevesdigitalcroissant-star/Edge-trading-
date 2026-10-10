@@ -533,3 +533,13 @@ label.tv-row, .tv-row:not(:has(.tv-tog)) { grid-template-columns: 82px 1fr auto 
 .tv-mh { padding: 6px 14px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
 .tv-mnote { margin: 4px 14px 2px; font-size: 11.5px; color: var(--muted); max-width: 240px; line-height: 1.4; }
 .tv-menu .ic { width: 18px; text-align: center; } .tv-menu .sw { width: 14px; height: 3px; border-radius: 2px; }
+.rule-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; margin-bottom: 8px; }
+.rule-bar.bad { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--bad) 15%, var(--panel2)); color: var(--bad); }
+.rule-m { position: relative; overflow: hidden; background: var(--panel2); border-radius: 10px; padding: 6px 8px 8px; }
+.rule-m small { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; } .rule-m b { font: 700 14px var(--display); }
+.rule-m i { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--good); }
+.rule-m.warn i { background: var(--warn); } .rule-m.bad i { background: var(--bad); } .rule-m.bad b { color: var(--bad); } .rule-m.good i { background: #2962ff; }
+.sim-hint.bad { color: var(--bad); }
+.acct-rules { display: grid; gap: 8px; padding: 10px; border-radius: 12px; background: var(--panel2); }
+.acct-rules .tv-row input { background: var(--panel); }
+.sim-banner b.bad { color: var(--bad); } .sim-banner b.good { color: var(--good); }

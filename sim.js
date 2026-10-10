@@ -275,6 +275,7 @@
     if (at != null && at !== 18 * 60) { const j = all.findIndex((b, k) => k >= startI && b.cme === day && b.min >= at && b.min < 18 * 60); if (j > 0) startI = j; } // your chosen start time
     S = { market, P, day, bars: all, sess, i: startI, from: 0, view: viewPrefs(market), speed: 1, orders: [], pos: null, trades: [], plan: P.strategy === "london" ? londonPlan(sess, P) : null, reviewing: null, tools: [], draws: [], mode: null, pend: null, sel: null, tk: null, tkLines: null, src: useDb ? "db" : "free", month, days: data.days, seq: !!o.seq };
     closeTicket(); closeMenu(); if (S) modeUi();
+    { const a = acct(); S.dayStart = a.balance; S.dayLock = null; }
     setTimeout(paintPnl, 0);
     buildChart();
     paintAll();
@@ -781,6 +782,7 @@
   }
   function submitTicket() {
     const k = S.tk, c = tkCalc(); if (c.err) return toast(c.err);
+    const lock = locked(); if (lock && k.edit == null) return toast(lock);
     const sl = Number(k.sl), tp = k.tpOn ? Number(k.tp) : null, b = S.bars[S.i];
     if (k.by === "usd") try { localStorage.setItem("edge.riskUSD", String(Number(k.usd))); } catch {}
     if (k.type === "market") {
@@ -877,11 +879,12 @@
     if (S.orders.length && inWins(S.P, prev.min) && !inWins(S.P, b.min) && prev.min < 18 * 60) { S.orders = []; toast("Window closed — your orders were cancelled, as the plan says."); }
     fills(b);
     if (S.pos) manage(b);
-    paintPnl();
+    paintPnl(); checkRules();
     panel(); markers(); drawLines();
     return true;
   }
   function fills(b) {
+    if (S.orders.length && locked()) { S.orders = []; toast("Orders cancelled — " + locked()); }
     for (const o of [...S.orders]) {
       let px = null;
       if (o.type === "stop") px = o.side > 0 ? (b.h >= o.price ? Math.max(o.price, b.o) : null) : (b.l <= o.price ? Math.min(o.price, b.o) : null);
@@ -927,6 +930,7 @@
     ban.innerHTML = `<b>${tr.R > 0.1 ? "🎯" : tr.R < -0.1 ? "✋" : "🛡️"} Trade closed ${tr.R > 0 ? "+" : ""}${tr.R.toFixed(2)}R · ${tr.usd < 0 ? "−" : "+"}${money(Math.abs(tr.usd))}</b><span class="muted">${esc(how)}</span>
       <div class="row"><button class="btn small primary" data-s="review" data-a="${S.trades.length - 1}">🔍 Review this trade</button><button class="btn small" data-s="dismiss">Keep going ›</button></div>`;
     paintPnl();
+    if (!S.ruleExit) checkRules();
   }
   function save(tr) {
     const P = S.P, out = tr.how === "target" || Math.abs(tr.R - P.tpR) < 0.1 ? "tp" : Math.abs(tr.R) < 0.1 ? "be" : tr.how === "stop" && tr.R <= -0.9 ? "sl" : "flat";
@@ -970,15 +974,104 @@
       <div class="tv-info"><span>Trades <b>${(a.log || []).length}</b></span><span>Won <b>${(a.log || []).length ? Math.round((wins / a.log.length) * 100) + "%" : "—"}</b></span><span>Best <b>${money(a.peak || a.start)}</b></span><span>Down from best <b>${dd > 0.5 ? "−" + money(dd) : "$0"}</b></span></div>
       <label class="tv-row"><span>Start with $</span><input id="acctStart" inputmode="decimal" value="${a.start}"><small></small><small></small></label>
       <label class="tv-row"><span>Fees / contract</span><input id="acctFee" inputmode="decimal" value="${a.fee || 0}"><small>round trip</small><small></small></label>
+      ${a.status === "failed" ? `<p class="tv-err">⛔ Failed: ${esc(a.failWhy || "max drawdown")}. Start over to try again.</p>` : a.status === "passed" ? `<p class="good" style="margin:0">🏆 Passed — profit target reached.</p>` : ""}
+      ${rulesHtml(a)}
       <div class="row"><button class="btn small" data-s="acctsave">Save</button><button class="btn small danger" data-s="acctreset">Start over at $${Number(a.start).toLocaleString("en-US")}</button></div>
       ${(a.log || []).length ? `<div class="acct-log">${a.log.slice(0, 30).map((x) => `<div><span>${x.dir > 0 ? "▲" : "▼"} ${MK[x.m] ? MK[x.m].sym : x.m} ×${x.qty} <small class="muted">${new Date(x.day * 864e5).toLocaleDateString([], { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" })}</small></span><b class="${x.usd > 0 ? "good" : x.usd < 0 ? "bad" : ""}">${signed(x.usd)}</b><small class="muted">${money(x.bal)}</small></div>`).join("")}</div>` : `<p class="muted" style="margin:0">Your trades will show here, each one adding to or taking from the balance.</p>`}</div>`;
+  }
+  // ---------- prop-firm rules: daily loss limit, max drawdown (trailing or static), profit target, Edge's own day rules
+  // "Typical" numbers are common evaluation sizes — change them to your firm's exact rules.
+  const PRESETS = { "50k": { start: 50000, target: 3000, maxDD: 2000, daily: 1000 }, "100k": { start: 100000, target: 6000, maxDD: 3000, daily: 2000 }, "150k": { start: 150000, target: 9000, maxDD: 4500, daily: 3000 } };
+  const rulesOf = (a) => ({ on: false, target: 0, maxDD: 0, ddType: "eod", daily: 0, stopR: 2, maxTrades: 0, ...(a.rules || {}) });
+  function ruleState() {
+    const a = acct(), r = rulesOf(a);
+    const open = S && S.pos ? S.pos.dir * (S.bars[S.i].c - S.pos.e) * S.P.pv * (S.pos.qty || 1) : 0, eq = a.balance + open;
+    const hwm = Math.max(a.hwm || a.start, r.ddType === "intraday" ? eq : 0);
+    const floor = r.maxDD > 0 ? (r.ddType === "static" ? a.start - r.maxDD : Math.min(hwm - r.maxDD, a.start)) : -Infinity;
+    const today = S ? eq - (S.dayStart ?? a.balance) : 0, dayR = S ? S.trades.reduce((x, t) => x + t.R, 0) : 0;
+    return { a, r, eq, hwm, floor, today, dayR };
+  }
+  // why you can't open a new trade right now ("" = you can)
+  function locked() {
+    if (!S) return "";
+    const { a, r } = ruleState();
+    if (!r.on) return "";
+    if (a.status === "failed") return "This account failed — open Balance → Start over.";
+    if (S.dayLock) return S.dayLock;
+    if (r.maxTrades > 0 && S.trades.length + (S.pos ? 1 : 0) >= r.maxTrades) return `That's ${r.maxTrades} trade${r.maxTrades > 1 ? "s" : ""} today — your limit. Done for the day.`;
+    return "";
+  }
+  function flatten(why, px = null) { // close everything now, like the firm would (at the exact limit price when it's inside this candle)
+    S.orders = []; S.tools = []; S.ruleExit = true;
+    if (S.pos) { const b = S.bars[S.i]; exit(px != null ? px : b.c, b, why); }
+    S.ruleExit = false; panel(); drawLines(); markers();
+  }
+  function ruleBanner(icon, title, text, cls = "") {
+    stop();
+    const ban = $("#simBanner"); ban.hidden = false;
+    ban.innerHTML = `<b class="${cls}">${icon} ${esc(title)}</b><span class="muted">${esc(text)}</span><div class="row">${S.trades.length ? `<button class="btn small primary" data-s="review" data-a="${S.trades.length - 1}">🔍 Review the last trade</button>` : ""}<button class="btn small" data-s="end">End the session</button><button class="btn small" data-s="dismiss">OK</button></div>`;
+  }
+  function checkRules() {
+    if (!S || S.ended) return;
+    const st = ruleState(), { a, r } = st;
+    if (!r.on) return;
+    if (r.ddType === "intraday" && st.hwm > (a.hwm || a.start)) { a.hwm = st.hwm; saveAcct(a); }
+    if (a.status === "failed") return;
+    // the worst moment inside this candle, and the price where each limit is hit
+    let worstEq = st.eq, liq = () => null;
+    if (S.pos) {
+      const p = S.pos, b = S.bars[S.i], q = (p.qty || 1) * S.P.pv, worst = p.dir > 0 ? b.l : b.h;
+      worstEq = a.balance + p.dir * (worst - p.e) * q;
+      liq = (eqAt) => { const px = p.e + (p.dir * (eqAt - a.balance)) / q; return p.dir > 0 ? Math.min(Math.max(px, b.l), b.h) : Math.max(Math.min(px, b.h), b.l); };
+      st.eq = Math.min(st.eq, worstEq);
+    }
+    if (r.maxDD > 0 && st.eq <= st.floor + 0.01) {
+      a.status = "failed"; a.failWhy = `Max drawdown: equity ${money(st.eq)} reached the ${money(st.floor)} floor`; saveAcct(a);
+      flatten("max drawdown — account failed", liq(st.floor));
+      return ruleBanner("⛔", "Account failed — max drawdown hit", `Your equity touched ${money(st.floor)}. In a real evaluation this account is over. Look at what led here, then Start over from Balance.`, "bad");
+    }
+    const todayWorst = st.today - (ruleState().eq - st.eq);
+    if (!S.dayLock && r.daily > 0 && todayWorst <= -r.daily + 0.01) {
+      S.dayLock = `Daily loss limit (${money(r.daily)}) hit — done for today.`;
+      flatten("daily loss limit", liq((S.dayStart ?? a.balance) - r.daily));
+      st.today = acct().balance - (S.dayStart ?? a.balance);
+      return ruleBanner("🛑", "Daily loss limit hit — done for today", `You're down ${money(-st.today)} today. The firm closes you out here. Tomorrow is a new day.`, "bad");
+    }
+    if (!S.dayLock && r.stopR > 0 && !S.pos && st.dayR <= -r.stopR + 0.01) {
+      S.dayLock = `Edge rule: stop after −${r.stopR}R in a day. Done for today.`; S.orders = []; S.tools = [];
+      panel(); drawLines();
+      return ruleBanner("🧘", `−${r.stopR}R today — Edge says stop`, "This is the rule that keeps a bad day from becoming a blown account. Close the chart and come back tomorrow.");
+    }
+    if (r.target > 0 && a.status !== "passed" && a.balance >= a.start + r.target && !S.pos) {
+      a.status = "passed"; saveAcct(a);
+      return ruleBanner("🏆", "Profit target reached — you passed!", `Balance ${money(a.balance)} (+${money(a.balance - a.start)}). Keep practising the same way — the next goal is staying consistent.`, "good");
+    }
+  }
+  function endOfDay() { const a = acct(), r = rulesOf(a); if (r.on && r.ddType === "eod" && a.status !== "failed") { a.hwm = Math.max(a.hwm || a.start, a.balance); saveAcct(a); } }
+  function ruleBar() {
+    if (!S) return "";
+    const st = ruleState(), { a, r } = st;
+    if (!r.on) return "";
+    if (a.status === "failed") return `<div class="rule-bar bad"><b>⛔ Account failed</b><button class="btn small" data-s="acct">Start over</button></div>`;
+    const m = (label, left, tot) => { const p = tot > 0 ? Math.max(0, Math.min(1, left / tot)) : 1; return `<div class="rule-m ${p < 0.25 ? "bad" : p < 0.5 ? "warn" : ""}"><small>${label}</small><b>${money(Math.max(0, left))}</b><i style="width:${Math.round(p * 100)}%"></i></div>`; };
+    return `<div class="rule-bar">${r.daily > 0 ? m("Daily loss left", r.daily + st.today, r.daily) : ""}${r.maxDD > 0 ? m("Drawdown left", st.eq - st.floor, r.maxDD) : ""}${r.target > 0 ? `<div class="rule-m good"><small>${a.status === "passed" ? "Target" : "To target"}</small><b>${a.status === "passed" ? "passed 🏆" : money(Math.max(0, a.start + r.target - a.balance))}</b><i style="width:${Math.round(Math.max(0, Math.min(1, (a.balance - a.start) / r.target)) * 100)}%"></i></div>` : ""}</div>${S.dayLock ? `<p class="sim-hint bad">🔒 ${esc(S.dayLock)}</p>` : ""}`;
+  }
+  function rulesHtml(a) {
+    const r = rulesOf(a), num = (id, v, label, hint = "") => `<label class="tv-row"><span>${label}</span><input id="${id}" inputmode="decimal" value="${v || 0}"><small>${hint}</small><small></small></label>`;
+    return `<div class="acct-rules"><div class="tv-row pk-seq"><button class="tv-tog ${r.on ? "on" : ""}" data-s="rulestog" role="switch" aria-checked="${r.on}"><i></i></button><span style="min-width:0"><b>Prop-firm rules</b> — practise like an evaluation</span></div>
+      ${r.on ? `<div class="pk-row" style="grid-template-columns:repeat(3,1fr)">${Object.keys(PRESETS).map((k) => `<button data-s="rulepre" data-a="${k}">Typical ${k.toUpperCase()}</button>`).join("")}</div>
+      ${num("rTarget", r.target, "Profit target $")}${num("rDD", r.maxDD, "Max drawdown $")}
+      <div class="tv-tabs">${[["eod", "Trails end of day"], ["intraday", "Trails live"], ["static", "Static"]].map(([k, l]) => `<button data-s="ruledd" data-a="${k}" class="${r.ddType === k ? "on" : ""}">${l}</button>`).join("")}</div>
+      ${num("rDaily", r.daily, "Daily loss limit $", "0 = none")}${num("rStopR", r.stopR, "Stop the day at −R", "Edge rule: 2")}${num("rMax", r.maxTrades, "Max trades a day", "0 = no limit")}
+      <p class="muted pk-note">Use your firm's exact numbers. Trailing drawdown stops rising once it reaches your starting balance.</p>` : ""}</div>`;
   }
   function acctSave(reset) {
     const a = acct(), s = Number($("#acctStart").value), f = Number($("#acctFee").value);
     if (!(s >= 100)) return toast("Start with at least $100.");
     const fresh = reset || s !== a.start;
-    if (fresh) { a.start = s; a.balance = s; a.peak = s; a.log = []; }
+    if (fresh) { a.start = s; a.balance = s; a.peak = s; a.hwm = s; a.log = []; a.status = null; a.failWhy = null; if (S) { S.dayStart = s; S.dayLock = null; } }
     a.fee = f >= 0 ? f : 0;
+    if (a.rules && a.rules.on && $("#rTarget")) { const v = (id) => Math.max(0, Number($(id).value) || 0); Object.assign(a.rules, { target: v("#rTarget"), maxDD: v("#rDD"), daily: v("#rDaily"), stopR: v("#rStopR"), maxTrades: Math.round(v("#rMax")) }); }
     saveAcct(a); paintPnl(); openAcct();
     toast(fresh ? `Fresh start: ${money(s)}.` : "Saved.");
   }
@@ -997,7 +1090,7 @@
     const P = S.P, b = S.bars[S.i], dec = P.dec;
     const pb = $("#simPlanBtn"); if (pb) pb.hidden = !(P.strategy === "london" && b.min >= 120 && b.min < P.win[1]);
     const ny = hm(b.min), live = P.strategy === "london" ? inWins(P, b.min) && b.min < 18 * 60 : inWins(P, b.min);
-    const clock = `<div class="sim-clock"><span>${local(b.t)} your time · <b>NY ${ny}</b></span><span class="${live ? "good" : "muted"}">${live ? "● window open" : P.strategy === "london" && (b.min >= 18 * 60 || b.min < 120) ? "Asian box forming" : "window closed"}</span></div>`;
+    const clock = ruleBar() + `<div class="sim-clock"><span>${local(b.t)} your time · <b>NY ${ny}</b></span><span class="${live ? "good" : "muted"}">${live ? "● window open" : P.strategy === "london" && (b.min >= 18 * 60 || b.min < 120) ? "Asian box forming" : "window closed"}</span></div>`;
     if (S.pos) {
       const p = S.pos, r = (p.dir * (b.c - p.e)) / Math.abs(p.e - p.sl0);
       el.innerHTML = `${clock}<div class="sim-pos ${r >= 0 ? "up" : "down"}"><div><small>${p.dir > 0 ? "LONG" : "SHORT"} from ${p.e.toFixed(dec)}</small><b>${r > 0 ? "+" : ""}${r.toFixed(2)}R</b></div>
@@ -1092,7 +1185,7 @@
   // ---------- end of the session: what went well, common mistakes, what to do
   function endSession() {
     stop();
-    if (!S.ended) { S.ended = true; S.orders = []; if (S.pos) { const b = S.bars[S.i]; exit(b.c, b, "16:40 close-out"); } $("#simBanner").hidden = true; drawLines(); }
+    if (!S.ended) { S.ended = true; S.orders = []; if (S.pos) { const b = S.bars[S.i]; exit(b.c, b, "16:40 close-out"); } $("#simBanner").hidden = true; drawLines(); endOfDay(); }
     const P = S.P, tot = S.trades.reduce((x, t) => x + t.R, 0), counts = {};
     for (const t of S.trades) for (const f of t.findings) if (f.rule) counts[f.code] = (counts[f.code] || 0) + 1;
     const common = Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -1131,6 +1224,9 @@
       case "acctclose": { const el = $("#simAcct"); if (el) el.remove(); return; }
       case "acctsave": return acctSave(false);
       case "acctreset": return acctSave(true);
+      case "rulestog": { const a = acct(); a.rules = { ...rulesOf(a), on: !rulesOf(a).on }; saveAcct(a); openAcct(); paintPnl(); return panel(); }
+      case "ruledd": { const a = acct(); a.rules = { ...rulesOf(a), ddType: b.dataset.a }; saveAcct(a); return openAcct(); }
+      case "rulepre": { const a = acct(), p = PRESETS[b.dataset.a]; a.rules = { ...rulesOf(a), on: true, target: p.target, maxDD: p.maxDD, daily: p.daily }; saveAcct(a); openAcct(); $("#acctStart").value = p.start; return acctSave(a.start !== p.start); }
       case "pkclose": return closePicker();
       case "pksrc": PK.src = a; try { localStorage.setItem("edge.sim.src", a); } catch {} return pkLoad();
       case "pkyear": PK.year = Number(a); PK.month = Math.min(PK.month, lastMonth(PK.year)); return pkLoad();
@@ -1329,5 +1425,5 @@
     }
   }
 
-  window.EdgeSim = { open, close, openLab, _labRun: labRun, _state: () => S, _review: review, _londonPlan: londonPlan, _gasZones: gasZones, MK };
+  window.EdgeSim = { open, close, openLab, _prep: prep, _labRun: labRun, _state: () => S, _review: review, _londonPlan: londonPlan, _gasZones: gasZones, MK };
 })();
