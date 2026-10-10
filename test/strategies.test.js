@@ -57,11 +57,21 @@ test("London breakout setup: own checklist, own exits, break-even at +1R for cru
   assert.deepEqual(x.xp, { tpR: 3, beR: 1 });
   assert.match(x.story.headline, /London broke the Asian range high/);
 
-  const { trade } = await core.action(store, broker, { action: "take", setupId: x.id, emotion: "calm", riskUSD: 250 }, now);
+  // the alert means the stop order filled: Edge recorded the trade and asks you to check it
+  assert.equal(x.status, "taken");
+  assert.ok(r.json.autoTrade);
+  let trade = st.open[0];
+  assert.equal(trade.pending, true);
   assert.equal(trade.strategy, "london");
   assert.equal(trade.tpR, 3);
-  assert.equal(trade.units, 4); // $250 / $60 a contract → 4 contracts
   assert.equal(trade.tp, 73);
+  assert.equal(trade.units, 1); // default $100 risk / $60 a contract
+  assert.ok(st.log.some((l) => /should have filled at 71\.200/.test(l.text)));
+  // you fix the contracts (you used 4) and say how you feel
+  ({ trade } = await core.action(store, broker, { action: "confirmTrade", tradeId: trade.id, units: 4, emotion: "calm" }, now));
+  assert.equal(trade.pending, false);
+  assert.equal(trade.riskUSD, 240);
+  await assert.rejects(core.action(store, broker, { action: "confirmTrade", tradeId: trade.id, sl: 72 }, now), /stop must be below/);
 
   // +1R → move the stop to break-even (not the settings' 2R)
   now += 10 * 60e3;
@@ -146,4 +156,15 @@ test("replayed trades go to the practice journal with the strategy's own result"
   const gas = st.practice.find((t) => t.market === "natgas");
   assert.equal(gas.resultR, 0.6);
   assert.equal(gas.grade, "unplanned");
+});
+
+test("an auto-recorded trade you didn't take can be removed", async () => {
+  const store = memory();
+  const now = NY(4);
+  const r = await core.handleHook(store, broker, { secret: "s3cret", type: "setup", strategy: "london", symbol: "MGC1!", dir: "short", entry: 2400, sl: 2410, rangeHi: 2410, rangeLo: 2400, trend: -1, stopOk: true }, now);
+  await core.action(store, broker, { action: "dismissTrade", tradeId: r.json.autoTrade }, now);
+  const st = await core.state(store, broker, now);
+  assert.equal(st.open.length, 0);
+  assert.equal(st.journal.length, 0);
+  assert.equal(st.setups[0].status, "skipped");
 });

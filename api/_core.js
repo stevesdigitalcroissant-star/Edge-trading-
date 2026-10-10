@@ -63,9 +63,9 @@ async function handleHook(store, broker, body, now = Date.now()) {
   }
 
   if (msg.type === "setup") {
-    const r = await createSetup(store, market, msg, now);
+    const r = await createSetup(store, market, msg, now, { broker });
     if (r.error) return { status: 400, json: { error: r.error } };
-    return { status: 200, json: { ok: true, grade: r.grade, takeable: r.takeable } };
+    return { status: 200, json: { ok: true, grade: r.grade, takeable: r.takeable, autoTrade: r.autoTrade ? r.autoTrade.id : null } };
   }
 
   if (msg.type === "plan") {
@@ -111,7 +111,7 @@ async function createPlan(store, market, msg, now) {
 }
 
 // A setup from the TradingView alert or read off the chart: store it, grade it, tell the phone.
-async function createSetup(store, market, msg, now, { source = "alert" } = {}) {
+async function createSetup(store, market, msg, now, { source = "alert", broker = null } = {}) {
   const s = mergeSettings(await store.get("settings"));
   const sp = msg.strategy ? strategyPlan(String(msg.strategy), market) : null;
   if (msg.strategy && !sp) return { error: `No ${msg.strategy} strategy for ${market}` };
@@ -147,11 +147,34 @@ async function createSetup(store, market, msg, now, { source = "alert" } = {}) {
   await store.hset("setups", setup.id, setup);
   const name = MARKETS[market].name + (sp ? ` ${sp.name}` : "");
   const head = `${g.grade} ${setup.dir.toUpperCase()} ${name} @ ${fx(setup.entry)}  SL ${fx(setup.sl)}`;
+  // A tested strategy's alert fires the moment its planned order fills. In manual mode Edge records the trade
+  // itself (pending) and asks you to check the entry, stop, target and contracts — no typing it in.
+  let autoTrade = null;
+  if (sp && g.take.ok && (!broker || broker.kind === "manual")) {
+    autoTrade = await autoOpen(store, setup, g, s, now);
+    await notify(store, `✅ ${name} ${setup.dir === "long" ? "BUY" : "SELL"} — your ${setup.strategy === "london" ? "stop" : "limit"} order should have filled at ${fx(setup.entry)}. Tap to check entry ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)}.`, "action");
+    return { setup, grade: g.grade, takeable: true, why: [], autoTrade };
+  }
   const text = g.take.ok
     ? `✅ ${g.grade} ${name} ${setup.dir === "long" ? "BUY" : "SELL"}: ${story(setup, s).short}. Tap to see the picture — valid ${s.setupExpiryMin} min.`
-    : `⛔ ${head}\nSkip it: ${g.take.why[0]}`;
+    : sp ? `⛔ ${head}\nIf your order filled anyway, close it: ${g.take.why[0]}` : `⛔ ${head}\nSkip it: ${g.take.why[0]}`;
   await notify(store, text, g.take.ok ? "setup" : "skip");
   return { setup, grade: g.grade, takeable: g.take.ok, why: g.take.why || [] };
+}
+
+// The trade your planned order opened — recorded as pending until you confirm the numbers.
+async function autoOpen(store, setup, g, s, now) {
+  const size = R.orderSize(setup, s);
+  const xp = R.exits(setup, s);
+  const t = {
+    id: `auto:${id()}`, source: "manual", pending: true, auto: true, market: setup.market, dir: setup.dir, grade: g.grade, setupId: setup.id,
+    symbol: setup.symbol, ticker: setup.symbol, entry: setup.entry, initialSL: setup.sl, currentSL: setup.sl, tp: setup.tp,
+    units: size.kind === "futures" ? size.qty : R.round(size.qty, 2), unitLabel: size.unit, contract: size.contract || null, riskUSD: size.totalRisk,
+    strategy: setup.strategy, tpR: xp.tpR, beR: xp.beR, extra: !!setup.extra, openedAt: now, maxR: 0, ruleBreaks: [], notified: {},
+  };
+  await store.hset("trades", t.id, t);
+  await store.hset("setups", setup.id, { ...setup, status: "taken" });
+  return t;
 }
 
 // What to do now in an open trade, in one line (the PC trade guide speaks it).
@@ -565,6 +588,33 @@ async function action(store, broker, body, now = Date.now()) {
     const t = { id: `manual:${id()}`, source: "manual", market, dir, grade: "unplanned", entry, initialSL: sl, currentSL: sl, tp: num(body.tp) ?? entry + k * s.tpAtR * Math.abs(entry - sl), units: num(body.units), openedAt: now, maxR: 0, ruleBreaks: [], notified: {} };
     await store.hset("trades", t.id, t);
     return { trade: t };
+  }
+  if (a === "confirmTrade") {
+    // you checked the trade Edge recorded: fix what's different, say how you feel
+    const t = await store.hget("trades", body.tradeId);
+    if (!t) throw new Error("Trade not found");
+    const k = R.sign(t.dir);
+    const entry = num(body.entry) ?? t.entry, sl = num(body.sl) ?? t.initialSL, tp = num(body.tp) ?? t.tp;
+    if (k * (entry - sl) <= 0) throw new Error("The stop must be below the entry for a buy, above it for a sell.");
+    if (k * (tp - entry) <= 0) throw new Error("The target must be above the entry for a buy, below it for a sell.");
+    const units = num(body.units);
+    Object.assign(t, { entry, initialSL: sl, currentSL: sl, tp, pending: false, confirmedAt: now, emotion: ["calm", "focused", "fomo", "revenge", "bored"].includes(body.emotion) ? body.emotion : t.emotion || "calm" });
+    if (units != null && units > 0) t.units = units;
+    const spec = require("./_config").futuresSpec(t.symbol || "");
+    if (spec && t.units) t.riskUSD = R.round(Math.abs(entry - sl) * spec.pv * t.units);
+    // a target further than the plan is greed — logged, and Edge will remind you
+    const planTp = entry + k * R.exits(t, mergeSettings(await store.get("settings"))).tpR * Math.abs(entry - sl);
+    if (k * (tp - planTp) > Math.abs(entry - sl) * 0.05) t.ruleBreaks = [...new Set([...(t.ruleBreaks || []), "target past the plan"])];
+    await store.hset("trades", t.id, t);
+    return { trade: t };
+  }
+  if (a === "dismissTrade") {
+    // the order didn't fill (or you didn't place it): forget the trade, no journal entry
+    const t = await store.hget("trades", body.tradeId);
+    if (!t || !t.pending) throw new Error("Only an unconfirmed trade can be removed");
+    await store.hdel("trades", t.id);
+    if (t.setupId) { const x = await store.hget("setups", t.setupId); if (x) await store.hset("setups", x.id, { ...x, status: "skipped", skipReason: "not filled" }); }
+    return { ok: true };
   }
   if (a === "beDone") {
     const t = await store.hget("trades", body.tradeId);

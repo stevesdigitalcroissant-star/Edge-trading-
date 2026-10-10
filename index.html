@@ -27,7 +27,7 @@
 <div id="app" hidden>
   <header class="top">
     <div class="brand"><img src="icon.svg" alt="" width="26" height="26"><span>Edge</span></div>
-    <div id="topStatus" class="pill"></div>
+    <div class="row" style="gap:8px"><button type="button" id="helpBtn" class="helpbtn" aria-label="What am I looking at?">?</button><div id="topStatus" class="pill"></div></div>
   </header>
   <main id="view"></main>
   <main id="coach" hidden></main>
@@ -45,11 +45,14 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="goldGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f1d79f"/><stop offset=".5" stop-color="#d9b46c"/><stop offset="1" stop-color="#ad7f37"/></linearGradient></defs></svg>
 <dialog id="modal"><form method="dialog" id="modalBody" class="modal"></form></dialog>
 <div id="toast" class="toast" hidden></div>
+<script src="insights.js"></script>
 <script src="app.js"></script>
 <script src="reader.js"></script>
 <script src="practice.js"></script>
 <script src="engine.js"></script>
 <script src="replay.js"></script>
 <script src="coach.js"></script>
+<script src="vendor/lightweight-charts.js" defer></script>
+<script src="sim.js" defer></script>
 </body>
 </html>

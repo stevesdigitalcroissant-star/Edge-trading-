@@ -22,7 +22,7 @@
     catch (e) { toast(e.message, 7000); return null; }
   }
 
-  window.Edge = { token: () => token, state: () => S, toast, refresh: () => refresh(), go: (t) => { tab = t; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#" + tab); refresh(); scrollTo(0, 0); } };
+  window.Edge = { token: () => token, state: () => S, toast, api: (body) => api("POST", body), refresh: () => refresh(), go: (t) => { tab = t; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#" + tab); refresh(); scrollTo(0, 0); } };
 
   // ---------- notifications on this device (Web Push; iPhone/iPad need Edge on the Home Screen)
   const TABS = ["now", "learn", "coach", "setups", "bias", "journal", "rules"];
@@ -140,6 +140,7 @@
     finally { busy = false; }
   }
 
+  $("#helpBtn").addEventListener("click", () => { if (tab === "coach") return toast("The Coach watches your chart and talks you through it — press Start to begin."); startTour(true); });
   $("#tabs").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-tab]"); if (!b) return;
     tab = b.dataset.tab; try { localStorage.setItem("edge.tab", tab); } catch {}
@@ -169,6 +170,7 @@
     $("#view").hidden = coachTab;
     if (window.EdgeCoach) window.EdgeCoach.show(coachTab);
     if (coachTab) return;
+    setTimeout(maybeTour, 0);
     $("#view").innerHTML = ({ now: viewNow, learn: viewLearn, setups: viewSetups, bias: viewBias, journal: viewJournal, rules: viewRules })[tab]();
     bind();
   }
@@ -369,13 +371,18 @@
           <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="url(#goldGrad)" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - done.length / 7)}"/></svg>
           <div class="lbl"><b>${done.length}/7</b><small>days</small></div></div></section>
 
-      <section class="card"><div class="card-head"><h2>⏱ Right now</h2><span class="muted">your time</span></div><div id="lClock">${clockHtml()}</div></section>
+      <section class="card simcard" data-tour="sim"><div class="card-head"><h2>🕹 Practice simulator</h2><span class="muted">real past prices</span></div>
+        <p class="muted" style="margin:0 0 10px">Like TradingView, on a real past day. Play the candles, place your orders, and after each trade tap <b>Review</b> — Edge shows you on the chart what you missed, one point at a time. At the end, your session summary.</p>
+        <div class="chips">${[["gold", "🥇 Gold"], ["crude", "🛢️ Crude"], ["silver", "🥈 Silver"], ["natgas", "🔥 Gas"]].map(([m, l]) => `<button type="button" data-sim="${m}">${l}</button>`).join("")}</div>
+      </section>
 
-      <section class="card"><div class="card-head"><h2>🎬 See it step by step</h2></div><div id="lWalk">${walkHtml()}</div></section>
+      <section class="card"><div class="card-head"><h2>⏱ Right now</h2><span class="muted">your time</span></div><div id="lClock" data-tour="lClock">${clockHtml()}</div></section>
 
-      <section class="card"><div class="card-head"><h2>🧠 Quick quiz</h2><span class="muted">${QUIZ.length} questions</span></div><div id="lQuiz">${quizHtml()}</div></section>
+      <section class="card"><div class="card-head"><h2>🎬 See it step by step</h2></div><div id="lWalk" data-tour="lWalk">${walkHtml()}</div></section>
 
-      <section class="card"><div class="card-head"><h2>🗓 Your week</h2></div><div id="lWeek">${weekHtml()}</div></section>
+      <section class="card"><div class="card-head"><h2>🧠 Quick quiz</h2><span class="muted">${QUIZ.length} questions</span></div><div id="lQuiz" data-tour="lQuiz">${quizHtml()}</div></section>
+
+      <section class="card"><div class="card-head"><h2>🗓 Your week</h2></div><div id="lWeek" data-tour="lWeek">${weekHtml()}</div></section>
 
       <section class="card"><div class="card-head"><h2>⏪ How to backtest</h2><span class="muted">swipe →</span></div>
         <div class="hscroll">${[
@@ -388,7 +395,7 @@
         ].map(([ic, t, d], i) => `<div class="hcard"><span class="hnum">${i + 1}</span><div class="hic">${ic}</div><b>${t}</b><p class="muted">${d}</p></div>`).join("")}</div>
         <p class="muted" style="margin:10px 0 0;font-size:12.5px">Shortcut: each script's <b>Strategy Tester</b> tab shows the results of these rules on your chart in one click. Replay is still the training — it teaches your eyes and hands.</p></section>
 
-      <section class="card"><div class="card-head"><h2>📝 Log a replayed trade</h2></div><div id="lLog">${logHtml()}</div></section>
+      <section class="card"><div class="card-head"><h2>📝 Log a replayed trade</h2></div><div id="lLog" data-tour="lLog">${logHtml()}</div></section>
 
       <section class="card"><h2>📡 Longer, sharper history</h2>
         <p class="muted" style="margin:0">Free data only keeps 60 days of 15-minute candles. <b>TradingView Premium</b> replays all its intraday history (years). For Edge's own tests, <b>Databento</b> has official CME futures data back 15+ years, pay as you go, with free credit to start.</p></section>`;
@@ -444,6 +451,80 @@
   }
   setInterval(() => { if (tab === "learn" && $("#lClock") && !document.hidden) $("#lClock").innerHTML = clockHtml(); }, 30000);
 
+
+  // ---------- "What am I looking at?" — a guided tour, one thing at a time (auto the first time on each screen; ? in the top bar any time)
+  const TOURS = {
+    now: [
+      ["confirm", "Edge spotted your trade", "Your order filled, so Edge recorded the trade. Check the 4 numbers match your platform, pick how you feel, tap <b>All correct</b>."],
+      ["hero", "What to do right now", "Edge's one-line answer. <b>Ready</b> = nothing to do, wait. <b>Setup ready</b> = a trade is waiting in Setups. <b>In a trade</b> = hands off, Edge manages it. <b>Locked</b> = you hit a limit, done for today."],
+      ["ring", "A+ share", "Out of your last 20 trades, how many followed the plan. Keep it at 100% — that's the whole game."],
+      ["kpis", "Your day in 3 numbers", "<b>Trades</b>: taken today out of your max (2). <b>Today</b>: your result in <b>R</b> — 1R is what you risk on one trade, so +2R means you made twice your risk. <b>Loss limit</b>: at −2R Edge locks trading until tomorrow."],
+      ["push", "Alerts on this phone", "Turn this on so Edge can buzz you when orders need placing, a trade fills, or it's time to move your stop."],
+      ["plans", "Orders to place", "When a window opens, Edge lists the exact orders: buy/sell price, contracts for your risk, stop, target. Place them and walk away."],
+      ["open", "Your open trades", "Every live trade with its plan. The bar shows where price is between your stop (−1R) and target. Edge tells you when to act."],
+      ["news", "News that moves price", "Big reports (inflation, jobs, Fed, oil and gas). No new trades 30 min before and after — prices jump around."],
+      ["log", "Alerts history", "Everything Edge told you, newest first. Handy if you missed a notification."],
+    ],
+    setups: [
+      ["setup", "A setup = a trade idea", "Edge's scripts found a trade that matches a tested strategy. It's only valid for a few minutes — no chasing."],
+      ["levels", "The 4 prices", "<b>Entry</b> where you get in · <b>Stop</b> where you're wrong (−1R) · <b>BE</b> where you move the stop to entry so you can't lose · <b>TP</b> where you take profit."],
+      ["checklist", "Why it's A+ (or not)", "Tap to see every rule Edge checked. A+ and A can be taken. B or C: skip."],
+      ["ticket", "How many contracts", "Type the dollars you want to risk. Edge works out whole contracts and never goes above your risk."],
+    ],
+    learn: [
+      ["sim", "Practice like it's real", "Pick a market: a real past day opens in a TradingView-style chart. Step through candles, place orders, and get a review after every trade."],
+      ["lClock", "Your trading clock", "Which windows are open right now, in your own time. Green = go time."],
+      ["lWalk", "Watch a trade", "Each strategy drawn step by step. Tap Next, or ▶ Play."],
+      ["lQuiz", "Check yourself", "7 quick questions. If you get them all, you know the rules."],
+      ["lWeek", "Your week", "One task a day for 7 days. Tick them off."],
+      ["lLog", "Practice log", "Every replayed trade, 20 seconds each. Edge compares your results with the tests."],
+    ],
+    journal: [
+      ["insights", "What Edge learned about you", "Your best and worst times, markets and moods — from your own trades. It gets sharper the more you trade."],
+      ["results", "Your results", "All real trades together. Win rate, total in R, and how many broke a rule."],
+      ["journal", "Every trade", "Tap one to add a note or fix the exit price."],
+    ],
+    bias: [["bias", "Weekly homework (optional)", "Once a week, what the big picture says for each market: up, down or neutral. Tap 'Fill from free data' — Edge does most of it. The tested strategies don't need it; it's shown as a note on setups."]],
+  };
+  function startTour(force = false) {
+    const steps = (TOURS[tab] || []).filter(([sel]) => document.querySelector(`[data-tour="${sel}"]`));
+    if (!steps.length) { if (force) toast("Nothing to explain on this screen yet."); return; }
+    let i = 0;
+    const ov = document.createElement("div"); ov.className = "tour"; document.body.appendChild(ov);
+    const end = () => { ov.remove(); try { localStorage.setItem(`edge.tour.${tab}`, "1"); } catch {} };
+    const show = () => {
+      const [sel, title, text] = steps[i], el = document.querySelector(`[data-tour="${sel}"]`);
+      if (!el) return end();
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      setTimeout(() => {
+        const r = el.getBoundingClientRect(), pad = 6, below = r.top + r.height / 2 < innerHeight / 2;
+        ov.innerHTML = `<div class="tour-hole" style="top:${r.top - pad}px;left:${r.left - pad}px;width:${r.width + pad * 2}px;height:${r.height + pad * 2}px"></div>
+          <div class="tour-bub" style="${below ? `top:${Math.min(innerHeight - 220, r.bottom + 14)}px` : `bottom:${Math.min(innerHeight - 220, innerHeight - r.top + 14)}px`}">
+            <div class="row between"><small class="muted">${i + 1} of ${steps.length}</small><button type="button" class="tour-x" data-t="end">Skip</button></div>
+            <b>${title}</b><p>${text}</p>
+            <div class="row between"><button type="button" class="btn small" data-t="back" ${i ? "" : "disabled"}>‹ Back</button>
+              <button type="button" class="btn small primary" data-t="next">${i < steps.length - 1 ? "Next ›" : "Got it"}</button></div></div>`;
+        ov.querySelector('[data-t="end"]').onclick = end;
+        ov.querySelector('[data-t="back"]').onclick = () => { i = Math.max(0, i - 1); show(); };
+        ov.querySelector('[data-t="next"]').onclick = () => { if (++i >= steps.length) end(); else show(); };
+      }, 380);
+    };
+    show();
+  }
+  function maybeTour() {
+    let seen = false; try { seen = !!localStorage.getItem(`edge.tour.${tab}`); } catch {}
+    if (!seen && TOURS[tab] && !document.querySelector(".tour")) setTimeout(() => startTour(false), 700);
+  }
+
+  // ---------- What Edge learned about you (from your closed trades; practice kept separate)
+  function insightsCard(list = S.journal, title = "🧠 What Edge learned about you", small = false) {
+    const I = window.EdgeInsights ? window.EdgeInsights.insights(list) : { ready: false, n: 0, need: 5, items: [] };
+    const body = !I.ready
+      ? `<div class="insight info"><span>🌱</span><div><b>Still learning</b><p>After ${I.need} closed trades Edge starts telling you your best times, markets and habits. You have ${I.n}.</p></div></div>`
+      : (small ? I.items.slice(0, 2) : I.items).map((x) => `<div class="insight ${x.kind}"><span>${x.icon}</span><div><b>${esc(x.title)}</b><p>${esc(x.text)}</p></div></div>`).join("") || `<p class="muted">Nothing stands out yet — your results are even across times and markets.</p>`;
+    return `<section class="card" data-tour="insights"><div class="card-head"><h2>${title}</h2>${I.ready ? `<span class="muted">${I.n} trades</span>` : ""}</div>${body}${small && I.ready && I.items.length > 2 ? `<a href="#journal" class="muted" style="font-size:13px">See all ${I.items.length} →</a>` : ""}</section>`;
+  }
+
   // ---------- NOW
   function viewNow() {
     const g = S.guard, s = S.settings;
@@ -455,29 +536,43 @@
       : inTrade ? ["In a trade", "var(--info)", "Hands off. The rules manage it.", S.open.map((t) => { const e = xpOf(t); return `${esc(mname(t.market))}: ${e.beR > 0 ? `break-even at +${e.beR}R · ` : ""}exit at +${e.tpR}R`; }).join("<br>")]
       : ["Ready", "var(--good)", "Waiting for an A+ setup.", "No setup, no trade. Patience is the position."];
     const share = S.share.share, C = 2 * Math.PI * 40, okShare = true;
-    const hero = `<section class="card hero" style="--state:${stateColor}">
+    const hero = `<section class="card hero" data-tour="hero" style="--state:${stateColor}">
       <div><div class="state"><span class="dot ${g.ok ? "live" : ""}"></span>${stateTxt}</div>
         <div class="headline">${headline}</div><p class="sub">${sub}</p></div>
-      <div class="ring" title="A+ share of your last ${S.share.taken || 0} trades">
+      <div class="ring" data-tour="ring" title="A+ share of your last ${S.share.taken || 0} trades">
         <svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="7"/>
           <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="${okShare ? "url(#goldGrad)" : "var(--bad)"}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - share / 100)}"/></svg>
         <div class="lbl"><b>${share}%</b><small>A+ share</small></div></div>
     </section>`;
-    const stats = `<div class="kpis">
-      <div><small>Trades</small><b>${g.tradesToday}<small class="muted"> / ${s.maxTradesPerDay}</small></b></div>
-      <div><small>Today</small><b class="${cls(g.rToday)}">${rs(g.rToday)}</b></div>
-      <div><small>Loss limit</small><b>−${s.maxDailyLossR}R</b></div>
+    const stats = `<div class="kpis" data-tour="kpis">
+      <div><small>Trades</small><b>${g.tradesToday}<small class="muted"> / ${s.maxTradesPerDay}</small></b><em>taken today</em></div>
+      <div><small>Today</small><b class="${cls(g.rToday)}">${rs(g.rToday)}</b><em>profit / loss</em></div>
+      <div><small>Loss limit</small><b>−${s.maxDailyLossR}R</b><em>stop for the day</em></div>
     </div>`;
     const open = S.open.length ? S.open.map(tradeCard).join("")
       : `<div class="empty"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-8"/><path d="M15 8h5v5"/></svg><b>No open trades</b><span>When you take an A+ setup, it shows up here with its plan.</span></div>`;
     const ps = pushStatus();
-    const pushNudge = ps.on ? "" : `<section class="card"><div class="row between"><b>🔔 Get alerts on this device</b>${pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on</button>` : ""}</div><p class="muted" style="margin:6px 0 0">${esc(ps.text)}</p></section>`;
+    const pushNudge = ps.on ? "" : `<section class="card" data-tour="push"><div class="row between"><b>🔔 Get alerts on this device</b>${pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on</button>` : ""}</div><p class="muted" style="margin:6px 0 0">${esc(ps.text)}</p></section>`;
     const ce = S.closeOut || {}, n = S.open.length;
     const ceBanner = n && (ce.warn || ce.due) ? `<div class="banner bad">⏰ ${ce.due ? `Close-out time (${esc(s.flatBy)}) — get out now.` : `${ce.minutesLeft} min to the close-out (${esc(s.flatBy)}).`}
         <p>You're in ${n} trade${n > 1 ? "s" : ""}. Your prop firm closes you if you don't.</p>
         <button class="btn danger closeall" data-closeall style="margin-top:8px">⛔ Close everything</button></div>` : "";
     const head = `<div class="card-head"><h2>Open trades</h2>${n ? `<button class="btn small closeall" data-closeall>Close everything</button>` : ""}</div>`;
-    return `${ceBanner}${hero}${stats}${pushNudge}${plansCard()}<section class="card">${head}${open}</section>${newsCard(6)}${logCard()}`;
+    const pend = S.open.filter((t) => t.pending).map(confirmCard).join("");
+    return `${ceBanner}${pend}${hero}${stats}${pushNudge}${plansCard()}<section class="card" data-tour="open">${head}${open}</section>${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${newsCard(6)}${logCard()}`;
+  }
+
+  // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
+  function confirmCard(t) {
+    const f = (k, label, v) => `<label class="f"><small>${label}</small><input data-cf="${k}" data-id="${esc(t.id)}" inputmode="decimal" value="${v ?? ""}" placeholder="how many?"></label>`;
+    const moods = [["calm", "😌 Calm"], ["focused", "🎯 Focused"], ["fomo", "😬 FOMO"], ["revenge", "😤 Revenge"], ["bored", "🥱 Bored"]];
+    return `<section class="card confirm" data-tour="confirm">
+      <div class="row between"><h3 style="margin:0">✅ ${esc(mname(t.market))} ${t.dir === "long" ? "BUY" : "SELL"} filled — is this right?</h3><span class="pill warn">check</span></div>
+      <p class="muted" style="margin:6px 0 10px">Edge saw your ${t.strategy === "london" ? "stop" : "limit"} order fill and recorded it. Fix anything that's different on your platform.</p>
+      <div class="grid4">${f("entry", "Entry", fx(t.entry))}${f("sl", "Stop", fx(t.initialSL))}${f("tp", `Target (${xpOf(t).tpR}R)`, fx(t.tp))}${f("units", t.contract ? `${esc(t.contract)} contracts` : "Size", t.units || "")}</div>
+      <div class="chips moods" data-id="${esc(t.id)}">${moods.map(([k, l]) => `<button type="button" data-cmood="${k}" class="${k === "calm" ? "on" : ""}">${l}</button>`).join("")}</div>
+      <div class="row" style="margin-top:10px"><button class="btn good" data-confirm="${esc(t.id)}">✓ All correct</button><button class="btn" data-dismiss="${esc(t.id)}">I didn't take it</button></div>
+    </section>`;
   }
 
   // The orders to place before the move (London stop orders, natural gas zone limits), sized for your risk.
@@ -495,7 +590,7 @@
         <div><small>Take profit (${p.tpR}R)</small><b>${fx(L.tp)}</b></div></div>
         ${L.be != null ? `<p class="muted" style="margin:0 0 6px">Break-even: when price reaches <b>${fx(L.be)}</b> (+${p.beR}R), Edge tells you to move the stop to entry.</p>` : ""}`;
     };
-    return `<section class="card"><div class="card-head"><h2>📋 Orders to place now</h2><span class="muted">risk $${risk} each · change it on a setup card</span></div>
+    return `<section class="card" data-tour="plans"><div class="card-head"><h2>📋 Orders to place now</h2><span class="muted">risk $${risk} each · change it on a setup card</span></div>
       ${ps.map((p) => `<div class="card" style="background:var(--panel2);margin-bottom:10px">
         <div class="row between"><h3>${esc(mname(p.market))} · ${esc(p.name)}</h3><span class="pill">until ${time(p.expires)}</span></div>
         ${p.rangeHi != null ? `<p class="muted" style="margin:4px 0">Asian range ${fx(p.rangeLo)} – ${fx(p.rangeHi)}.</p>` : ""}
@@ -513,7 +608,7 @@
     const beAdvised = manual && !t.beMoved && e.beR > 0 && (t.maxR || 0) >= e.beR;
     return `<div class="card" style="background:var(--panel2);margin-bottom:10px">
       <div class="row between"><h3>${esc(mname(t.market))} · ${t.dir.toUpperCase()}${stratName(t) ? ` <small class="muted">${esc(stratName(t))}</small>` : ""}</h3>
-        <span class="pill ${t.grade === "A+" ? "good" : "warn"}">${esc(t.grade)}</span></div>
+        <span class="pill ${t.pending ? "warn" : t.grade === "A+" ? "good" : "warn"}">${t.pending ? "check it ↑" : esc(t.grade)}</span></div>
       <div class="ruler" style="--zero:${pct(0)};--be:${pct(e.beR > 0 ? e.beR : 0)}">
         <div class="bar"></div>
         <span class="tick" style="left:${pct(-1)}">SL −1R</span>
@@ -551,13 +646,13 @@
         <span>${esc(e.title)}${e.forecast ? ` <small class="muted">f ${esc(e.forecast)} · p ${esc(e.previous)}</small>` : ""}<br><small class="muted">${e.markets.map(mname).join(" · ")}</small></span>
         <span class="pill ${e.block ? (live ? "bad" : "warn") : ""}">${live ? "NO TRADES" : e.impact}</span></div>`;
     }).join("");
-    return `<section class="card"><h2>News that moves your markets</h2>
+    return `<section class="card" data-tour="news"><h2>News that moves your markets</h2>
       ${S.news.ok || market ? "" : `<p class="err">Calendar feed unavailable${S.news.error ? ` (${esc(S.news.error)})` : ""} — only the weekly energy reports are shown. Check ForexFactory for CPI / NFP / FOMC.</p>`}
       <div class="news">${rows || `<p class="muted">Nothing big coming up.</p>`}</div></section>`;
   }
 
   function logCard() {
-    return `<section class="card"><h2>Alerts</h2><div class="log">${S.log.slice(0, 12).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet. Alerts from TradingView land here (and on your phone if Telegram is set up).</p>`}</div></section>`;
+    return `<section class="card" data-tour="log"><h2>Alerts</h2><div class="log">${S.log.slice(0, 12).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet. Alerts from TradingView land here (and on your phone if Telegram is set up).</p>`}</div></section>`;
   }
 
   // ---------- SETUPS
@@ -626,7 +721,7 @@
     const q = qtyFor(z, risk);
     const too = z.kind === "futures" && q < 1;
     const qty = z.kind === "futures" ? `${q} ${esc(z.contract)} contract${q === 1 ? "" : "s"}` : `${z.qty.toFixed(z.qty < 10 ? 2 : 0)} ${esc(S.markets[x.market].unit)} ≈ ${(z.qty / (s.lots[x.market] || 1)).toFixed(2)} lots`;
-    return `<div class="card" style="background:var(--panel2);margin:8px 0">
+    return `<div class="card" data-tour="ticket" style="background:var(--panel2);margin:8px 0">
       <div class="row between"><b>Order for TradingView</b>
         ${z.kind === "futures" ? `<label class="row" style="gap:6px;margin:0"><small class="muted">Risk $</small><input data-risk="${esc(x.id)}" data-rpc="${z.riskPerContract}" inputmode="decimal" value="${risk}" style="width:90px"></label>` : ""}</div>
       ${too ? `<div class="blocks" data-riskwarn="${esc(x.id)}">⛔ One ${esc(z.contract)} contract risks $${z.riskPerContract} — more than $${risk}. Skip it${["GC", "CL", "NG", "QG", "SI", "ES"].includes(z.contract) ? " or use the micro contract" : ""}.</div>` : ""}
@@ -644,13 +739,13 @@
     const risk = Math.abs(x.entry - x.sl), k = x.dir === "short" ? -1 : 1;
     const be = e.beR > 0 ? x.entry + k * e.beR * risk : null, tp = x.entry + k * e.tpR * risk;
     const live = x.status === "open" && !(x.expires && S.now > x.expires);
-    return `<div class="card setup ${live ? "" : "dim"}">
+    return `<div class="card setup ${live ? "" : "dim"}" data-tour="setup">
       <div class="row between">
         <div class="row"><div class="grade ${g.grade === "A+" ? "Ap" : g.grade}">${g.grade}</div>
           <div><h3>${esc(mname(x.market))} · ${x.dir.toUpperCase()}${stratName(x) ? ` <small class="muted">${esc(stratName(x))}</small>` : ""}</h3><span class="muted">${day(x.at)} ${time(x.at)} · ${esc(x.tv || x.symbol)}</span></div></div>
         <span class="pill ${x.status === "taken" ? "good" : ""}">${live ? `${Math.max(0, Math.round((x.expires - S.now) / 60e3))} min left` : esc(x.status === "open" ? "expired" : x.status)}</span>
       </div>
-      <div class="levels">
+      <div class="levels" data-tour="levels">
         <div><small>Entry</small><b>${fx(x.entry)}</b></div>
         <div><small>Stop</small><b>${fx(x.sl)}</b></div>
         <div><small>${e.beR > 0 ? `BE at ${e.beR}R` : "Break-even"}</small><b>${e.beR > 0 ? fx(be) : "none"}</b></div>
@@ -658,7 +753,7 @@
       </div>
       ${storyBlock(x)}
       ${g.info ? `<p class="muted" style="margin:6px 0">${esc(g.info)}</p>` : ""}
-      <details class="checkwrap"><summary>Checklist — ${g.checks.filter((c) => c.pass).length}/${g.checks.length} passed</summary>
+      <details class="checkwrap" data-tour="checklist"><summary>Checklist — ${g.checks.filter((c) => c.pass).length}/${g.checks.length} passed</summary>
       <ul class="checks">${g.checks.map((c) => `<li class="${c.pass ? "" : "no"}"><span>${esc(c.label)}${c.note ? ` <small>(${esc(c.note)})</small>` : ""}</span></li>`).join("")}</ul></details>
       ${live && !g.take.ok ? `<div class="blocks">${g.take.why.map((w) => `<div>⛔ ${esc(w)}</div>`).join("")}</div>` : ""}
       ${live && S.broker.kind !== "oanda" ? ticket(x, tp) : ""}
@@ -732,7 +827,7 @@
   let fillApplied = false; // after "Fill from free data", show the suggestions until saved
   function viewBias() {
     const fd = S.fundamentals, sug = (fd && fd.suggestions) || {};
-    const head = `<section class="card"><div class="row between"><h2 style="margin:0">Weekly fundamentals</h2>
+    const head = `<section class="card" data-tour="bias"><div class="row between"><h2 style="margin:0">Weekly fundamentals</h2>
         <button class="btn small primary" id="fillBias">↻ Fill from free data</button></div>
         <p class="muted" style="margin:8px 0 0">Edge reads the COT report (CFTC), the dollar and real yields (FRED) and oil & gas inventories (EIA), and suggests an answer for each line it can measure, with the numbers. You check the rest and save.${fd ? ` Last read ${day(fd.at)} ${time(fd.at)}.` : ""}</p>
         ${fd && fd.errors && fd.errors.length ? `<p class="err" style="margin:6px 0 0">Not available: ${fd.errors.map(esc).join(" · ")}</p>` : ""}</section>`;
@@ -773,7 +868,7 @@
         <small class="muted">${t.maxR != null ? `best ${rs(t.maxR)}` : ""}</small>
         ${t.note ? `<small style="grid-column:1/-1">${esc(t.note)}</small>` : ""}</div>`;
     const rows = S.journal.map(jrow).join("");
-    return `<section class="card"><h2>Results</h2><div class="grid2">
+    return `${insightsCard()}${S.practice.length >= 5 ? insightsCard(S.practice, "🧠 From your practice trades") : ""}<section class="card" data-tour="results"><h2>Results</h2><div class="grid2">
         <div class="stat"><small>Total</small><b class="${cls(st.totalR)}">${rs(st.totalR)}</b><small>${st.n} trades</small></div>
         <div class="stat"><small>Win rate</small><b>${st.winRate == null ? "—" : st.winRate + "%"}</b><small>avg ${rs(st.avgR)}</small></div>
         <div class="stat"><small>Hit the target</small><b>${st.targets}</b><small>each trade's own target</small></div>
@@ -786,7 +881,7 @@
         <div class="stat"><small>Win rate</small><b>${S.practiceStats.winRate == null ? "—" : S.practiceStats.winRate + "%"}</b><small>avg ${rs(S.practiceStats.avgR)}</small></div>
         ${grp(S.practiceStats.aPlus, "A+ practice")}${grp(S.practiceStats.unplanned, "Unplanned practice")}</div>
         ${S.practice.slice(0, 30).map(jrow).join("")}</section>` : ""}
-      <section class="card"><div class="row between"><h2 style="margin:0">Journal</h2><button class="btn small" id="logTrade">＋ Log a trade I took</button></div>${rows || `<p class="muted">Closed trades appear here.</p>`}</section>`;
+      <section class="card" data-tour="journal"><div class="row between"><h2 style="margin:0">Journal</h2><button class="btn small" id="logTrade">＋ Log a trade I took</button></div>${rows || `<p class="muted">Closed trades appear here.</p>`}</section>`;
   }
 
   function noteDialog(id) {
@@ -906,6 +1001,14 @@
   function bind() {
     const v = $("#view");
     v.querySelectorAll("[data-take]").forEach((b) => b.addEventListener("click", () => takeDialog(b.dataset.take)));
+    v.querySelectorAll("[data-cmood]").forEach((b) => b.addEventListener("click", () => b.parentElement.querySelectorAll("button").forEach((y) => y.classList.toggle("on", y === b))));
+    v.querySelectorAll("[data-confirm]").forEach((b) => b.addEventListener("click", async () => {
+      const id = b.dataset.confirm, card = b.closest(".confirm"), val = (k) => (card.querySelector(`[data-cf="${k}"]`) || {}).value;
+      const mood = (card.querySelector("[data-cmood].on") || {}).dataset?.cmood || "calm";
+      const r = await act({ action: "confirmTrade", tradeId: id, entry: val("entry"), sl: val("sl"), tp: val("tp"), units: val("units"), emotion: mood }, ["fomo", "revenge", "bored"].includes(mood) ? "Noted. Stick to the stop and target — no adding, no moving." : "Confirmed. Hands off — Edge manages it.");
+      if (r) refresh();
+    }));
+    v.querySelectorAll("[data-dismiss]").forEach((b) => b.addEventListener("click", async () => { if (await act({ action: "dismissTrade", tradeId: b.dataset.dismiss }, "Removed.")) refresh(); }));
     v.querySelectorAll("[data-risk]").forEach((inp) => inp.addEventListener("input", () => {
       const risk = Number(inp.value), rpc = Number(inp.dataset.rpc), id = inp.dataset.risk;
       if (!(risk > 0) || !(rpc > 0)) return;
@@ -925,6 +1028,7 @@
       seg.querySelectorAll("button").forEach((y) => y.classList.toggle("on", y === b));
     }));
     if (tab === "learn") bindLearn(); else stopPlay();
+    v.querySelectorAll("[data-sim]").forEach((b) => b.addEventListener("click", () => window.EdgeSim ? window.EdgeSim.open(b.dataset.sim) : toast("Simulator still loading — try again.")));
     v.querySelectorAll("[data-savebias]").forEach((b) => b.addEventListener("click", () => {
       const card = b.closest("[data-biascard]"), answers = {};
       card.querySelectorAll("[data-factor]").forEach((s) => (answers[s.dataset.factor] = Number(s.dataset.v)));
