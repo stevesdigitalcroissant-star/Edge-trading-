@@ -438,21 +438,65 @@ body.sim-on .tabs { display: none; }
 .lab-chart { height: 240px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); margin-bottom: 10px; }
 .sim:fullscreen, .sim:-webkit-full-screen { padding: 0; }
 
-/* position tools on the simulator chart */
+/* TradingView-style drawing on the simulator chart */
+.sim { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.sim input { -webkit-user-select: text; user-select: text; }
 .sim-tools { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none; overflow: hidden; }
-.sim-tools .hit { stroke: transparent; stroke-width: 20; pointer-events: stroke; touch-action: none; }
-.sim-tools .knob { fill: #fff; stroke: #d9b46c; stroke-width: 2; pointer-events: all; cursor: grab; touch-action: none; }
+.sim-tools .hit { stroke: transparent; stroke-width: 18; pointer-events: stroke; touch-action: none; cursor: ns-resize; }
+.sim-tools .body { fill: transparent; pointer-events: all; touch-action: none; cursor: move; }
+.sim-tools .h { fill: var(--panel); stroke: #2962ff; stroke-width: 2; pointer-events: all; touch-action: none; cursor: grab; }
+.sim-tools .tl { font: 600 11px var(--font); fill: #fff; pointer-events: none; }
 .sim-tools .tt { font: 700 11px var(--font); paint-order: stroke; stroke: var(--panel); stroke-width: 3px; pointer-events: none; }
-#simTB { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
-.tbar { position: absolute; display: flex; align-items: center; gap: 6px; pointer-events: auto; background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; padding: 4px 4px 4px 10px; font: 700 12px var(--font); box-shadow: 0 8px 20px -8px rgba(0, 0, 0, .55); white-space: nowrap; }
-.tbar.long { border-color: #26a69a; } .tbar.short { border-color: #ef5350; }
-.tbar button { border: 0; border-radius: 7px; padding: 5px 9px; font: 700 12px var(--font); cursor: pointer; background: var(--panel2); color: var(--text); }
-.tbar button[data-s="tplace"] { background: #d9b46c; color: #1b1407; }
+#simTB { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
 .sim-chart.arming { cursor: crosshair; }
-.sim-ctl .tool-long.on { border-color: #26a69a; background: color-mix(in srgb, #26a69a 18%, var(--panel2)); }
-.sim-ctl .tool-short.on { border-color: #ef5350; background: color-mix(in srgb, #ef5350 18%, var(--panel2)); }
-.sim-toolrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: var(--panel2); border-left: 3px solid #26a69a; margin-bottom: 6px; font-size: 13px; }
+.tv-tools { position: absolute; left: 8px; top: 8px; z-index: 6; display: flex; flex-direction: column; gap: 2px; padding: 4px; background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; box-shadow: 0 8px 22px -8px rgba(0, 0, 0, .55); }
+.tv-tools button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 7px; background: none; color: var(--text); cursor: pointer; font-size: 15px; padding: 0; }
+.tv-tools button svg { width: 22px; height: 22px; }
+.tv-tools button:hover { background: var(--panel2); }
+.tv-tools button.on { background: color-mix(in srgb, #2962ff 28%, var(--panel2)); box-shadow: inset 0 0 0 1px #2962ff; }
+.tv-tools i { height: 1px; margin: 2px 4px; background: var(--line2); }
+.tv-hint { position: absolute; left: 54px; top: 10px; z-index: 6; background: #2962ff; color: #fff; font: 600 12.5px var(--font); padding: 7px 11px; border-radius: 8px; pointer-events: none; animation: fadeUp .2s both; }
+.sim-banner { left: 54px; }
+.tv-sel { position: absolute; display: flex; gap: 2px; padding: 3px; pointer-events: auto; background: var(--panel); border: 1px solid var(--line2); border-radius: 9px; box-shadow: 0 8px 20px -8px rgba(0, 0, 0, .6); white-space: nowrap; animation: fadeUp .15s both; }
+.tv-sel button { border: 0; border-radius: 6px; padding: 6px 9px; font: 600 12.5px var(--font); cursor: pointer; background: none; color: var(--text); }
+.tv-sel button:hover { background: var(--panel2); }
+.tv-sel button.go { background: var(--panel2); } .tv-sel button.go.buy { background: #2962ff; color: #fff; } .tv-sel button.go.sell { background: #ef5350; color: #fff; }
+.tv-menu { position: fixed; z-index: 60; min-width: 220px; padding: 6px 0; background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; box-shadow: 0 18px 40px -12px rgba(0, 0, 0, .7); animation: fadeUp .15s both; }
+.tv-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; border: 0; background: none; color: var(--text); font: 500 14px var(--font); text-align: left; cursor: pointer; }
+.tv-menu button:hover, .tv-menu button:active { background: var(--panel2); }
+.tv-menu button i { width: 18px; font-style: normal; text-align: center; color: var(--muted); }
+.tv-menu button.strong { font-weight: 700; } .tv-menu button.bad { color: var(--bad); }
+.tv-menu hr { border: 0; border-top: 1px solid var(--line); margin: 5px 0; }
+.tv-tk-wrap { position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, .45); display: flex; align-items: flex-end; justify-content: center; animation: fadeUp .15s both; }
+.tv-tk { width: 100%; max-width: 420px; max-height: 92vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line2); border-radius: 16px 16px 0 0; padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); display: grid; gap: 10px; }
+@media (min-width: 700px) { .tv-tk-wrap { align-items: center; } .tv-tk { border-radius: 16px; } }
+.tv-tk-h { display: flex; align-items: center; gap: 8px; } .tv-tk-h b { font: 700 17px var(--display); } .tv-tk-h span { flex: 1; font-size: 12px; }
+.tv-bs { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px; }
+.tv-bs button { border: 1px solid var(--line2); border-radius: 10px; padding: 8px; background: var(--panel2); color: var(--text); cursor: pointer; text-align: center; }
+.tv-bs button small { display: block; font-size: 11px; color: var(--muted); } .tv-bs button b { font: 700 16px var(--display); }
+.tv-bs button.sell.on { background: #ef5350; border-color: #ef5350; color: #fff; } .tv-bs button.buy.on { background: #2962ff; border-color: #2962ff; color: #fff; }
+.tv-bs button.on small { color: rgba(255, 255, 255, .8); }
+.tv-bs .spr { font-size: 11px; color: var(--muted); padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; }
+.tv-tabs { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--panel2); border-radius: 9px; padding: 3px; }
+.tv-tabs button { border: 0; border-radius: 7px; padding: 7px; background: none; color: var(--muted); font: 600 13px var(--font); cursor: pointer; }
+.tv-tabs button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 4px rgba(0, 0, 0, .3); }
+.tv-row { display: grid; grid-template-columns: auto 92px 1fr auto; align-items: center; gap: 8px; font-size: 13.5px; }
+.tv-row[hidden] { display: none; }
+.tv-row > span { min-width: 82px; color: var(--muted); }
+.tv-row input { width: 100%; min-width: 0; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel2); color: var(--text); font: 600 14px var(--font); }
+.tv-row input:disabled { opacity: .45; }
+.tv-row small { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+label.tv-row, .tv-row:not(:has(.tv-tog)) { grid-template-columns: 82px 1fr auto auto; }
+.tv-ex .tv-row { grid-template-columns: auto 82px 1fr 64px; margin-top: 8px; } 
+.tv-ex > b { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.tv-swap { border: 1px solid var(--line2); background: var(--panel2); color: var(--text); border-radius: 8px; width: 34px; height: 34px; cursor: pointer; }
+.tv-info { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; font-size: 11px; color: var(--muted); background: var(--panel2); border-radius: 10px; padding: 8px 10px; }
+.tv-info b { display: block; font-size: 13.5px; color: var(--text); }
+.tv-tog { width: 36px; height: 21px; border-radius: 11px; border: 0; background: var(--line2); position: relative; cursor: pointer; padding: 0; }
+.tv-tog i { position: absolute; top: 2px; left: 2px; width: 17px; height: 17px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.tv-tog.on { background: #2962ff; } .tv-tog.on i { transform: translateX(15px); }
+.tv-err { margin: 0; min-height: 0; font-size: 12.5px; color: var(--warn); } .tv-err:empty { display: none; }
+.tv-go { border: 0; border-radius: 10px; padding: 13px; font: 700 15px var(--font); color: #fff; cursor: pointer; }
+.tv-go.buy { background: #2962ff; } .tv-go.sell { background: #ef5350; } .tv-go:disabled { opacity: .45; cursor: not-allowed; }
+.sim-toolrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: var(--panel2); border-left: 3px solid #2962ff; margin-bottom: 6px; font-size: 13px; }
 .sim-toolrow.short { border-left-color: #ef5350; }
-.sim-type { margin-top: 8px; } .sim-type summary { cursor: pointer; color: var(--muted); font-size: 12.5px; padding: 4px 0; }
-.sim-tools .knob.sl { stroke: #ef5350; } .sim-tools .knob.tp { stroke: #26a69a; }
-@media (max-width: 520px) { .tbar .sz { display: none; } }
