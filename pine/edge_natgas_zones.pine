@@ -1,0 +1,246 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0
+//
+// EDGE — Natural gas Heikin Ashi zones (old zones, fixed 3R)
+// ---------------------------------------------------------------------------
+// Put it on a 1-HOUR chart of NG1! / QG1! / MNG1! with NORMAL candles
+// (the script builds the Heikin Ashi candles itself and draws the zones).
+//
+//   Zone   : an explosive Heikin Ashi candle (body ≥ 2× the average of the last 20).
+//            The zone is the base candle just before it (the last opposite-colour candle,
+//            up to 3 back): from its wick to the start of its body (its Heikin Ashi open).
+//   Valid  : until a candle CLOSES through the far side.
+//   Trade  : only zones at least 5 trading days old, on their 1st or 2nd touch, inside
+//            06:00–09:00 or 11:00–12:00 New York (Vancouver 3–6am and 8–9am).
+//            Limit order at the zone edge, stop 0.2× ATR past the far side.
+//   Exits  : target 3R, stop to break-even at +2R, out by 16:40 New York. Max 2 a day.
+//   Tested on 2.4 years of hourly natural gas futures (May 2024 – Oct 2026): 68 trades,
+//   46% won, +42R.
+//
+// For the Edge app, create ONE alert on this chart:
+//   Condition: this script → "alert() function calls only"
+//   Webhook URL: https://<your-edge-app>/api/hook
+//   Message: leave as is (the script writes its own JSON)
+// ---------------------------------------------------------------------------
+//@version=6
+strategy("Edge — Natural gas zones (Heikin Ashi)", shorttitle = "Edge NG zones", overlay = true,
+     initial_capital = 10000, default_qty_type = strategy.fixed, default_qty_value = 1,
+     pyramiding = 0, slippage = 1, max_boxes_count = 200, max_lines_count = 100, max_labels_count = 200)
+
+TZ = "America/New_York"
+
+// ---------- Settings
+grpS = "Strategy (tested values)"
+kMult      = input.float(2.0, "Explosive candle: Heikin Ashi body ≥ (× average of the last 20)", minval = 1.0, step = 0.1, group = grpS)
+minAgeDays = input.float(5.0, "Only zones at least (trading days old)", minval = 0.0, step = 0.5, group = grpS)
+maxTouches = input.int(2, "Trade a zone on touch 1 up to touch", minval = 1, group = grpS)
+win1       = input.session("0600-0900", "Window 1 (New York time)", group = grpS)
+win2       = input.session("1100-1200", "Window 2 (New York time)", group = grpS)
+tpR        = input.float(3.0, "Take profit (R)", minval = 0.5, step = 0.1, group = grpS)
+beR        = input.float(2.0, "Stop to break-even at (R, 0 = never)", minval = 0.0, step = 0.1, group = grpS)
+bufAtr     = input.float(0.2, "Stop past the zone (× 1-hour ATR)", minval = 0.0, step = 0.05, group = grpS)
+minRiskAtr = input.float(0.5, "Skip zones whose stop is smaller than (× 1-hour ATR)", minval = 0.0, step = 0.1, group = grpS)
+maxPerDay  = input.int(2, "Max trades a day", minval = 1, group = grpS)
+flatSess   = input.session("1640-1800", "Close-out (New York time)", group = grpS)
+zonesMax   = input.int(80, "Zones kept", minval = 10, maxval = 150, group = grpS)
+
+grpA = "Edge app alerts"
+secret     = input.string("change-me", "Webhook secret (same as EDGE_HOOK_SECRET)", group = grpA)
+sendBars   = input.bool(true, "Send a price heartbeat every candle (lets Edge manage your stop)", group = grpA)
+
+grpC = "Colours"
+cDem = input.color(#27ae60, "Demand zones", group = grpC)
+cSup = input.color(#eb5757, "Supply zones", group = grpC)
+
+int minAgeBars = int(math.round(minAgeDays * 23))   // ~23 one-hour candles per trading day
+
+// ---------- Heikin Ashi candles (built from the real ones)
+float haC = (open + high + low + close) / 4
+float haO = na
+haO := na(haO[1]) ? (open + close) / 2 : (haO[1] + haC[1]) / 2
+float haH = math.max(high, math.max(haO, haC))
+float haL = math.min(low, math.min(haO, haC))
+float body = math.abs(haC - haO)
+float avgBody = ta.sma(body, 20)[1]
+bool explosive = not na(avgBody) and avgBody > 0 and body >= kMult * avgBody
+float atrPrev = ta.atr(14)[1]
+
+// ---------- Windows (New York time)
+sessStart(string s) => int(str.tonumber(str.substring(s, 0, 2))) * 60 + int(str.tonumber(str.substring(s, 2, 4)))
+sessEnd(string s) => int(str.tonumber(str.substring(s, 5, 7))) * 60 + int(str.tonumber(str.substring(s, 7, 9)))
+inMin(string s, int m) => m >= sessStart(s) and m < sessEnd(s)
+int nowMin  = hour(time, TZ) * 60 + minute(time, TZ)
+int nextMin = hour(time_close, TZ) * 60 + minute(time_close, TZ)
+bool inWin  = inMin(win1, nowMin) or inMin(win2, nowMin)
+bool nextInWin = inMin(win1, nextMin) or inMin(win2, nextMin)
+bool inFlat = not na(time(timeframe.period, flatSess, TZ))
+bool newDay = timeframe.change("D")
+
+// ---------- Zones
+type Zone
+    int dir
+    float prox
+    float dist
+    int bar
+    int touches = 0
+    bool armed = false
+    bool dead = false
+    box bx = na
+
+var array<Zone> zones = array.new<Zone>()
+var int dayCount = 0
+if newDay
+    dayCount := 0
+
+zoneText(Zone z) =>
+    int ageD = int((bar_index - z.bar) / 23)
+    (z.dir > 0 ? "NG DEMAND" : "NG SUPPLY") + " · " + str.tostring(ageD) + "d · touch " + str.tostring(z.touches) + (bar_index - z.bar >= minAgeBars ? "" : " · too young")
+
+// register a zone from the explosive candle that just closed
+if barstate.isconfirmed and explosive
+    bool up = haC > haO
+    int q = 1
+    for j = 1 to 3
+        bool opp = up ? haC[j] < haO[j] : haC[j] > haO[j]
+        if opp
+            q := j
+            break
+    float prox = haO[q]
+    float dist = up ? math.min(haL[q], haL) : math.max(haH[q], haH)
+    if up ? prox > dist : prox < dist
+        color c = up ? cDem : cSup
+        box bx = box.new(bar_index - q, math.max(prox, dist), bar_index + 1, math.min(prox, dist), border_color = color.new(c, 40), bgcolor = color.new(c, 85), extend = extend.right, text = "", text_color = c, text_size = size.tiny, text_halign = text.align_right)
+        zones.push(Zone.new(up ? 1 : -1, prox, dist, bar_index, 0, false, false, bx))
+        if zones.size() > zonesMax
+            Zone old = zones.shift()
+            box.delete(old.bx)
+
+// walk the zones: find today's trade (touch of an eligible zone), then update touches / arming / death
+Zone best = na
+float bestD = na
+int n = zones.size()
+bool canTrade = inWin and dayCount < maxPerDay
+if n > 0
+    for i = 0 to n - 1
+        Zone z = zones.get(i)
+        if not z.dead and bar_index >= z.bar + 2
+            int age = bar_index - z.bar
+            bool away = z.dir > 0 ? low[1] > z.prox : high[1] < z.prox
+            bool touched = z.dir > 0 ? low <= z.prox : high >= z.prox
+            if canTrade and z.armed and away and touched and age >= minAgeBars and z.touches < maxTouches
+                float sl = z.dist - z.dir * bufAtr * atrPrev
+                if math.abs(z.prox - sl) >= minRiskAtr * atrPrev
+                    float d = math.abs(close[1] - z.prox)
+                    if na(bestD) or d < bestD
+                        best := z
+                        bestD := d
+            if barstate.isconfirmed
+                if touched and z.armed and away
+                    z.touches += 1
+                if not z.armed and away
+                    z.armed := true
+                if z.dir > 0 ? close < z.dist : close > z.dist
+                    z.dead := true
+                    box.set_bgcolor(z.bx, color.new(color.gray, 92))
+                    box.set_border_color(z.bx, color.new(color.gray, 70))
+                    box.set_extend(z.bx, extend.none)
+                    box.set_right(z.bx, bar_index)
+                box.set_text(z.bx, z.dead ? "" : zoneText(z))
+
+// ---------- Alerts for the Edge app
+f(float x) => str.tostring(x, "#.#####")
+
+varip int alertedBar = -1
+if not na(best) and alertedBar != bar_index
+    alertedBar := bar_index
+    int dir = best.dir
+    float entry = dir > 0 ? math.min(best.prox, open) : math.max(best.prox, open)
+    float sl = best.dist - dir * bufAtr * atrPrev
+    float risk = math.abs(entry - sl)
+    float tp = entry + dir * tpR * risk
+    alert('{"secret":"' + secret + '","type":"setup","strategy":"ngzone","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid +
+         '","dir":"' + (dir > 0 ? "long" : "short") + '","entry":' + f(entry) + ',"sl":' + f(sl) + ',"tp":' + f(tp) +
+         ',"zoneTop":' + f(math.max(best.prox, best.dist)) + ',"zoneBot":' + f(math.min(best.prox, best.dist)) +
+         ',"zoneAgeDays":' + f((bar_index - best.bar) / 23.0) + ',"touch":' + str.tostring(best.touches + 1) + ',"stopOk":true}', alert.freq_once_per_bar)
+if not na(best) and barstate.isconfirmed
+    dayCount += 1
+    label.new(bar_index, best.dir > 0 ? low : high, best.dir > 0 ? "▲ ZONE BUY" : "▼ ZONE SELL", style = best.dir > 0 ? label.style_label_up : label.style_label_down, color = best.dir > 0 ? cDem : cSup, textcolor = color.white, size = size.small)
+
+// the plan: at the start of each window, the nearest tradeable zone below (buy limit) and above (sell limit)
+nearest(int dir) =>
+    Zone pick = na
+    int m = zones.size()
+    if m > 0
+        for i = 0 to m - 1
+            Zone z = zones.get(i)
+            bool below = dir > 0 ? close > z.prox : close < z.prox
+            if not z.dead and z.armed and below and bar_index + 1 - z.bar >= minAgeBars and z.touches < maxTouches
+                float sl = z.dist - dir * bufAtr * atrPrev
+                if z.dir == dir and math.abs(z.prox - sl) >= minRiskAtr * atrPrev
+                    if na(pick) or (dir > 0 ? z.prox > pick.prox : z.prox < pick.prox)
+                        pick := z
+    pick
+
+legJson(Zone z) =>
+    float sl = z.dist - z.dir * bufAtr * atrPrev
+    '{"dir":"' + (z.dir > 0 ? "long" : "short") + '","entry":' + f(z.prox) + ',"sl":' + f(sl) + ',"note":"touch ' + str.tostring(z.touches + 1) + ', ' + str.tostring(int((bar_index - z.bar) / 23)) + ' days old"}'
+
+if barstate.isconfirmed and nextInWin and not inWin and dayCount < maxPerDay
+    Zone dz = nearest(1)
+    Zone sz = nearest(-1)
+    if not na(dz) or not na(sz)
+        string legs = (na(dz) ? "" : legJson(dz)) + (not na(dz) and not na(sz) ? "," : "") + (na(sz) ? "" : legJson(sz))
+        int validMin = inMin(win1, nextMin) ? sessEnd(win1) - nextMin : sessEnd(win2) - nextMin
+        alert('{"secret":"' + secret + '","type":"plan","strategy":"ngzone","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid +
+             '","validMin":' + str.tostring(validMin) + ',"legs":[' + legs + ']}', alert.freq_once_per_bar_close)
+
+if sendBars and barstate.isconfirmed
+    alert('{"secret":"' + secret + '","type":"bar","symbol":"' + syminfo.ticker + '","price":' + f(close) + ',"high":' + f(high) + ',"low":' + f(low) + ',"bos15":""}', alert.freq_once_per_bar_close)
+
+// ---------- Strategy Tester: limit orders at the nearest tradeable zones for the next candle
+var float tE = na
+var float tSL = na
+var float tTP = na
+var bool tBE = false
+if strategy.position_size == 0
+    tE := na
+    tBE := false
+    strategy.cancel("Long")
+    strategy.cancel("Short")
+    if barstate.isconfirmed and nextInWin and dayCount < maxPerDay
+        Zone dz = nearest(1)
+        Zone sz = nearest(-1)
+        if not na(dz)
+            strategy.entry("Long", strategy.long, limit = dz.prox, oca_name = "ng", oca_type = strategy.oca.cancel, comment = "zone buy")
+        if not na(sz)
+            strategy.entry("Short", strategy.short, limit = sz.prox, oca_name = "ng", oca_type = strategy.oca.cancel, comment = "zone sell")
+else
+    if na(tE)
+        tE := strategy.opentrades.entry_price(0)
+        float buf = bufAtr * atrPrev
+        // the zone that filled is the one under (long) / over (short) the fill — rebuild its stop from the price
+        tSL := na
+        int m = zones.size()
+        if m > 0
+            for i = 0 to m - 1
+                Zone z = zones.get(i)
+                if math.abs(z.prox - tE) <= syminfo.mintick * 2 and z.dir == (strategy.position_size > 0 ? 1 : -1)
+                    tSL := z.dist - z.dir * buf
+        if na(tSL)
+            tSL := strategy.position_size > 0 ? tE - 1.5 * atrPrev : tE + 1.5 * atrPrev
+        float r1 = math.abs(tE - tSL)
+        tTP := strategy.position_size > 0 ? tE + tpR * r1 : tE - tpR * r1
+    if beR > 0 and not tBE
+        float r0 = math.abs(tE - tSL)
+        if (strategy.position_size > 0 and high >= tE + beR * r0) or (strategy.position_size < 0 and low <= tE - beR * r0)
+            tBE := true
+            tSL := tE
+    strategy.exit("Exit L", "Long", stop = tSL, limit = tTP)
+    strategy.exit("Exit S", "Short", stop = tSL, limit = tTP)
+    if inFlat
+        strategy.close_all(comment = "close-out")
+
+plot(strategy.position_size != 0 ? tSL : na, "Stop", color = color.new(cSup, 0), style = plot.style_linebr)
+plot(strategy.position_size != 0 ? tTP : na, "Target", color = color.new(cDem, 0), style = plot.style_linebr)
+
+if barstate.islast and (timeframe.period != "60" or chart.is_heikinashi)
+    label.new(bar_index, high, timeframe.period != "60" ? "Edge NG zones: switch to a 1-hour chart (that's what was tested)" : "Edge NG zones: switch to NORMAL candles — the script builds the Heikin Ashi itself", color = color.orange, textcolor = color.black, style = label.style_label_down, size = size.normal)

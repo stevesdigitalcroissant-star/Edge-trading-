@@ -1,4 +1,4 @@
-// News that moves gold, crude and natural gas.
+// News that moves gold, silver, crude, natural gas and the S&P 500.
 //
 // Source 1: the ForexFactory weekly calendar feed (free JSON, this week only),
 //           cached for an hour.
@@ -27,7 +27,7 @@ function classify(ev) {
   const high = ev.impact === "High";
   const markets = new Set();
   let block = false;
-  if (usd && high) { markets.add("gold"); markets.add("crude"); markets.add("natgas"); block = true; }
+  if (usd && high) { for (const m of ["gold", "crude", "natgas", "silver", "es"]) markets.add(m); block = true; }
   if (/crude|oil|opec|API Weekly|petroleum/i.test(t) && ev.impact !== "Low") { markets.add("crude"); block = true; }
   if (/natural gas/i.test(t)) { markets.add("natgas"); block = true; }
   if (/rig count/i.test(t)) { markets.add("crude"); markets.add("natgas"); }

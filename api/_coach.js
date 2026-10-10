@@ -75,8 +75,13 @@ THE STRATEGY (supply & demand, trend following) — gold, crude oil, natural gas
 6. Management: stop to break-even at +${s.beAtR}R. Full exit at +${s.tpAtR}R. The target is never moved further away. The stop is never moved further away.
 Grade A+ only when every checklist item passes. One failed item = A, two = B, more = C. "unclear" items: grade at most A and tell them which timeframe to check.
 
+THE TESTED STRATEGIES (Edge alerts them; each trade has its own exits — use the numbers Edge gives you for an open trade):
+- London breakout (gold, crude oil, silver): the Asian range is 18:00–02:00 New York. A buy stop at its high and a sell stop at its low; the first that fills is the trade (then the other order is cancelled). Stop at the other side of the range. Gold: target 2R, break-even at 1.5R. Crude: target 3R, break-even at 1R, entries 03:00–08:00 only. Silver: target 2R, break-even at 1R. Never close early because the move "looks weak" — the tests did better holding to stop or target.
+- Natural gas zones: Heikin Ashi zone of an explosive move, at least 5 trading days old, first or second touch, limit order at the zone edge inside 06:00–09:00 or 11:00–12:00 New York. Target 3R, break-even at 2R.
+- Gold and silver are never open at the same time.
+
 READING THE SCREEN
-- It may be TradingView, FX Replay, Tradovate, NinjaTrader or similar. Read the symbol and timeframe from the chart header; map to market gold (XAU, GC, MGC), crude (CL, MCL, WTI, USOIL, Brent) or natgas (NG, QG, MNG, NATGAS).
+- It may be TradingView, FX Replay, Tradovate, NinjaTrader or similar. Read the symbol and timeframe from the chart header; map to market gold (XAU, GC, MGC), crude (CL, MCL, WTI, USOIL, Brent), natgas (NG, QG, MNG, NATGAS), silver (SI, SIL, XAG) or es (ES, MES, SPX, US500).
 - Usually only one timeframe is visible. Judge only what you can see; mark the rest "unclear" and say which timeframe to switch to.
 - An open position appears as horizontal lines/labels for entry, stop (SL) and target (TP), often with P&L. Read prices from the right-hand price scale and the labels. The current price is usually highlighted on the scale.
 - Never invent numbers. If you can't read a value, use null. If the chart isn't readable (wrong window, too small, a menu covering it), set chartReadable false and say what to show.
@@ -102,7 +107,9 @@ function applyRules(out, session, ctx) {
     const sameTrade = session.trade && Math.abs(session.trade.entry - p.entry) <= Math.abs(p.entry) * 0.0005 && session.trade.dir === p.dir;
     const initialSL = sameTrade ? session.trade.initialSL : p.stop;
     if (initialSL != null && R.sign(p.dir) * (p.entry - initialSL) > 0) {
-      const t = { dir: p.dir, entry: p.entry, initialSL, currentSL: p.stop, tp: p.target, maxR: sameTrade ? session.trade.maxR : 0 };
+      // an Edge trade at the same entry → its own plan (target / break-even) instead of the settings
+      const mine = (ctx.open || []).find((x) => x.dir === p.dir && Math.abs(x.entry - p.entry) <= Math.abs(p.entry) * 0.001);
+      const t = { dir: p.dir, entry: p.entry, initialSL, currentSL: p.stop, tp: p.target, maxR: sameTrade ? session.trade.maxR : 0, ...(mine && mine.strategy ? { tpR: mine.tpR, beR: mine.beR } : {}) };
       const ev = p.price != null ? R.evaluateTrade(t, { price: p.price }, s) : null;
       const plan = R.plan(t, s);
       res.trade = { dir: p.dir, entry: p.entry, initialSL, stop: p.stop, target: p.target, price: p.price, r: ev ? ev.r : null, maxR: ev ? ev.maxR : t.maxR, plan };
@@ -114,10 +121,10 @@ function applyRules(out, session, ctx) {
         const nostop = ev.actions.find((a) => a.code === "nostop");
         if (nostop) say("Your stop loss is gone. Put it back in now.", "act_now", "no-stop");
         else if (widened) say(`Your stop is further away than where you started. Put it back to ${fxp(initialSL)} now.`, "act_now", "stop-widened");
-        else if (ev.r >= s.tpAtR) say(`${s.tpAtR} R reached. Take the profit now.`, "act_now", "target");
-        else if (be) say(`Plus ${s.beAtR} R reached. Move your stop to break-even, ${fxp(plan.beStop)}, now.`, "act_now", "break-even");
-        else if (tp && tp.ruleBreak) say(`Your target is past ${s.tpAtR} R. Move it back to ${fxp(plan.tp)}. Greed gave profits back before.`, "act_now", "target-moved");
-        else if (p.target == null) say(`No target on the chart. Set it at ${fxp(plan.tp)}, that's ${s.tpAtR} R.`, "warn", "no-target");
+        else if (ev.r >= plan.tpR) say(`${plan.tpR} R reached. Take the profit now.`, "act_now", "target");
+        else if (be) say(`Plus ${plan.beR} R reached. Move your stop to break-even, ${fxp(plan.beStop)}, now.`, "act_now", "break-even");
+        else if (tp && tp.ruleBreak) say(`Your target is past ${plan.tpR} R. Move it back to ${fxp(plan.tp)}. Greed gave profits back before.`, "act_now", "target-moved");
+        else if (p.target == null) say(`No target on the chart. Set it at ${fxp(plan.tp)}, that's ${plan.tpR} R.`, "warn", "no-target");
       }
     } else if (p.stop == null) {
       say("You're in a trade with no stop loss visible. Put the stop in now.", "act_now", "no-stop");

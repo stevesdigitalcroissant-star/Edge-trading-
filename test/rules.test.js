@@ -109,7 +109,7 @@ test("bias score", () => {
 });
 
 test("news relevance and the built-in weekly energy reports", () => {
-  assert.deepEqual(classify({ title: "CPI m/m", country: "USD", impact: "High" }).markets.sort(), ["crude", "gold", "natgas"]);
+  assert.deepEqual(classify({ title: "CPI m/m", country: "USD", impact: "High" }).markets.sort(), ["crude", "es", "gold", "natgas", "silver"]);
   assert.deepEqual(classify({ title: "Natural Gas Storage", country: "USD", impact: "Low" }), { markets: ["natgas"], block: true });
   assert.deepEqual(classify({ title: "German ZEW", country: "EUR", impact: "High" }).markets, []);
   const rec = recurringForWeek(NY(9), []);

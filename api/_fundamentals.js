@@ -9,7 +9,7 @@
 //
 // Cached for 6 hours. Each source fails on its own without breaking the others.
 
-const COT = { gold: "088691", crude: "067651", natgas: "023651" }; // CFTC contract codes: COMEX gold, NYMEX WTI, NYMEX Henry Hub
+const COT = { gold: "088691", crude: "067651", natgas: "023651", silver: "084691" }; // CFTC contract codes: COMEX gold, NYMEX WTI, NYMEX Henry Hub, COMEX silver
 const CACHE_MS = 6 * 3600e3;
 const DAY = 864e5;
 
@@ -94,6 +94,7 @@ function suggest(d) {
     gold: { dxy: pick(d.dollar), yields: pick(d.yields), cot: pick(d.cot && d.cot.gold) },
     crude: { eia: pick(d.crude), cot: pick(d.cot && d.cot.crude), dxy: pick(d.dollar) },
     natgas: { storage: pick(d.gas && d.gas.storage), eia: pick(d.gas && d.gas.eia), cot: pick(d.cot && d.cot.natgas) },
+    silver: { dxy: pick(d.dollar), cot: pick(d.cot && d.cot.silver) },
   };
   for (const m of Object.keys(out)) for (const f of Object.keys(out[m])) if (!out[m][f]) delete out[m][f];
   return out;
@@ -131,12 +132,13 @@ async function load(store, { force = false, now = Date.now() } = {}) {
   if (!force && cached && now - cached.at < CACHE_MS) return cached;
   const errors = [];
   const safe = (name, p) => p.catch((e) => { errors.push(`${name}: ${e.message}`); return null; });
-  const [dx, ry, cg, cc, cn, crude, gas] = await Promise.all([
+  const [dx, ry, cg, cc, cn, crude, gas, cs] = await Promise.all([
     safe("Dollar (FRED)", fred("DTWEXBGS")), safe("Real yields (FRED)", fred("DFII10")),
     safe("COT gold", cftc(COT.gold)), safe("COT crude", cftc(COT.crude)), safe("COT gas", cftc(COT.natgas)),
     safe("EIA crude", eia("PET.WCESTUS1.W")), safe("EIA gas storage", eia("NG.NW2_EPG0_SWO_R48_BCF.W")),
+    safe("COT silver", cftc(COT.silver)),
   ]);
-  const data = { dollar: dollar(dx), yields: realYields(ry), cot: { gold: cot(cg), crude: cot(cc), natgas: cot(cn) }, crude: crudeStocks(crude), gas: gasStorage(gas) };
+  const data = { dollar: dollar(dx), yields: realYields(ry), cot: { gold: cot(cg), crude: cot(cc), natgas: cot(cn), silver: cot(cs) }, crude: crudeStocks(crude), gas: gasStorage(gas) };
   const doc = { at: now, suggestions: suggest(data), errors: [...new Set(errors)] };
   await store.set("fundamentals", doc);
   return doc;

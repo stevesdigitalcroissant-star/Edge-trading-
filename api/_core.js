@@ -1,7 +1,7 @@
 // The app's brain: the TradingView webhook, the dashboard actions and the
 // trade manager. api/hook.js, api/app.js and server.js are thin wrappers.
 const crypto = require("crypto");
-const { MARKETS, marketOf, BIAS_FACTORS, biasFromFactors, mergeSettings, DEFAULT_SETTINGS } = require("./_config");
+const { MARKETS, marketOf, BIAS_FACTORS, biasFromFactors, mergeSettings, DEFAULT_SETTINGS, STRATEGIES, strategyPlan } = require("./_config");
 const R = require("./_rules");
 const { loadFeed, relevantEvents, blockingEvent } = require("./_news");
 const { notify, subscribe, unsubscribe, vapid } = require("./_notify");
@@ -11,6 +11,7 @@ const { parts } = require("./_time");
 
 const num = (x) => (x == null || x === "" || !Number.isFinite(Number(x)) ? null : Number(x));
 const fx = (x) => (x == null ? "—" : Number(x) >= 100 ? Number(x).toFixed(2) : Number(x).toFixed(3));
+const rp = (x) => (x == null ? x : Math.round(x * 1e6) / 1e6); // computed prices without float dust
 const id = () => crypto.randomBytes(6).toString("hex");
 const PRACTICE_STEPS = ["4H trend", "fresh zone", "liquidity taken", "15m break", "5m close"];
 const BAD_MOODS = { fomo: "FOMO", revenge: "revenge", bored: "boredom" };
@@ -51,7 +52,7 @@ async function handleHook(store, broker, body, now = Date.now()) {
   if (!secret || msg.secret !== secret) return { status: 401, json: { error: "Wrong webhook secret" } };
 
   const market = marketOf(msg.symbol || msg.tv);
-  if (!market) return { status: 200, json: { ignored: `Not gold, crude or natural gas: ${msg.symbol}` } };
+  if (!market) return { status: 200, json: { ignored: `Not a market Edge trades: ${msg.symbol}` } };
 
   if (msg.type === "bar") {
     const mark = { price: num(msg.price), high: num(msg.high), low: num(msg.low), time: now, symbol: msg.symbol, bos15: msg.bos15 || "" };
@@ -67,12 +68,53 @@ async function handleHook(store, broker, body, now = Date.now()) {
     return { status: 200, json: { ok: true, grade: r.grade, takeable: r.takeable } };
   }
 
+  if (msg.type === "plan") {
+    const r = await createPlan(store, market, msg, now);
+    if (r.error) return { status: 400, json: { error: r.error } };
+    return { status: 200, json: { ok: true, legs: r.plan.legs.length } };
+  }
+
   return { status: 400, json: { error: `Unknown alert type: ${msg.type}` } };
+}
+
+// The orders to place BEFORE the move, for a tested strategy:
+//   london: the Asian range is set → a buy stop at its high and a sell stop at its low (whichever fills first
+//           is the trade — then cancel the other), stop at the other side of the range.
+//   ngzone: the nearest qualifying natural gas zones → a buy limit at the demand zone, a sell limit at the supply zone.
+// Each leg comes with its contracts for your risk, the stop and the target, so you can place them and walk away.
+async function createPlan(store, market, msg, now) {
+  const sp = strategyPlan(msg.strategy, market);
+  if (!sp) return { error: `No ${msg.strategy} strategy for ${market}` };
+  const s = mergeSettings(await store.get("settings"));
+  const legs = [];
+  for (const L of Array.isArray(msg.legs) ? msg.legs.slice(0, 4) : []) {
+    const dir = L.dir === "short" ? "short" : "long", entry = num(L.entry), sl = num(L.sl);
+    if (entry == null || sl == null || R.sign(dir) * (entry - sl) <= 0) continue;
+    const k = R.sign(dir), risk = Math.abs(entry - sl);
+    const leg = { dir, entry, sl, tp: rp(entry + k * sp.tpR * risk), be: sp.beR > 0 ? rp(entry + k * sp.beR * risk) : null, order: msg.strategy === "london" ? "stop" : "limit", note: String(L.note || "").slice(0, 60) };
+    leg.size = R.orderSize({ ...leg, market, symbol: msg.symbol }, s);
+    legs.push(leg);
+  }
+  if (!legs.length) return { error: "plan without valid orders" };
+  const plan = {
+    market, strategy: msg.strategy, name: sp.name, symbol: String(msg.symbol || "").slice(0, 30), at: now,
+    expires: now + (num(msg.validMin) || 6 * 60) * 60e3, tpR: sp.tpR, beR: sp.beR, legs,
+    rangeHi: num(msg.rangeHi), rangeLo: num(msg.rangeLo),
+  };
+  await store.set(`plan:${market}`, plan);
+  const mkt = MARKETS[market].name;
+  const qty = (z) => (z.kind === "futures" ? (z.qty >= 1 ? `${z.qty} ${z.contract}` : `0 ${z.contract} (stop too wide for your risk — skip)`) : `${R.round(z.qty, 2)} ${MARKETS[market].unit}`);
+  const line = (L) => `${L.dir === "long" ? "BUY" : "SELL"} ${L.order.toUpperCase()} ${fx(L.entry)} · ${qty(L.size)} · SL ${fx(L.sl)} · TP ${fx(L.tp)}${L.be != null ? ` · BE at ${fx(L.be)}` : ""}`;
+  const how = msg.strategy === "london" ? "Place both. When one fills, CANCEL the other." : "Place them; cancel at the end of the window if not filled.";
+  await notify(store, `📋 ${mkt} ${sp.name} plan:\n${legs.map(line).join("\n")}\n${how}`, "setup");
+  return { plan };
 }
 
 // A setup from the TradingView alert or read off the chart: store it, grade it, tell the phone.
 async function createSetup(store, market, msg, now, { source = "alert" } = {}) {
   const s = mergeSettings(await store.get("settings"));
+  const sp = msg.strategy ? strategyPlan(String(msg.strategy), market) : null;
+  if (msg.strategy && !sp) return { error: `No ${msg.strategy} strategy for ${market}` };
   const setup = {
     id: id(), market, source, symbol: msg.symbol, tv: msg.tv, dir: msg.dir === "short" ? "short" : "long",
     entry: num(msg.entry), sl: num(msg.sl), tp: num(msg.tp), trend4h: num(msg.trend4h),
@@ -85,16 +127,25 @@ async function createSetup(store, market, msg, now, { source = "alert" } = {}) {
     sweep: msg.sweep === undefined ? undefined : msg.sweep === true || msg.sweep === "true", sweepName: String(msg.sweepName || "").slice(0, 40), sweepLvl: num(msg.sweepLvl),
     at: now, expires: now + s.setupExpiryMin * 60e3, status: "open",
   };
+  if (sp) {
+    // the exits come from the tested plan, never from the alert
+    Object.assign(setup, {
+      strategy: sp.strategy, tpR: sp.tpR, beR: sp.beR, extra: sp.extra,
+      rangeHi: num(msg.rangeHi), rangeLo: num(msg.rangeLo), rangeAtr: num(msg.rangeAtr), trend: num(msg.trend),
+      zoneAgeDays: num(msg.zoneAgeDays), touch: num(msg.touch),
+    });
+    setup.tp = null;
+  }
   if (setup.entry == null || setup.sl == null || setup.entry === setup.sl) return { error: "setup needs entry and sl" };
   if (R.sign(setup.dir) * (setup.entry - setup.sl) <= 0) return { error: "the stop is on the wrong side of the entry" };
-  if (setup.tp == null) setup.tp = setup.entry + R.sign(setup.dir) * s.tpAtR * Math.abs(setup.entry - setup.sl);
+  if (setup.tp == null) setup.tp = rp(setup.entry + R.sign(setup.dir) * R.exits(setup, s).tpR * Math.abs(setup.entry - setup.sl));
   await store.hset("setups", setup.id, setup);
   await pruneSetups(store, now);
   const ctx = await context(store, now);
   const g = gradeNow(setup, ctx);
   setup.gradeAtAlert = g.grade;
   await store.hset("setups", setup.id, setup);
-  const name = MARKETS[market].name;
+  const name = MARKETS[market].name + (sp ? ` ${sp.name}` : "");
   const head = `${g.grade} ${setup.dir.toUpperCase()} ${name} @ ${fx(setup.entry)}  SL ${fx(setup.sl)}`;
   const text = g.take.ok
     ? `✅ ${g.grade} ${name} ${setup.dir === "long" ? "BUY" : "SELL"}: ${story(setup, s).short}. Tap to see the picture — valid ${s.setupExpiryMin} min.`
@@ -108,14 +159,14 @@ function guide(t, s, price) {
   const p = R.plan(t, s);
   const r = price == null ? t.r : R.round(R.rAt(t, price));
   const stop = t.currentSL ?? t.initialSL;
-  const bePending = !t.beMoved && (t.maxR || 0) >= s.beAtR;
+  const bePending = !t.beMoved && p.beR > 0 && (t.maxR || 0) >= p.beR;
   let urgency = "info", text;
   if (t.tp != null && price != null && R.sign(t.dir) * (price - t.tp) >= 0) { urgency = "act_now"; text = `Target hit — close it now at ${fx(t.tp)}. Don't wait for more.`; }
   else if (bePending) { urgency = "act_now"; text = `Move your stop to ${fx(p.beStop)} now — break-even. Then tap Done.`; }
   else if (t.beMoved) text = `Stop is at break-even. Target ${fx(t.tp)}. Hands off — let it work.`;
   else if (r != null && r < 0) { urgency = "warn"; text = `Down ${Math.abs(r)}R. Your stop at ${fx(stop)} does the job — don't move it, don't add.`; }
-  else text = `Hold. Stop at ${fx(stop)}. At ${fx(p.beTrigger)} (+${s.beAtR}R) move it to break-even.`;
-  return { r, maxR: t.maxR || 0, urgency, text, beTrigger: p.beTrigger, beStop: p.beStop, tp: t.tp, stop };
+  else text = p.beR > 0 ? `Hold. Stop at ${fx(stop)}. At ${fx(p.beTrigger)} (+${p.beR}R) move it to break-even.` : `Hold. Stop at ${fx(stop)}, target ${fx(t.tp)}. No break-even for this one — let it hit one or the other.`;
+  return { r, maxR: t.maxR || 0, urgency, text, beTrigger: p.beTrigger, beStop: p.beStop, tp: t.tp, stop, tpR: p.tpR, beR: p.beR };
 }
 
 async function pruneSetups(store, now) {
@@ -278,20 +329,20 @@ async function manage(store, broker, t, mark, ctx, out, bos15) {
         try {
           await broker.breakeven(ticker);
           t.currentSL = t.entry; t.beMoved = true;
-          await once(store, t, "be", `🔒 ${name}: +${s.beAtR}R reached — stop moved to break-even (${fx(t.entry)}) on Tradovate. This trade can't lose now.`, "action");
+          await once(store, t, "be", `🔒 ${name}: +${ev.plan.beR}R reached — stop moved to break-even (${fx(t.entry)}) on Tradovate. This trade can't lose now.`, "action");
         } catch (e) {
-          await once(store, t, "be", `❗ ${name}: +${s.beAtR}R reached but the break-even order failed (${e.message}). Move your stop to ${fx(t.entry)} yourself NOW.`, "action");
+          await once(store, t, "be", `❗ ${name}: +${ev.plan.beR}R reached but the break-even order failed (${e.message}). Move your stop to ${fx(t.entry)} yourself NOW.`, "action");
         }
         continue;
       }
       if (manual) {
-        await once(store, t, "be", `🔒 ${name}: +${s.beAtR}R reached. Move your stop to ${fx(a.price)} (break-even) NOW, then tap "Done" in Edge.`, "action");
+        await once(store, t, "be", `🔒 ${name}: +${ev.plan.beR}R reached. Move your stop to ${fx(a.price)} (break-even) NOW, then tap "Done" in Edge.`, "action");
         continue;
       }
       // price already slipped back through break-even → the rule says get out now
       if (k * (mark.price - a.price) <= 0) {
         await broker.close(t.brokerId).catch(() => {});
-        await notify(store, `🔒 ${name}: touched +${s.beAtR}R and came back — closed at break-even, as your rule says.`, "action");
+        await notify(store, `🔒 ${name}: touched +${ev.plan.beR}R and came back — closed at break-even, as your rule says.`, "action");
       } else {
         try {
           await broker.setOrders(t.brokerId, t.instrument, { sl: a.price });
@@ -313,8 +364,9 @@ async function manage(store, broker, t, mark, ctx, out, bos15) {
     }
   }
 
-  // 15m structure turned against the trade
-  const against = (t.dir === "long" && bos15 === "down") || (t.dir === "short" && bos15 === "up");
+  // 15m structure turned against the trade (supply & demand trades only — the tested strategies did better
+  // holding to their stop or target: closing early on a reversal signal cut their results in the tests)
+  const against = !t.strategy && ((t.dir === "long" && bos15 === "down") || (t.dir === "short" && bos15 === "up"));
   if (against && s.structureExit !== "off") {
     if (s.structureExit === "close" && !manual) {
       await (routed ? broker.exit(ticker) : broker.close(t.brokerId)).catch(() => {});
@@ -379,15 +431,19 @@ async function state(store, broker, now = Date.now()) {
   await newsReminders(store, ctx).catch(() => {});
   await closeOutCheck(store, broker, ctx).catch(() => {});
   const setupsH = await store.hgetall("setups");
-  const setups = Object.values(setupsH).sort((a, b) => b.at - a.at).slice(0, 25).map((x) => ({ ...x, g: gradeNow(x, ctx), size: R.orderSize(x, ctx.settings), story: story(x, ctx.settings) }));
-  const prices = {};
-  for (const m of Object.keys(MARKETS)) prices[m] = await store.get(`price:${m}`);
+  const setups = Object.values(setupsH).sort((a, b) => b.at - a.at).slice(0, 25).map((x) => ({ ...x, g: gradeNow(x, ctx), size: R.orderSize(x, ctx.settings), story: story(x, ctx.settings), xp: R.exits(x, ctx.settings) }));
+  const prices = {}, plans = [];
+  for (const m of Object.keys(MARKETS)) {
+    prices[m] = await store.get(`price:${m}`);
+    const pl = await store.get(`plan:${m}`);
+    if (pl && now < pl.expires) plans.push(pl);
+  }
   let account = null;
   if (broker.kind === "oanda") account = await broker.account().catch((e) => ({ error: e.message }));
-  const open = ctx.open.map((t) => ({ ...t, plan: t.initialSL != null ? R.plan(t, ctx.settings) : null }));
+  const open = ctx.open.map((t) => ({ ...t, plan: t.initialSL != null ? R.plan(t, ctx.settings) : null, xp: R.exits(t, ctx.settings) }));
   return {
     now, settings: ctx.settings, defaults: DEFAULT_SETTINGS, markets: Object.fromEntries(Object.entries(MARKETS).map(([k, v]) => [k, { name: v.name, unit: v.unit }])),
-    biasFactors: BIAS_FACTORS, bias: ctx.bias, setups, open, journal: ctx.journal.slice(0, 200), stats: stats(ctx.journal),
+    biasFactors: BIAS_FACTORS, bias: ctx.bias, setups, plans, strategies: STRATEGIES, open, journal: ctx.journal.slice(0, 200), stats: stats(ctx.journal),
     practice: ctx.practice.slice(0, 200), practiceStats: stats(ctx.practice), coach: { ready: !!process.env.ANTHROPIC_API_KEY, session: await store.get("coach") },
     share: R.aPlusShare([...ctx.journal, ...ctx.open]), guard: R.guardrails(ctx),
     news: { ok: ctx.newsOk, error: ctx.newsError, events: ctx.events.filter((e) => e.time > now - 2 * 3600e3) },
@@ -400,7 +456,7 @@ async function state(store, broker, now = Date.now()) {
   };
 }
 
-async function take(store, broker, { setupId, emotion, entry: myEntry }, now = Date.now()) {
+async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: myRisk }, now = Date.now()) {
   const setup = await store.hget("setups", setupId);
   if (!setup) throw new Error("Setup not found");
   if (BAD_MOODS[emotion]) {
@@ -413,7 +469,10 @@ async function take(store, broker, { setupId, emotion, entry: myEntry }, now = D
   if (!g.take.ok) throw new Error(g.take.why.join(" "));
   const s = ctx.settings;
   const k = R.sign(setup.dir);
-  const base = { id: "", market: setup.market, dir: setup.dir, grade: g.grade, setupId, emotion: emotion || "calm", maxR: 0, ruleBreaks: [], notified: {}, openedAt: now };
+  const xp = R.exits(setup, s);
+  const base = { id: "", market: setup.market, dir: setup.dir, grade: g.grade, setupId, emotion: emotion || "calm", maxR: 0, ruleBreaks: [], notified: {}, openedAt: now,
+    ...(setup.strategy ? { strategy: setup.strategy, tpR: xp.tpR, beR: xp.beR, extra: !!setup.extra } : {}) };
+  const beTxt = xp.beR > 0 ? `moves the stop to break-even at +${xp.beR}R` : "leaves the stop alone (no break-even in this plan)";
 
   if (broker.kind === "manual" || broker.kind === "traderspost") {
     const routed = broker.kind === "traderspost";
@@ -423,23 +482,23 @@ async function take(store, broker, { setupId, emotion, entry: myEntry }, now = D
     if (k * (entry - setup.sl) <= 0) throw new Error("That entry is on the wrong side of the stop.");
     const risk = Math.abs(entry - setup.sl);
     if (k * (entry - setup.entry) / Math.abs(setup.entry - setup.sl) > s.maxChaseR) throw new Error(`Price ran more than ${s.maxChaseR}R past the entry. No chasing — wait for the next setup.`);
-    const size = R.orderSize(setup, s, entry);
+    const size = R.orderSize(setup, s, entry, num(myRisk));
     if (size.kind === "futures" && size.qty < 1) throw new Error(`One ${size.contract} contract would risk $${size.riskPerContract}, more than your $${size.riskUSD} limit. Skip this one${size.contract === "GC" || size.contract === "CL" || size.contract === "NG" || size.contract === "QG" ? " — or trade the micro contract" : ""}.`);
     const riskUSD = size.totalRisk;
-    const tp = entry + k * s.tpAtR * risk;
+    const tp = rp(entry + k * xp.tpR * risk);
     if (routed) {
       if (size.kind !== "futures") throw new Error("Sending orders through TradersPost is set up for futures (MGC, MCL, QG…). Use a futures chart.");
       await broker.order({ ticker: setup.symbol, dir: setup.dir, qty: size.qty, sl: setup.sl, tp, price: entry, ref: setupId });
     }
     const t = { ...base, id: `${routed ? "tp" : "manual"}:${id()}`, source: routed ? "traderspost" : "manual", symbol: setup.symbol, ticker: setup.symbol, entry, initialSL: setup.sl, currentSL: setup.sl, tp, units: size.qty, unitLabel: size.unit, contract: size.contract || null, riskUSD };
-    if (routed) await notify(store, `▶️ Order sent: ${setup.dir === "long" ? "BUY" : "SELL"} ${size.qty} ${size.contract} · SL ${fx(setup.sl)} · TP ${fx(tp)}. Hands off — Edge moves the stop to break-even at +${s.beAtR}R.`, "action");
+    if (routed) await notify(store, `▶️ Order sent: ${setup.dir === "long" ? "BUY" : "SELL"} ${size.qty} ${size.contract} · SL ${fx(setup.sl)} · TP ${fx(tp)}. Hands off — Edge ${beTxt}.`, "action");
     await store.hset("trades", t.id, t);
     await store.hset("setups", setupId, { ...setup, status: "taken" });
     return { trade: t };
   }
 
   const acct = await broker.account();
-  const riskUSD = await broker.toUSD(acct.balance * s.riskPct / 100, acct.currency);
+  const riskUSD = num(myRisk) > 0 ? num(myRisk) : await broker.toUSD(acct.balance * s.riskPct / 100, acct.currency);
   const instrument = MARKETS[setup.market].instrument(setup.symbol || "");
   const px = (await broker.prices([instrument]))[instrument];
   if (!px) throw new Error(`No live price for ${instrument}`);
@@ -448,14 +507,14 @@ async function take(store, broker, { setupId, emotion, entry: myEntry }, now = D
   const chased = (k * (entryNow - setup.entry)) / Math.abs(setup.entry - setup.sl);
   if (chased > s.maxChaseR) throw new Error(`Price already ran ${R.round(chased)}R past the entry. No chasing — wait for the next setup.`);
   const units = R.sizeUnits(riskUSD, entryNow, setup.sl);
-  const tpGuess = entryNow + k * s.tpAtR * Math.abs(entryNow - setup.sl);
+  const tpGuess = entryNow + k * xp.tpR * Math.abs(entryNow - setup.sl);
   const fill = await broker.marketOrder({ instrument, dir: setup.dir, units, sl: setup.sl, tp: tpGuess });
-  const tp = fill.price + k * s.tpAtR * Math.abs(fill.price - setup.sl);
+  const tp = fill.price + k * xp.tpR * Math.abs(fill.price - setup.sl);
   if (Math.abs(tp - tpGuess) > 1e-9) await broker.setOrders(fill.brokerId, instrument, { tp }).catch(() => {});
   const t = { ...base, id: `${broker.kind}:${fill.brokerId}`, source: broker.kind, brokerId: fill.brokerId, instrument, entry: fill.price, initialSL: setup.sl, currentSL: setup.sl, tp, units: fill.units, riskUSD };
   await store.hset("trades", t.id, t);
   await store.hset("setups", setupId, { ...setup, status: "taken" });
-  await notify(store, `▶️ ${MARKETS[setup.market].name} ${setup.dir} opened @ ${fx(fill.price)} · SL ${fx(setup.sl)} · BE at ${s.beAtR}R · TP ${fx(tp)} (${s.tpAtR}R). Hands off — Edge manages it.`, "action");
+  await notify(store, `▶️ ${MARKETS[setup.market].name} ${setup.dir} opened @ ${fx(fill.price)} · SL ${fx(setup.sl)}${xp.beR > 0 ? ` · BE at ${xp.beR}R` : ""} · TP ${fx(tp)} (${xp.tpR}R). Hands off — Edge manages it.`, "action");
   return { trade: t };
 }
 
@@ -581,7 +640,8 @@ async function action(store, broker, body, now = Date.now()) {
   if (a === "chartSetup") {
     // the free chart reader saw the script's ENTER signal (the script only shows it when every A+ step is done)
     const market = marketOf(body.symbol || "") || (MARKETS[body.market] ? body.market : null);
-    if (!market) throw new Error("Edge only trades gold, crude oil and natural gas — open one of those charts.");
+    // the supply & demand script (what the chart reader reads) was tested on these three only
+    if (!["gold", "crude", "natgas"].includes(market)) throw new Error("The supply & demand script is for gold, crude oil and natural gas — open one of those charts.");
     const dir = body.dir === "short" ? "short" : "long";
     const entry = num(body.entry), sl = num(body.sl);
     if (entry == null || sl == null || R.sign(dir) * (entry - sl) <= 0) throw new Error("Couldn't read a clean entry and stop — check the numbers.");
@@ -621,4 +681,4 @@ async function action(store, broker, body, now = Date.now()) {
   throw new Error(`Unknown action: ${a}`);
 }
 
-module.exports = { guide, createSetup, handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, context, gradeNow, stats };
+module.exports = { guide, createSetup, createPlan, handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, context, gradeNow, stats };

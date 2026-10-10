@@ -84,16 +84,17 @@
     const s = settings();
     const u = last.urgency === "act_now" ? "bad" : last.urgency === "warn" ? "warn" : "good";
     const t = last.trade;
-    const pct = (r) => `${Math.max(0, Math.min(100, ((r + 1) / (s.tpAtR + 1)) * 100))}%`;
+    const tpR = (t && t.plan && t.plan.tpR) || s.tpAtR, beR = t && t.plan && t.plan.beR != null ? t.plan.beR : s.beAtR;
+    const pct = (r) => `${Math.max(0, Math.min(100, ((r + 1) / (tpR + 1)) * 100))}%`;
     return `<section class="banner ${u === "good" ? "good" : "bad"}" style="font-size:20px">${esc(last.instruction)}
         <p class="muted" style="font-size:14px">${esc(last.reasoning || "")}</p></section>
       <section class="card">
         <div class="row between"><span class="pill">${esc(last.symbol || "?")} · ${esc(last.timeframe || "?")}</span>
           <span class="pill">${esc((last.phase || "").replace(/_/g, " "))}</span>
           <span class="pill ${last.grade === "A+" ? "good" : last.grade === "none" ? "" : "warn"}">${last.grade === "none" ? "no setup" : "grade " + esc(last.grade)}</span></div>
-        ${t && t.r != null ? `<div class="ruler" style="--zero:${pct(0)};--be:${pct(s.beAtR)}"><div class="bar"></div>
+        ${t && t.r != null ? `<div class="ruler" style="--zero:${pct(0)};--be:${pct(beR > 0 ? beR : 0)}"><div class="bar"></div>
           <span class="tick" style="left:${pct(-1)}">SL</span><span class="tick" style="left:${pct(0)}">Entry</span>
-          <span class="tick" style="left:${pct(s.beAtR)}">BE ${s.beAtR}R</span><span class="tick" style="left:${pct(s.tpAtR)}">TP ${s.tpAtR}R</span>
+          ${beR > 0 ? `<span class="tick" style="left:${pct(beR)}">BE ${beR}R</span>` : ""}<span class="tick" style="left:${pct(tpR)}">TP ${tpR}R</span>
           <span class="now" style="left:${pct(t.r)}"></span></div>
           <p class="num" style="font-size:22px;margin:4px 0"><b>${t.r > 0 ? "+" : ""}${t.r}R</b> <small class="muted">best ${t.maxR}R</small></p>` : ""}
         <ul class="checks">${(last.checklist || []).map((c) => `<li class="${c.status === "pass" ? "" : "no"}"><span>${esc(c.label)}${c.status === "unclear" ? " <small>(can't see — check it)</small>" : ""}${c.note ? ` <small>${esc(c.note)}</small>` : ""}</span></li>`).join("")}</ul>

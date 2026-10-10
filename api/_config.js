@@ -24,6 +24,20 @@ const MARKETS = {
     match: /NATGAS|NGAS|XNG|^NG|^QG|^MNG/i,
     instrument: () => "NATGAS_USD",
   },
+  silver: {
+    name: "Silver",
+    unit: "oz",
+    lot: 5000,
+    match: /XAG|SILVER|^SIL?(\d|[FGHJKMNQUVXZ]\d|1!|2!)/i,
+    instrument: () => "XAG_USD",
+  },
+  es: {
+    name: "S&P 500",
+    unit: "points",
+    lot: 50,
+    match: /^M?ES(\d|[FGHJKMNQUVXZ]\d|1!|2!)|SPX|US500|SP500|SPY/i,
+    instrument: () => "SPX500_USD",
+  },
 };
 
 // Futures contracts you can trade from TradingView (Tradovate, prop firms).
@@ -36,6 +50,10 @@ const FUTURES = [
   { root: "MNG", market: "natgas", name: "Micro Henry Hub", pv: 1000, tick: 0.001 },
   { root: "QG", market: "natgas", name: "E-mini Natural Gas", pv: 2500, tick: 0.005 },
   { root: "NG", market: "natgas", name: "Natural Gas", pv: 10000, tick: 0.001 },
+  { root: "SIL", market: "silver", name: "Micro Silver (1,000 oz)", pv: 1000, tick: 0.005 },
+  { root: "SI", market: "silver", name: "Silver", pv: 5000, tick: 0.005 },
+  { root: "MES", market: "es", name: "Micro E-mini S&P 500", pv: 5, tick: 0.25 },
+  { root: "ES", market: "es", name: "E-mini S&P 500", pv: 50, tick: 0.25 },
 ];
 // "NYMEX:MCL1!", "MCLX2026", "COMEX_MINI:MGC1!" → the contract spec (null for CFDs like XAUUSD)
 function futuresSpec(symbol) {
@@ -44,11 +62,38 @@ function futuresSpec(symbol) {
 }
 
 // Which market a TradingView symbol belongs to. Natural gas is checked first
-// so "NATGASUSD" never falls through to another pattern.
+// so "NATGASUSD" never falls through to another pattern, silver before gold and crude.
 function marketOf(symbol) {
   const s = String(symbol || "").replace(/^[A-Z_]+:/i, "");
-  for (const id of ["natgas", "gold", "crude"]) if (MARKETS[id].match.test(s)) return id;
+  for (const id of ["natgas", "silver", "gold", "crude", "es"]) if (MARKETS[id].match.test(s)) return id;
   return null;
+}
+
+// The tested strategies (2.4 years of hourly futures data, May 2024 – Oct 2026, rules picked on the
+// first 15 months and checked on the rest). Each setup carries its own exits: tpR = target, beR = stop to
+// break-even at (0 = never). extra: true → doesn't count toward the trades-per-day limit.
+//   london : the Asian range (18:00–02:00 New York) is set; a stop order at its high and one at its low;
+//            the first one that fills is the trade, stop at the other side of the range.
+//   ngzone : natural gas Heikin Ashi zones (base candle of an explosive move, wick → body start),
+//            at least 5 trading days old, touched at most twice, limit order at the zone edge.
+const STRATEGIES = {
+  london: {
+    name: "London breakout",
+    markets: {
+      gold: { tpR: 2, beR: 1.5, window: ["02:00", "08:00"] },
+      crude: { tpR: 3, beR: 1, window: ["03:00", "08:00"] },
+      silver: { tpR: 2, beR: 1, window: ["02:00", "08:00"], minRangeAtr: 1.5 },
+    },
+  },
+  ngzone: {
+    name: "Natural gas zones",
+    extra: true,
+    markets: { natgas: { tpR: 3, beR: 2, windows: [["06:00", "09:00"], ["11:00", "12:00"]], minAgeDays: 5, maxTouches: 2 } },
+  },
+};
+function strategyPlan(strategy, market) {
+  const st = STRATEGIES[strategy];
+  return st && st.markets[market] ? { ...st.markets[market], strategy, name: st.name, extra: !!st.extra } : null;
 }
 
 const DEFAULT_SETTINGS = {
@@ -73,8 +118,10 @@ const DEFAULT_SETTINGS = {
     gold: ["03:00", "12:00"], // London open → New York morning (New York time)
     crude: ["08:00", "14:30"], // NYMEX hours
     natgas: ["08:00", "14:30"],
+    silver: ["02:00", "08:00"],
+    es: ["09:30", "15:30"],
   },
-  lots: { gold: 100, crude: 1000, natgas: 10000 },
+  lots: { gold: 100, crude: 1000, natgas: 10000, silver: 5000, es: 50 },
   flatBy: "16:40", // be out of every trade by this time (your prop firm's close-out, New York time)
   flatWarnMin: 15, // warn this many minutes before
   noNewTradesMin: 30, // no new trades this close to the close-out
@@ -112,6 +159,18 @@ const BIAS_FACTORS = {
     { id: "production", label: "US production", hint: "Falling → bullish. Record highs → bearish." },
     { id: "cot", label: "COT: managed money", hint: "Net longs growing → bullish. Shrinking → bearish." },
   ],
+  silver: [
+    { id: "gold", label: "Gold's direction", hint: "Silver follows gold. Gold bullish → bullish." },
+    { id: "dxy", label: "US dollar (DXY)", hint: "Dollar falling → bullish. Rising → bearish." },
+    { id: "industry", label: "Industrial demand (solar, China, PMIs)", hint: "Strong → bullish. Weak → bearish." },
+    { id: "cot", label: "COT: managed money", hint: "Net longs growing → bullish. Shrinking → bearish." },
+  ],
+  es: [
+    { id: "fed", label: "Fed tone & rate expectations", hint: "Cuts / dovish → bullish. Hikes / hawkish → bearish." },
+    { id: "yields", label: "10-year yield", hint: "Falling → bullish for stocks. Rising fast → bearish." },
+    { id: "earnings", label: "Earnings season / big tech", hint: "Beats → bullish. Misses → bearish." },
+    { id: "risk", label: "Risk mood (VIX)", hint: "VIX falling → bullish. Spiking → bearish." },
+  ],
 };
 
 const BIAS_MAX_AGE_DAYS = 7;
@@ -129,4 +188,4 @@ function mergeSettings(saved) {
   return s;
 }
 
-module.exports = { MARKETS, FUTURES, futuresSpec, marketOf, DEFAULT_SETTINGS, BIAS_FACTORS, BIAS_MAX_AGE_DAYS, biasFromFactors, mergeSettings };
+module.exports = { MARKETS, FUTURES, futuresSpec, marketOf, STRATEGIES, strategyPlan, DEFAULT_SETTINGS, BIAS_FACTORS, BIAS_MAX_AGE_DAYS, biasFromFactors, mergeSettings };

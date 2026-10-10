@@ -233,15 +233,16 @@
   function liveHtml() {
     const s = (window.Edge && window.Edge.state() && window.Edge.state().settings) || { beAtR: 2, tpAtR: 3.2 };
     const t = guideRes && guideRes.trades[0];
-    const pct = (r) => `${Math.max(0, Math.min(100, ((r + 1) / (s.tpAtR + 1)) * 100))}%`;
+    const tpR = (t && t.tpR) || s.tpAtR, beR = t && t.beR != null ? t.beR : s.beAtR;
+    const pct = (r) => `${Math.max(0, Math.min(100, ((r + 1) / (tpR + 1)) * 100))}%`;
     const sig = signal && Date.now() - signal.at < 15 * 60e3 && !t;
     return `
       ${t ? `<section class="banner ${t.urgency === "info" ? "good" : "bad"}" style="font-size:20px">${esc(t.text)}</section>
         <section class="card">
           <div class="row between"><span class="pill">${esc(read ? read.symbol : "")} · ${esc(t.dir.toUpperCase())} from ${esc(t.entry)}</span><span class="pill">price ${esc(read ? read.px : "?")}</span></div>
-          <div class="ruler" style="--zero:${pct(0)};--be:${pct(s.beAtR)}"><div class="bar"></div>
+          <div class="ruler" style="--zero:${pct(0)};--be:${pct(beR > 0 ? beR : 0)}"><div class="bar"></div>
             <span class="tick" style="left:${pct(-1)}">SL</span><span class="tick" style="left:${pct(0)}">Entry</span>
-            <span class="tick" style="left:${pct(s.beAtR)}">BE ${s.beAtR}R</span><span class="tick" style="left:${pct(s.tpAtR)}">TP ${s.tpAtR}R</span>
+            ${beR > 0 ? `<span class="tick" style="left:${pct(beR)}">BE ${beR}R</span>` : ""}<span class="tick" style="left:${pct(tpR)}">TP ${tpR}R</span>
             <span class="now" style="left:${pct(t.r ?? 0)}"></span></div>
           <p class="num" style="font-size:22px;margin:4px 0"><b>${t.r > 0 ? "+" : ""}${t.r}R</b> <small class="muted">best ${t.maxR}R</small></p>
           <ul class="steps muted"><li>Stop now: <b>${esc(t.stop)}</b></li><li>At <b>${esc(t.beTrigger)}</b> → move stop to <b>${esc(t.beStop)}</b> (break-even)</li><li>Full exit at <b>${esc(t.tp)}</b></li></ul>

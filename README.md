@@ -1,4 +1,4 @@
-# Edge — trading co-pilot (Gold · Crude oil · Natural gas)
+# Edge — trading co-pilot (Gold · Silver · Crude oil · Natural gas)
 
 Edge is a separate project from the Illume site. It shares no code with it and is
 deployed on its own.
@@ -15,6 +15,39 @@ It takes the emotional decisions away from you:
 | Revenge / FOMO / boredom trades | Before every trade you say how you feel. FOMO, revenge or boredom blocks the trade and starts a 15-min break. There's also a cool-down after a loss, a max of 2 trades a day, and a stop for the day at −2R |
 | Getting hit by news | No new trades 30 min before or after big news for your market (CPI, NFP, FOMC, EIA crude Wed, EIA gas storage Thu, API Tue, OPEC). If you're in a trade and the stop isn't at break-even yet, you get a warning |
 | Ignoring fundamentals | A weekly bias checklist for each market (dollar, yields, Fed, COT, inventories, OPEC, weather, storage, LNG…). A trade against your bias loses its A+ |
+
+## The tested daily plan (London breakout + natural gas zones)
+
+Tested on 2.4 years of hourly futures data (May 2024 – Oct 2026). The rules were picked on the first 15 months and
+checked on the last 14. Costs (~1 tick + commission) are included. Times are New York; Dubai is +8h (Mar–Nov) / +9h (Nov–Mar).
+
+| Market | Strategy | Entry | Stop | Break-even | Target | 2.4 years |
+|---|---|---|---|---|---|---|
+| Gold | London breakout | buy stop at the Asian high / sell stop at the Asian low (Asian range = 18:00–02:00), 02:00–08:00 | other side of the range | +1.5R | 2R | 491 trades · 43% won · +62R |
+| Crude oil | London breakout | same, 03:00–08:00 | other side of the range | +1R | 3R | 561 trades · 30% won · +71R |
+| Silver | London breakout | same, 02:00–08:00, skipped if the Asian range is < 1.5× the 1-hour ATR | other side | +1R | 2R | 441 trades · 39% won · +45R |
+| Natural gas | Heikin Ashi zones | limit at an old zone (≥ 5 trading days, 1st or 2nd touch), 06:00–09:00 and 11:00–12:00 | 0.2 ATR past the zone | +2R | 3R | 68 trades · 47% won · +44R |
+
+All together, with Edge's limits (2 London trades a day, gas zone trades on top, stop for the day at −2R, gold and silver
+never open together): **1,168 trades (~39 a month), 36% won, +173R, worst dip −13R, 26 of 30 months green.**
+The win rate is low on purpose: the winners are 2–3× the losers.
+
+What did **not** help (so Edge doesn't do it): trend filters (except as a grade for gold), closing early when price comes
+back into the range, closing after N candles, trailing stops, fading false breakouts, waiting for a candle close beyond the
+range. The S&P 500 (ES): nothing passed the tests — the opening-range breakout looked good on hourly data but not on the
+real 5-minute candles, so Edge sizes ES trades but sends no ES setups.
+
+How it works for you:
+1. When the window opens, Edge sends **📋 the plan**: both orders, the contracts for your risk, the stop, the target and the
+   break-even price. Place them (with stop and target attached) and walk away. When one fills, cancel the other.
+2. When an order fills, the setup lands in Edge. Tap **I'm taking it**. Type your **risk in dollars** on the card. Edge
+   works out the whole contracts and never goes above that.
+3. Edge watches the price (TradingView heartbeat) and tells you when to move the stop to break-even. It also tells you when
+   the target is hit and when the close-out is coming.
+
+Scripts: `pine/edge_london_breakout.pine` (5-minute charts: MGC1!, MCL1!, SIL1!) and `pine/edge_natgas_zones.pine`
+(1-hour chart, normal candles: QG1! / MNG1!). Rules → TradingView setup has a copy button for each. Each script is also a
+TradingView strategy, so the Strategy Tester shows the same rules on your chart.
 
 ## You don't do the analysis — each setup comes with a picture
 
@@ -308,6 +341,8 @@ The tests cover grading, guardrails, news blackout, break-even at 2R, the 3.2R t
 | File | What it is |
 |---|---|
 | `pine/edge_supply_demand.pine` | TradingView strategy: 4H trend + zones, 15m confirmation, 5m entry. Includes the backtest and the alerts |
+| `pine/edge_london_breakout.pine` | TradingView strategy: London breakout of the Asian range (gold, crude, silver) — plan + entry alerts |
+| `pine/edge_natgas_zones.pine` | TradingView strategy: natural gas Heikin Ashi zones (old zones, 1st/2nd touch, fixed 3R) |
 | `api/hook.js` | Receives TradingView alerts |
 | `api/app.js` | The dashboard's API (password-protected) |
 | `api/_rules.js` | The rules: grade, guardrails, trade management. Pure functions, all tested |

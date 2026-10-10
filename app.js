@@ -150,6 +150,13 @@
   const time = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const day = (t) => new Date(t).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
   const mname = (m) => (S.markets[m] ? S.markets[m].name : m);
+  // a setup's / trade's own exits (tested strategies carry theirs; the rest use your settings). beR 0 = no break-even.
+  const xpOf = (x) => (x && x.xp) || { beR: S.settings.beAtR, tpR: S.settings.tpAtR };
+  const stratName = (x) => (x && x.strategy && S.strategies && S.strategies[x.strategy] ? S.strategies[x.strategy].name : "");
+  // your risk in dollars for the order tickets (remembered on this device; default = account × risk %)
+  const riskDefault = () => Math.round(S.settings.accountSize * S.settings.riskPct / 100);
+  const riskNow = () => { try { const v = Number(localStorage.getItem("edge.riskUSD")); return v > 0 ? v : riskDefault(); } catch { return riskDefault(); } };
+  const qtyFor = (z, risk) => (z && z.kind === "futures" && z.riskPerContract > 0 ? Math.floor(risk / z.riskPerContract + 1e-9) : null);
 
   function render() {
     for (const b of document.querySelectorAll("#tabs button")) b.classList.toggle("on", b.dataset.tab === tab);
@@ -174,7 +181,7 @@
     const [stateTxt, stateColor, headline, sub] = !g.ok
       ? ["Locked", "var(--bad)", "Not trading right now.", g.reasons.map(esc).join("<br>")]
       : live ? ["Setup ready", "var(--accent)", `${live} A+ setup${live > 1 ? "s" : ""} waiting for you.`, `<a href="#setups" style="color:var(--accent);font-weight:600">Open it →</a> it's only valid for ${s.setupExpiryMin} minutes.`]
-      : inTrade ? ["In a trade", "var(--info)", "Hands off. The rules manage it.", `Stop to break-even at +${s.beAtR}R · exit at +${s.tpAtR}R.`]
+      : inTrade ? ["In a trade", "var(--info)", "Hands off. The rules manage it.", S.open.map((t) => { const e = xpOf(t); return `${esc(mname(t.market))}: ${e.beR > 0 ? `break-even at +${e.beR}R · ` : ""}exit at +${e.tpR}R`; }).join("<br>")]
       : ["Ready", "var(--good)", "Waiting for an A+ setup.", "No setup, no trade. Patience is the position."];
     const share = S.share.share, C = 2 * Math.PI * 40, okShare = true;
     const hero = `<section class="card hero" style="--state:${stateColor}">
@@ -199,44 +206,68 @@
         <p>You're in ${n} trade${n > 1 ? "s" : ""}. Your prop firm closes you if you don't.</p>
         <button class="btn danger closeall" data-closeall style="margin-top:8px">⛔ Close everything</button></div>` : "";
     const head = `<div class="card-head"><h2>Open trades</h2>${n ? `<button class="btn small closeall" data-closeall>Close everything</button>` : ""}</div>`;
-    return `${ceBanner}${hero}${stats}${pushNudge}<section class="card">${head}${open}</section>${newsCard(6)}${logCard()}`;
+    return `${ceBanner}${hero}${stats}${pushNudge}${plansCard()}<section class="card">${head}${open}</section>${newsCard(6)}${logCard()}`;
+  }
+
+  // The orders to place before the move (London stop orders, natural gas zone limits), sized for your risk.
+  function plansCard() {
+    const ps = (S.plans || []).filter((p) => S.now < p.expires);
+    if (!ps.length) return "";
+    const risk = riskNow();
+    const leg = (p, L) => {
+      const q = qtyFor(L.size, risk);
+      const qty = L.size.kind === "futures" ? (q >= 1 ? `${q} ${esc(L.size.contract)}` : `skip — 1 ${esc(L.size.contract)} risks $${Math.round(L.size.riskPerContract)}`) : `${Number(L.size.qty).toFixed(2)} ${esc(S.markets[p.market].unit)}`;
+      return `<div class="levels" style="grid-template-columns:repeat(2,1fr);margin:6px 0">
+        <div><small>${L.dir === "long" ? "BUY" : "SELL"} ${L.order.toUpperCase()}</small><b>${fx(L.entry)}</b></div>
+        <div><small>Contracts</small><b>${qty}</b></div>
+        <div><small>Stop loss</small><b>${fx(L.sl)}</b></div>
+        <div><small>Take profit (${p.tpR}R)</small><b>${fx(L.tp)}</b></div></div>
+        ${L.be != null ? `<p class="muted" style="margin:0 0 6px">Break-even: when price reaches <b>${fx(L.be)}</b> (+${p.beR}R), Edge tells you to move the stop to entry.</p>` : ""}`;
+    };
+    return `<section class="card"><div class="card-head"><h2>📋 Orders to place now</h2><span class="muted">risk $${risk} each · change it on a setup card</span></div>
+      ${ps.map((p) => `<div class="card" style="background:var(--panel2);margin-bottom:10px">
+        <div class="row between"><h3>${esc(mname(p.market))} · ${esc(p.name)}</h3><span class="pill">until ${time(p.expires)}</span></div>
+        ${p.rangeHi != null ? `<p class="muted" style="margin:4px 0">Asian range ${fx(p.rangeLo)} – ${fx(p.rangeHi)}.</p>` : ""}
+        ${p.legs.map((L) => leg(p, L)).join("")}
+        <p style="margin:6px 0 0"><b>${p.strategy === "london" ? "Place both orders with their stop and target. The moment one fills, cancel the other one." : "Place the limit order(s) with their stop and target. Cancel them when the window ends."}</b></p></div>`).join("")}
+    </section>`;
   }
 
   function tradeCard(t) {
-    const s = S.settings;
-    const lo = -1, hi = s.tpAtR, span = hi - lo, pct = (r) => `${Math.max(0, Math.min(100, ((r - lo) / span) * 100))}%`;
+    const s = S.settings, e = xpOf(t);
+    const lo = -1, hi = e.tpR, span = hi - lo, pct = (r) => `${Math.max(0, Math.min(100, ((r - lo) / span) * 100))}%`;
     const r = t.r ?? 0;
     const manual = t.source === "manual";
     const routed = t.source === "traderspost";
-    const beAdvised = manual && !t.beMoved && (t.maxR || 0) >= s.beAtR;
+    const beAdvised = manual && !t.beMoved && e.beR > 0 && (t.maxR || 0) >= e.beR;
     return `<div class="card" style="background:var(--panel2);margin-bottom:10px">
-      <div class="row between"><h3>${esc(mname(t.market))} · ${t.dir.toUpperCase()}</h3>
+      <div class="row between"><h3>${esc(mname(t.market))} · ${t.dir.toUpperCase()}${stratName(t) ? ` <small class="muted">${esc(stratName(t))}</small>` : ""}</h3>
         <span class="pill ${t.grade === "A+" ? "good" : "warn"}">${esc(t.grade)}</span></div>
-      <div class="ruler" style="--zero:${pct(0)};--be:${pct(s.beAtR)}">
+      <div class="ruler" style="--zero:${pct(0)};--be:${pct(e.beR > 0 ? e.beR : 0)}">
         <div class="bar"></div>
         <span class="tick" style="left:${pct(-1)}">SL −1R</span>
         <span class="tick" style="left:${pct(0)}">Entry</span>
-        <span class="tick" style="left:${pct(s.beAtR)}">BE ${s.beAtR}R</span>
+        ${e.beR > 0 ? `<span class="tick" style="left:${pct(e.beR)}">BE ${e.beR}R</span>` : ""}
         <span class="tick" style="left:${pct(hi)}">TP ${hi}R</span>
         <span class="max" style="left:${pct(t.maxR || 0)}" title="best so far"></span>
         <span class="now" style="left:${pct(r)}"></span>
       </div>
       <div class="row between"><b class="${cls(r)} num" style="font-size:22px">${rs(t.r)}</b>
-        <span class="muted">${t.beMoved ? "🔒 Stop at break-even — can't lose" : `Stop moves to BE at ${s.beAtR}R`}</span></div>
+        <span class="muted">${t.beMoved ? "🔒 Stop at break-even — can't lose" : e.beR > 0 ? `Stop moves to BE at ${e.beR}R` : "No break-even in this plan — stop or target"}</span></div>
       <div class="levels">
         <div><small>Entry</small><b>${fx(t.entry)}</b></div>
         <div><small>Stop</small><b>${fx(t.currentSL ?? t.initialSL)}</b></div>
-        <div><small>BE at</small><b>${fx(t.plan && t.plan.beTrigger)}</b></div>
+        <div><small>BE at</small><b>${e.beR > 0 ? fx(t.plan && t.plan.beTrigger) : "—"}</b></div>
         <div><small>Target</small><b>${fx(t.tp)}</b></div>
       </div>
       ${t.units ? `<p class="muted">Size: ${t.unitLabel === "contracts" ? `<b>${t.units} ${esc(t.contract || "")} contract${t.units > 1 ? "s" : ""}</b> · risk $${t.riskUSD}` : `${Number(t.units).toFixed(t.units < 10 ? 2 : 0)} ${esc(S.markets[t.market]?.unit || "units")}${manual ? ` ≈ ${(t.units / (s.lots[t.market] || 1)).toFixed(2)} lots (1 lot = ${s.lots[t.market]})` : ""}`}</p>` : ""}
       ${(t.ruleBreaks || []).length ? `<p class="err">Rule break logged: ${t.ruleBreaks.map(esc).join(", ")}</p>` : ""}
       ${beAdvised ? `<div class="blocks">🔒 Move your stop to <b>${fx(t.plan.beStop)}</b> now.</div>` : ""}
       <div class="row">
-        ${manual && !t.beMoved ? `<button class="btn small ${beAdvised ? "primary" : ""}" data-be="${esc(t.id)}">I moved my stop to break-even</button>` : ""}
+        ${manual && !t.beMoved && e.beR > 0 ? `<button class="btn small ${beAdvised ? "primary" : ""}" data-be="${esc(t.id)}">I moved my stop to break-even</button>` : ""}
         <button class="btn small danger" data-close="${esc(t.id)}">Close trade</button>
       </div>
-      <p class="muted" style="margin:8px 0 0;font-size:13px">${manual ? "Manual: Edge tells you when to act, you click in TradingView." : routed ? "Sent to Tradovate. Edge moves the stop to break-even at +" + s.beAtR + "R. Hands off." : "Edge is managing this trade. Hands off."}${t.lastPriceAt ? ` · price ${time(t.lastPriceAt)}` : ""}</p>
+      <p class="muted" style="margin:8px 0 0;font-size:13px">${manual ? "Manual: Edge tells you when to act, you click in TradingView." : routed ? (e.beR > 0 ? "Sent to Tradovate. Edge moves the stop to break-even at +" + e.beR + "R. Hands off." : "Sent to Tradovate. Stop and target are set. Hands off.") : "Edge is managing this trade. Hands off."}${t.lastPriceAt ? ` · price ${time(t.lastPriceAt)}` : ""}</p>
     </div>`;
   }
 
@@ -307,6 +338,9 @@
   }
   function storyBlock(x) {
     const st = x.story; if (!st) return "";
+    if (st.simple) return `<details class="story" open><summary><b>${esc(st.headline)}</b></summary>
+      <ol class="tfsteps">${st.steps.map((p) => `<li style="--c:${TF[p.color]}"><b>${esc(p.tf)} · ${esc(p.title)}</b><br><span class="muted">${esc(p.text)}</span></li>`).join("")}</ol>
+      <p class="plan">🎯 ${esc(st.plan.text)}</p></details>`;
     return `<details class="story" open><summary><b>${esc(st.headline)}</b></summary>
       ${tradeMap(x)}
       <div class="legend"><span><i style="background:var(--c4h)"></i>4H</span><span><i style="background:var(--c15)"></i>15m</span><span><i style="background:var(--c5)"></i>5m</span>${x.sweep ? `<span><i style="background:var(--liq)"></i>liquidity</span>` : ""}<span class="muted">same colours on your TradingView chart</span></div>
@@ -315,43 +349,49 @@
   }
 
   // The numbers to type into TradingView's order panel.
+  // You type the dollars you want to risk; Edge works out the whole contracts (never above that risk).
   function ticket(x, tp) {
-    const z = x.size, s = S.settings;
-    if (z.kind === "futures" && z.qty < 1) return `<div class="blocks">⛔ One ${esc(z.contract)} contract risks $${z.riskPerContract} — more than your $${z.riskUSD} (${s.riskPct}%). Skip it${["GC", "CL", "NG", "QG"].includes(z.contract) ? " or use the micro contract" : ""}.</div>`;
-    const qty = z.kind === "futures" ? `${z.qty} ${esc(z.contract)} contract${z.qty > 1 ? "s" : ""}` : `${z.qty.toFixed(z.qty < 10 ? 2 : 0)} ${esc(S.markets[x.market].unit)} ≈ ${(z.qty / (s.lots[x.market] || 1)).toFixed(2)} lots`;
+    const z = x.size, s = S.settings, risk = riskNow(), e = xpOf(x);
+    const q = qtyFor(z, risk);
+    const too = z.kind === "futures" && q < 1;
+    const qty = z.kind === "futures" ? `${q} ${esc(z.contract)} contract${q === 1 ? "" : "s"}` : `${z.qty.toFixed(z.qty < 10 ? 2 : 0)} ${esc(S.markets[x.market].unit)} ≈ ${(z.qty / (s.lots[x.market] || 1)).toFixed(2)} lots`;
     return `<div class="card" style="background:var(--panel2);margin:8px 0">
-      <b>Order for TradingView</b>
+      <div class="row between"><b>Order for TradingView</b>
+        ${z.kind === "futures" ? `<label class="row" style="gap:6px;margin:0"><small class="muted">Risk $</small><input data-risk="${esc(x.id)}" data-rpc="${z.riskPerContract}" inputmode="decimal" value="${risk}" style="width:90px"></label>` : ""}</div>
+      ${too ? `<div class="blocks" data-riskwarn="${esc(x.id)}">⛔ One ${esc(z.contract)} contract risks $${z.riskPerContract} — more than $${risk}. Skip it${["GC", "CL", "NG", "QG", "SI", "ES"].includes(z.contract) ? " or use the micro contract" : ""}.</div>` : ""}
       <div class="levels" style="grid-template-columns:repeat(2,1fr)">
-        <div><small>${x.dir === "long" ? "BUY" : "SELL"} · Market</small><b>${qty}</b></div>
-        <div><small>Risk</small><b>$${z.totalRisk}${z.stopTicks ? ` · ${z.stopTicks} ticks` : ""}</b></div>
+        <div><small>${x.dir === "long" ? "BUY" : "SELL"} · Market</small><b data-qty="${esc(x.id)}">${qty}</b></div>
+        <div><small>Risk</small><b data-totrisk="${esc(x.id)}">$${z.kind === "futures" ? Math.round(q * z.riskPerContract * 100) / 100 : z.totalRisk}${z.stopTicks ? ` · ${z.stopTicks} ticks` : ""}</b></div>
         <div><small>Stop loss</small><b>${fx(x.sl)}</b></div>
-        <div><small>Take profit (${s.tpAtR}R)</small><b>${fx(tp)}</b></div>
-      </div></div>`;
+        <div><small>Take profit (${e.tpR}R)</small><b>${fx(tp)}</b></div>
+      </div>
+      ${z.kind === "futures" ? `<p class="muted" style="margin:6px 0 0;font-size:13px">One ${esc(z.contract)} risks $${z.riskPerContract} with this stop.</p>` : ""}</div>`;
   }
 
   function setupCard(x) {
-    const s = S.settings, g = x.g;
+    const s = S.settings, g = x.g, e = xpOf(x);
     const risk = Math.abs(x.entry - x.sl), k = x.dir === "short" ? -1 : 1;
-    const be = x.entry + k * s.beAtR * risk, tp = x.entry + k * s.tpAtR * risk;
+    const be = e.beR > 0 ? x.entry + k * e.beR * risk : null, tp = x.entry + k * e.tpR * risk;
     const live = x.status === "open" && !(x.expires && S.now > x.expires);
     return `<div class="card setup ${live ? "" : "dim"}">
       <div class="row between">
         <div class="row"><div class="grade ${g.grade === "A+" ? "Ap" : g.grade}">${g.grade}</div>
-          <div><h3>${esc(mname(x.market))} · ${x.dir.toUpperCase()}</h3><span class="muted">${day(x.at)} ${time(x.at)} · ${esc(x.tv || x.symbol)}</span></div></div>
+          <div><h3>${esc(mname(x.market))} · ${x.dir.toUpperCase()}${stratName(x) ? ` <small class="muted">${esc(stratName(x))}</small>` : ""}</h3><span class="muted">${day(x.at)} ${time(x.at)} · ${esc(x.tv || x.symbol)}</span></div></div>
         <span class="pill ${x.status === "taken" ? "good" : ""}">${live ? `${Math.max(0, Math.round((x.expires - S.now) / 60e3))} min left` : esc(x.status === "open" ? "expired" : x.status)}</span>
       </div>
       <div class="levels">
         <div><small>Entry</small><b>${fx(x.entry)}</b></div>
         <div><small>Stop</small><b>${fx(x.sl)}</b></div>
-        <div><small>BE at ${s.beAtR}R</small><b>${fx(be)}</b></div>
-        <div><small>TP ${s.tpAtR}R</small><b>${fx(tp)}</b></div>
+        <div><small>${e.beR > 0 ? `BE at ${e.beR}R` : "Break-even"}</small><b>${e.beR > 0 ? fx(be) : "none"}</b></div>
+        <div><small>TP ${e.tpR}R</small><b>${fx(tp)}</b></div>
       </div>
       ${storyBlock(x)}
+      ${g.info ? `<p class="muted" style="margin:6px 0">${esc(g.info)}</p>` : ""}
       <details class="checkwrap"><summary>Checklist — ${g.checks.filter((c) => c.pass).length}/${g.checks.length} passed</summary>
       <ul class="checks">${g.checks.map((c) => `<li class="${c.pass ? "" : "no"}"><span>${esc(c.label)}${c.note ? ` <small>(${esc(c.note)})</small>` : ""}</span></li>`).join("")}</ul></details>
       ${live && !g.take.ok ? `<div class="blocks">${g.take.why.map((w) => `<div>⛔ ${esc(w)}</div>`).join("")}</div>` : ""}
       ${live && S.broker.kind !== "oanda" ? ticket(x, tp) : ""}
-      ${live ? `<div class="row">${(() => { const tooBig = x.size && x.size.kind === "futures" && x.size.qty < 1 && S.broker.kind !== "oanda"; const ok = g.take.ok && !tooBig;
+      ${live ? `<div class="row">${(() => { const tooBig = x.size && x.size.kind === "futures" && qtyFor(x.size, riskNow()) < 1 && S.broker.kind !== "oanda"; const ok = g.take.ok && !tooBig;
         return `<button class="btn ${ok ? "good" : ""}" data-take="${esc(x.id)}" ${ok ? "" : "disabled"}>${ok ? (S.broker.kind === "manual" ? "I'm taking it" : S.broker.kind === "traderspost" ? "Take it — send the order" : "Take it — place the order") : tooBig ? "Too big for your risk" : "Not allowed"}</button>`; })()}
         <button class="btn" data-skip="${esc(x.id)}">Skip</button></div>` : ""}
     </div>`;
@@ -360,15 +400,17 @@
   function takeDialog(id) {
     const x = S.setups.find((y) => y.id === id);
     const manual = S.broker.kind === "manual";
+    const e = xpOf(x), risk = riskNow(), q = qtyFor(x.size, risk);
+    const beTxt = e.beR > 0 ? `At +${e.beR}R ${S.broker.kind === "manual" ? "Edge tells you to move the stop to break-even" : "the stop moves to break-even"}.` : "No break-even in this plan.";
     const moods = [["calm", "😌 Calm"], ["focused", "🎯 Focused"], ["fomo", "😬 Afraid to miss it"], ["revenge", "😤 Want my money back"], ["bored", "🥱 Bored"]];
     const body = $("#modalBody");
     body.innerHTML = `<h3>${esc(mname(x.market))} ${x.dir.toUpperCase()} · ${x.g.grade}</h3>
       <p>Before you click: how do you feel <b>right now</b>? Be honest — this is your journal.</p>
       <div class="moods">${moods.map(([k, l]) => `<button type="button" data-mood="${k}">${l}</button>`).join("")}</div>
-      ${S.broker.kind === "traderspost" ? `<p>Edge sends <b>${x.dir === "long" ? "BUY" : "SELL"} ${x.size && x.size.qty} ${esc(x.size && x.size.contract || "")}</b> at market to your Tradovate account, with the stop at <b>${fx(x.sl)}</b> and the target at <b>${fx(x.entry + (x.dir === "short" ? -1 : 1) * S.settings.tpAtR * Math.abs(x.entry - x.sl))}</b>. At +${S.settings.beAtR}R it moves the stop to break-even for you.</p>`
+      ${S.broker.kind === "traderspost" ? `<p>Edge sends <b>${x.dir === "long" ? "BUY" : "SELL"} ${q ?? (x.size && x.size.qty)} ${esc(x.size && x.size.contract || "")}</b> ($${risk} risk) at market to your Tradovate account, with the stop at <b>${fx(x.sl)}</b> and the target at <b>${fx(x.entry + (x.dir === "short" ? -1 : 1) * e.tpR * Math.abs(x.entry - x.sl))}</b>. ${beTxt}</p>`
         : manual ? `<label class="f">Your fill price (leave empty if ${fx(x.entry)})<input id="fill" inputmode="decimal" placeholder="${fx(x.entry)}"></label>
-        <p class="muted">Place it in TradingView with stop <b>${fx(x.sl)}</b> and take-profit at ${S.settings.tpAtR}R. Edge will tell you when to move the stop.</p>`
-        : `<p class="muted">Edge places a market order with your stop at <b>${fx(x.sl)}</b> and take-profit at ${S.settings.tpAtR}R, sized at ${S.settings.riskPct}% risk. At +${S.settings.beAtR}R the stop moves to break-even by itself.</p>`}
+        <p class="muted">${q != null ? `<b>${q} ${esc(x.size.contract)}</b> for $${risk} risk. ` : ""}Place it in TradingView with stop <b>${fx(x.sl)}</b> and take-profit at ${e.tpR}R. ${beTxt}</p>`
+        : `<p class="muted">Edge places a market order with your stop at <b>${fx(x.sl)}</b> and take-profit at ${e.tpR}R, sized for $${risk} risk. ${beTxt}</p>`}
       <p class="muted">I accept the stop. I won't move it further away. I won't move the target.</p>
       <div class="row"><button class="btn good" type="button" id="confirmTake" disabled>Confirm</button><button class="btn" value="cancel">Cancel</button></div>`;
     let mood = "";
@@ -377,7 +419,7 @@
     }));
     $("#confirmTake").addEventListener("click", async () => {
       $("#confirmTake").disabled = true;
-      const r = await act({ action: "take", setupId: id, emotion: mood, entry: manual ? $("#fill").value : undefined }, "Trade on. Hands off — the rules manage it now.");
+      const r = await act({ action: "take", setupId: id, emotion: mood, entry: manual ? $("#fill").value : undefined, riskUSD: risk }, "Trade on. Hands off — the rules manage it now.");
       $("#modal").close();
       if (r) { tab = "now"; render(); }
     });
@@ -404,10 +446,11 @@
   function closeDialog(id) {
     const t = S.open.find((y) => y.id === id);
     const manual = t.source === "manual" || t.source === "traderspost";
-    const early = (t.r ?? 0) < S.settings.tpAtR - 0.1 && !t.beMoved;
+    const e = xpOf(t);
+    const early = (t.r ?? 0) < e.tpR - 0.1 && !t.beMoved;
     const body = $("#modalBody");
     body.innerHTML = `<h3>Close ${esc(mname(t.market))} ${t.dir}?</h3>
-      ${early ? `<p class="err">Your plan is break-even at ${S.settings.beAtR}R and exit at ${S.settings.tpAtR}R. Closing now is outside the plan — it will be logged as an early exit.</p>` : ""}
+      ${early ? `<p class="err">Your plan is ${e.beR > 0 ? `break-even at ${e.beR}R and ` : ""}exit at ${e.tpR}R. Closing now is outside the plan — it will be logged as an early exit.</p>` : ""}
       ${manual ? `<label class="f">Exit price<input id="exitPx" inputmode="decimal" value="${t.lastPrice ?? ""}"></label>` : ""}
       <div class="row"><button class="btn danger" type="button" id="doClose">Close it</button><button class="btn" value="cancel">Keep it</button></div>`;
     $("#doClose").addEventListener("click", async () => { await act({ action: "close", tradeId: id, exit: manual ? $("#exitPx").value : undefined }, "Closed."); $("#modal").close(); });
@@ -462,7 +505,7 @@
     return `<section class="card"><h2>Results</h2><div class="grid2">
         <div class="stat"><small>Total</small><b class="${cls(st.totalR)}">${rs(st.totalR)}</b><small>${st.n} trades</small></div>
         <div class="stat"><small>Win rate</small><b>${st.winRate == null ? "—" : st.winRate + "%"}</b><small>avg ${rs(st.avgR)}</small></div>
-        <div class="stat"><small>Hit the target</small><b>${st.targets}</b><small>at ${S.settings.tpAtR}R</small></div>
+        <div class="stat"><small>Hit the target</small><b>${st.targets}</b><small>each trade's own target</small></div>
         <div class="stat"><small>Saved by break-even</small><b>${st.breakEvens}</b><small>would-be losses</small></div>
         ${grp(st.aPlus, "A+ trades")}${grp(st.other, "A / B")}${grp(st.unplanned, "Unplanned")}
         <div class="stat"><small>Trades with a rule break</small><b class="${st.ruleBreaks ? "neg" : ""}">${st.ruleBreaks}</b></div>
@@ -520,15 +563,19 @@
         <div class="grid2">${kinds.map(([k, l]) => `<label class="f" style="flex-direction:row;display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" data-notify="${k}" style="width:auto" ${s.notify[k] ? "checked" : ""}> ${l}</label>`).join("")}</div>
       </section>`;
     const tvCard = `<section class="card"><h2>TradingView setup</h2>
-        <p class="muted" style="margin-top:0">TradingView doesn't let apps install scripts, so it's one copy-paste. Your secret is already inside the script.</p>
+        <p class="muted" style="margin-top:0">TradingView doesn't let apps install scripts, so it's one copy-paste per script. Your secret is already inside.</p>
+        <div class="grid2">
+          <div class="stat"><small>London breakout — gold, crude, silver</small><b style="font-size:14px">5-minute charts: <code>MGC1!</code> · <code>MCL1!</code> · <code>SIL1!</code></b><button class="btn small primary" data-copypine="edge_london_breakout" style="margin-top:6px">Copy London script</button></div>
+          <div class="stat"><small>Natural gas zones</small><b style="font-size:14px">1-hour chart, normal candles: <code>QG1!</code> or <code>MNG1!</code></b><button class="btn small primary" data-copypine="edge_natgas_zones" style="margin-top:6px">Copy gas zones script</button></div>
+          <div class="stat"><small>Supply &amp; demand (the original)</small><b style="font-size:14px">5-minute charts: gold, crude, gas</b><button class="btn small" data-copypine="edge_supply_demand" style="margin-top:6px">Copy S&amp;D script</button></div>
+        </div>
         <ol class="steps">
-          <li>Tap <b>Copy the Edge script</b> below.</li>
-          <li>On a computer, open TradingView → a <b>5-minute</b> chart of <code>MGC1!</code> (then <code>MCL1!</code>, <code>QG1!</code>).</li>
+          <li>Tap a <b>Copy</b> button above, then on a computer open TradingView on the chart it says.</li>
           <li>Bottom panel → <b>Pine Editor</b> → <b>delete everything already there</b> (Ctrl+A / ⌘A, then Delete), paste → <b>Save</b> → <b>Add to chart</b>.</li>
-          <li><b>Alert</b> (clock icon) → Condition: <i>Edge S&amp;D</i> → <b>alert() function calls only</b> → Notifications → tick <b>Webhook URL</b> and paste the address below → Create.</li>
-          <li>Do the same alert on the other two charts. Done — the first 5-minute candle will show up in Edge.</li>
+          <li><b>Alert</b> (clock icon) → Condition: the Edge script → <b>alert() function calls only</b> → Notifications → tick <b>Webhook URL</b> and paste the address below → Create.</li>
+          <li>One alert per chart. The first candle shows up in Edge's log.</li>
         </ol>
-        <div class="row" style="margin-top:12px"><button class="btn small primary" id="copyPine">Copy the Edge script</button><button class="btn small" id="copyHook">Copy webhook URL</button></div>
+        <div class="row" style="margin-top:12px"><button class="btn small" id="copyHook">Copy webhook URL</button></div>
         <p class="muted" style="margin:8px 0 0;font-size:12.5px">Webhook URL: <code>${esc(location.origin)}/api/hook</code>${S.hookReady ? "" : ` · <span class="err">EDGE_HOOK_SECRET isn't set in Vercel yet</span>`}</p>
       </section>`;
     return `${notifCard}${tvCard}<section class="card"><h2>Connections</h2>
@@ -542,7 +589,7 @@
         <div class="row"><button class="btn small" data-testalert>Send a test alert</button></div>
       </section>
       <section class="card"><h2>Exits</h2><div class="grid2">
-        ${n("beAtR", "Stop to break-even at (R)", "0.1")}${n("tpAtR", "Take profit at (R)", "0.1")}${n("beOffsetR", "Break-even buffer (R)", "0.01")}
+        ${n("beAtR", "Supply & demand: stop to break-even at (R)", "0.1")}${n("tpAtR", "Supply & demand: take profit at (R)", "0.1")}${n("beOffsetR", "Break-even buffer (R)", "0.01")}
         <label class="f">Target moved further away<select data-set="enforceTP"><option value="true" ${s.enforceTP ? "selected" : ""}>Put it back (greed check)</option><option value="false" ${s.enforceTP ? "" : "selected"}>Allow</option></select></label>
         <label class="f">15m structure breaks against me<select data-set="structureExit">${["notify", "close", "off"].map((v) => `<option ${s.structureExit === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
         <label class="f">Big news & stop not at BE<select data-set="newsOpenTrade">${["warn", "close"].map((v) => `<option ${s.newsOpenTrade === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
@@ -588,6 +635,15 @@
   function bind() {
     const v = $("#view");
     v.querySelectorAll("[data-take]").forEach((b) => b.addEventListener("click", () => takeDialog(b.dataset.take)));
+    v.querySelectorAll("[data-risk]").forEach((inp) => inp.addEventListener("input", () => {
+      const risk = Number(inp.value), rpc = Number(inp.dataset.rpc), id = inp.dataset.risk;
+      if (!(risk > 0) || !(rpc > 0)) return;
+      try { localStorage.setItem("edge.riskUSD", String(risk)); } catch {}
+      const q = Math.floor(risk / rpc + 1e-9), x = S.setups.find((y) => y.id === id);
+      const qEl = v.querySelector(`[data-qty="${CSS.escape(id)}"]`), rEl = v.querySelector(`[data-totrisk="${CSS.escape(id)}"]`);
+      if (qEl) qEl.textContent = `${q} ${x && x.size ? x.size.contract : ""} contract${q === 1 ? "" : "s"}`;
+      if (rEl) rEl.textContent = `$${Math.round(q * rpc * 100) / 100}`;
+    }));
     v.querySelectorAll("[data-skip]").forEach((b) => b.addEventListener("click", () => act({ action: "skip", setupId: b.dataset.skip }, "Skipped. Good.")));
     v.querySelectorAll("[data-be]").forEach((b) => b.addEventListener("click", () => act({ action: "beDone", tradeId: b.dataset.be }, "🔒 Break-even. This trade can't hurt you now.")));
     v.querySelectorAll("[data-closeall]").forEach((b) => b.addEventListener("click", closeAllDialog));
@@ -612,14 +668,14 @@
       try { S.fundamentals = await api("POST", { action: "autoBias" }); fillApplied = true; render(); toast("Suggestions filled in — check them and tap Save."); }
       catch (e) { toast(e.message, 7000); fb.disabled = false; fb.textContent = "↻ Fill from free data"; }
     });
-    const cpn = $("#copyPine"); if (cpn) cpn.addEventListener("click", async () => {
+    v.querySelectorAll("[data-copypine]").forEach((cpn) => cpn.addEventListener("click", async () => {
       try {
-        const [{ secret }, src] = await Promise.all([api("POST", { action: "tvSetup" }), fetch("/pine/edge_supply_demand.pine", { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("Couldn't load the script"); return r.text(); })]);
+        const [{ secret }, src] = await Promise.all([api("POST", { action: "tvSetup" }), fetch(`/pine/${cpn.dataset.copypine}.pine`, { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("Couldn't load the script"); return r.text(); })]);
         const code = secret ? src.replace('input.string("change-me"', `input.string(${JSON.stringify(secret)}`) : src;
         await navigator.clipboard.writeText(code);
         toast(secret ? "Script copied — with your secret inside. In TradingView's Pine Editor press Ctrl+A (⌘A on Mac), Delete, then paste." : "Script copied. Set EDGE_HOOK_SECRET in Vercel, then put it in the script's settings.", 6000);
       } catch (e) { toast(e.message || "Couldn't copy — open it on a computer and try again.", 6000); }
-    });
+    }));
     const chk = $("#copyHook"); if (chk) chk.addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.origin + "/api/hook"); toast("Webhook URL copied."); } catch { toast(location.origin + "/api/hook", 8000); } });
     const lt = $("#logTrade"); if (lt) lt.addEventListener("click", logTradeDialog);
     v.querySelectorAll("[data-testalert]").forEach((b) => b.addEventListener("click", async () => { const r = await act({ action: "testAlert" }); if (r) toast(r.telegram ? "Sent — check your devices." : "Logged. No device has notifications on yet."); }));

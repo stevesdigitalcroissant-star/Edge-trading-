@@ -4,7 +4,40 @@ const { MARKETS } = require("./_config");
 
 const fx = (x) => (x == null ? "—" : Math.abs(x) >= 100 ? Number(x).toFixed(2) : Number(x).toFixed(3));
 
+// The tested strategies tell a shorter story: what the range/zone is, what triggered, and the exits.
+function strategyStory(x, s) {
+  const { exits } = require("./_rules");
+  const long = x.dir !== "short";
+  const name = MARKETS[x.market] ? MARKETS[x.market].name : x.symbol;
+  const k = long ? 1 : -1, risk = Math.abs(x.entry - x.sl);
+  const { tpR, beR } = exits(x, s);
+  const be = beR > 0 ? x.entry + k * beR * risk : null, tp = x.entry + k * tpR * risk;
+  const beTxt = be != null ? `At ${fx(be)} (+${beR}R) move the stop to break-even. ` : "No break-even in this plan — the tests did better without it. ";
+  let steps, headline, short;
+  if (x.strategy === "london") {
+    const edge = long ? x.rangeHi : x.rangeLo, other = long ? x.rangeLo : x.rangeHi;
+    steps = [
+      { tf: "Asia", color: "c4h", title: "Asian range set", text: `From 18:00 to 02:00 New York, ${name} stayed between ${fx(x.rangeLo)} and ${fx(x.rangeHi)}.` },
+      { tf: "London", color: "c15", title: `Breakout ${long ? "up ↑" : "down ↓"}`, text: `London traded ${long ? "above the high" : "below the low"} (${fx(edge)}) — the ${long ? "buy" : "sell"} stop filled at ${fx(x.entry)}.${x.trend != null && x.market === "gold" ? ` The 1-hour trend ${Number(x.trend) === k ? "agrees" : "doesn't agree"}.` : ""}` },
+      { tf: "Plan", color: "c5", title: "Stop on the other side", text: `Stop at ${fx(other)}, the other side of the Asian range. If the ${long ? "sell" : "buy"} stop is still working, cancel it now.` },
+    ];
+    headline = `${name} ${long ? "BUY" : "SELL"} — London broke the Asian range ${long ? "high" : "low"}`;
+    short = `London broke the Asian ${long ? "high" : "low"} ${fx(edge)}. ${long ? "Buy" : "Sell"} ${fx(x.entry)} · SL ${fx(x.sl)} · TP ${fx(tp)} (${tpR}R)`;
+  } else {
+    steps = [
+      { tf: "Zone", color: "c4h", title: `Old ${long ? "demand" : "supply"} zone`, text: `A Heikin Ashi ${long ? "demand" : "supply"} zone (${fx(x.zoneBot)} – ${fx(x.zoneTop)}) from an explosive move${x.zoneAgeDays != null ? `, ${Number(x.zoneAgeDays).toFixed(0)} trading days old` : ""}.` },
+      { tf: "Touch", color: "c15", title: `Touch ${x.touch || 1}`, text: `Price came back to it inside your window — limit ${long ? "buy" : "sell"} at ${fx(x.entry)}.` },
+      { tf: "Plan", color: "c5", title: "Stop past the zone", text: `Stop at ${fx(x.sl)}, just past the far side of the zone.` },
+    ];
+    headline = `${name} ${long ? "BUY" : "SELL"} — back at an old ${long ? "demand" : "supply"} zone`;
+    short = `Old HA ${long ? "demand" : "supply"} zone (touch ${x.touch || 1}). ${long ? "Buy" : "Sell"} ${fx(x.entry)} · SL ${fx(x.sl)} · TP ${fx(tp)} (${tpR}R)`;
+  }
+  const plan = { entry: x.entry, sl: x.sl, be, tp, text: `Stop ${fx(x.sl)}. ${beTxt}Target ${fx(tp)} (+${tpR}R). Out by ${s.flatBy} New York at the latest.` };
+  return { headline, steps, plan, short, simple: true };
+}
+
 function story(x, s) {
+  if (x.strategy) return strategyStory(x, s);
   const long = x.dir !== "short";
   const name = MARKETS[x.market] ? MARKETS[x.market].name : x.symbol;
   const k = long ? 1 : -1;

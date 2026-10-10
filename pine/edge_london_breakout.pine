@@ -1,0 +1,193 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0
+//
+// EDGE — London breakout of the Asian range (gold · crude oil · silver)
+// ---------------------------------------------------------------------------
+// Put it on a 5-minute chart of MGC1! / GC1! (gold), MCL1! / CL1! (crude) or SIL1! / SI1! (silver).
+//
+//   1. Asian range: the high and low from 18:00 to 02:00 New York time.
+//   2. Plan (sent to Edge when the entry window opens): a BUY STOP at the range high and
+//      a SELL STOP at the range low. The first one that fills is the trade — cancel the other.
+//   3. Stop loss: the other side of the Asian range.
+//   4. Exits (tested on 2.4 years of hourly futures data, May 2024 – Oct 2026):
+//        gold   : entries 02:00–08:00, target 2R, stop to break-even at +1.5R
+//        crude  : entries 03:00–08:00, target 3R, stop to break-even at +1R
+//        silver : entries 02:00–08:00, target 2R, break-even at +1R, skip days when the
+//                 Asian range is smaller than 1.5× the 1-hour ATR
+//      Out of everything at the close-out (16:40 New York).
+//   One trade per market per day.
+//
+// It is a strategy, so the Strategy Tester shows these rules on your chart's history.
+// For the Edge app, create ONE alert on this chart:
+//   Condition: this script → "alert() function calls only"
+//   Webhook URL: https://<your-edge-app>/api/hook
+//   Message: leave as is (the script writes its own JSON)
+// ---------------------------------------------------------------------------
+//@version=6
+strategy("Edge — London breakout (gold · crude · silver)", shorttitle = "Edge London", overlay = true,
+     initial_capital = 10000, default_qty_type = strategy.fixed, default_qty_value = 1,
+     pyramiding = 0, slippage = 1, max_boxes_count = 100, max_lines_count = 300, max_labels_count = 200)
+
+TZ = "America/New_York"
+
+// ---------- Settings
+grpS = "Strategy"
+mkSel      = input.string("Auto", "Market", options = ["Auto", "Gold", "Crude oil", "Silver"], group = grpS)
+asiaSess   = input.session("1800-0200", "Asian range (New York time)", group = grpS)
+useTested  = input.bool(true, "Use the tested settings for this market (the four below are ignored)", group = grpS)
+winIn      = input.session("0200-0800", "Entry window (New York time)", group = grpS)
+tpIn       = input.float(2.0, "Take profit (R)", minval = 0.5, step = 0.1, group = grpS)
+beIn       = input.float(1.5, "Stop to break-even at (R, 0 = never)", minval = 0.0, step = 0.1, group = grpS)
+minRangeIn = input.float(0.0, "Skip if the Asian range is smaller than (× 1-hour ATR)", minval = 0.0, step = 0.1, group = grpS)
+flatSess   = input.session("1640-1800", "Close-out (New York time) — out of every trade", group = grpS)
+
+grpA = "Edge app alerts"
+secret     = input.string("change-me", "Webhook secret (same as EDGE_HOOK_SECRET)", group = grpA)
+sendBars   = input.bool(true, "Send a price heartbeat every candle (lets Edge manage your stop)", group = grpA)
+
+grpC = "Colours"
+cRange = input.color(#9b5de5, "Asian range", group = grpC)
+cBuy   = input.color(#27ae60, "Buy stop", group = grpC)
+cSell  = input.color(#eb5757, "Sell stop", group = grpC)
+
+// ---------- Market and its tested settings
+string root = syminfo.root
+string tk = syminfo.ticker
+string mk = mkSel == "Gold" ? "gold" : mkSel == "Crude oil" ? "crude" : mkSel == "Silver" ? "silver" :
+     (root == "GC" or root == "MGC" or str.contains(tk, "XAU") or str.contains(tk, "GOLD")) ? "gold" :
+     (root == "SI" or root == "SIL" or str.contains(tk, "XAG") or str.contains(tk, "SILVER")) ? "silver" : "crude"
+string winS  = useTested ? (mk == "crude" ? "0300-0800" : "0200-0800") : winIn
+float tpR    = useTested ? (mk == "crude" ? 3.0 : 2.0) : tpIn
+float beR    = useTested ? (mk == "gold" ? 1.5 : 1.0) : beIn
+float minRng = useTested ? (mk == "silver" ? 1.5 : 0.0) : minRangeIn
+
+bool inAsia = not na(time(timeframe.period, asiaSess, TZ))
+bool inWin  = not na(time(timeframe.period, winS, TZ))
+bool inFlat = not na(time(timeframe.period, flatSess, TZ))
+int nowMin  = hour(time, TZ) * 60 + minute(time, TZ)
+int winEnd  = int(str.tonumber(str.substring(winS, 5, 7))) * 60 + int(str.tonumber(str.substring(winS, 7, 9)))
+
+// 1-hour ATR(14) and 1-hour trend (EMA 20/50 + close), from the last CLOSED hour — no repainting
+[atr1h, trend1h] = request.security(syminfo.tickerid, "60", [ta.atr(14)[1],
+     close[1] > ta.ema(close, 50)[1] and ta.ema(close, 20)[1] > ta.ema(close, 50)[1] ? 1 :
+     close[1] < ta.ema(close, 50)[1] and ta.ema(close, 20)[1] < ta.ema(close, 50)[1] ? -1 : 0], lookahead = barmerge.lookahead_on)
+
+// ---------- Asian range
+var float aHi = na
+var float aLo = na
+var float rHi = na
+var float rLo = na
+var int aStart = na
+var bool done = false       // one trade per day
+var bool planSent = false
+varip bool alerted = false  // the breakout alert went out (survives the ticks of a live candle)
+var box rBox = na
+var line lnBuy = na
+var line lnSell = na
+
+if inAsia and not inAsia[1]
+    aHi := high
+    aLo := low
+    aStart := time
+    rHi := na
+    rLo := na
+    done := false
+    planSent := false
+    alerted := false
+    rBox := box.new(time, high, time, low, xloc = xloc.bar_time, border_color = color.new(cRange, 20), bgcolor = color.new(cRange, 88), text = "ASIA", text_color = cRange, text_size = size.small, text_halign = text.align_left, text_valign = text.align_top)
+else if inAsia
+    aHi := math.max(aHi, high)
+    aLo := math.min(aLo, low)
+    box.set_right(rBox, time)
+    box.set_top(rBox, aHi)
+    box.set_bottom(rBox, aLo)
+
+if not inAsia and inAsia[1] and not na(aHi)
+    rHi := aHi
+    rLo := aLo
+    box.set_text(rBox, "ASIA " + str.tostring(rLo, format.mintick) + " – " + str.tostring(rHi, format.mintick))
+
+float rangeAtr = na(rHi) or na(atr1h) or atr1h <= 0 ? na : (rHi - rLo) / atr1h
+bool rangeOk = not na(rHi) and rHi > rLo and (minRng <= 0 or (not na(rangeAtr) and rangeAtr >= minRng))
+
+// ---------- Alerts for the Edge app
+f(float x) => str.tostring(x, "#.#####")
+
+legJson(string dir, float entry, float sl) =>
+    '{"dir":"' + dir + '","entry":' + f(entry) + ',"sl":' + f(sl) + '}'
+
+// the plan: both stop orders, as soon as the entry window opens
+if inWin and rangeOk and not planSent and not done
+    planSent := true
+    int validMin = math.max(15, winEnd - nowMin)
+    alert('{"secret":"' + secret + '","type":"plan","strategy":"london","symbol":"' + tk + '","tv":"' + syminfo.tickerid +
+         '","rangeHi":' + f(rHi) + ',"rangeLo":' + f(rLo) + ',"validMin":' + str.tostring(validMin) +
+         ',"legs":[' + legJson("long", rHi, rLo) + ',' + legJson("short", rLo, rHi) + ']}', alert.freq_once_per_bar)
+    lnBuy := line.new(time, rHi, time + (validMin * 60000), rHi, xloc = xloc.bar_time, color = cBuy, style = line.style_dashed, width = 2)
+    lnSell := line.new(time, rLo, time + (validMin * 60000), rLo, xloc = xloc.bar_time, color = cSell, style = line.style_dashed, width = 2)
+    label.new(time, rHi, "BUY STOP " + str.tostring(rHi, format.mintick), xloc = xloc.bar_time, style = label.style_label_lower_left, color = color.new(cBuy, 20), textcolor = color.white, size = size.small)
+    label.new(time, rLo, "SELL STOP " + str.tostring(rLo, format.mintick), xloc = xloc.bar_time, style = label.style_label_upper_left, color = color.new(cSell, 20), textcolor = color.white, size = size.small)
+
+if inWin and not na(rHi) and not rangeOk and not planSent
+    planSent := true
+    label.new(time, rHi, "Asian range too small today — no trade", xloc = xloc.bar_time, style = label.style_label_lower_left, color = color.new(color.gray, 30), textcolor = color.white, size = size.small)
+
+// the breakout: the first side price trades through (intrabar, the moment it happens)
+bool canTrade = inWin and rangeOk and not done
+bool upHit = canTrade and high >= rHi
+bool dnHit = canTrade and low <= rLo
+bool goLong = upHit and not dnHit
+bool goShort = dnHit and not upHit
+
+setupJson(string dir, float entry, float sl) =>
+    float risk = math.abs(entry - sl)
+    float tp = dir == "long" ? entry + tpR * risk : entry - tpR * risk
+    '{"secret":"' + secret + '","type":"setup","strategy":"london","symbol":"' + tk + '","tv":"' + syminfo.tickerid + '","dir":"' + dir +
+     '","entry":' + f(entry) + ',"sl":' + f(sl) + ',"tp":' + f(tp) + ',"rangeHi":' + f(rHi) + ',"rangeLo":' + f(rLo) +
+     ',"rangeAtr":' + (na(rangeAtr) ? "null" : f(rangeAtr)) + ',"trend":' + str.tostring(nz(trend1h)) + ',"stopOk":true}'
+
+if goLong and not alerted
+    alerted := true
+    alert(setupJson("long", math.max(rHi, open), rLo), alert.freq_once_per_bar)
+if goShort and not alerted
+    alerted := true
+    alert(setupJson("short", math.min(rLo, open), rHi), alert.freq_once_per_bar)
+if (goLong or goShort) and barstate.isconfirmed
+    done := true
+    label.new(bar_index, goLong ? low : high, goLong ? "▲ LONG" : "▼ SHORT", style = goLong ? label.style_label_up : label.style_label_down, color = goLong ? cBuy : cSell, textcolor = color.white, size = size.small)
+
+if sendBars and barstate.isconfirmed
+    alert('{"secret":"' + secret + '","type":"bar","symbol":"' + tk + '","price":' + f(close) + ',"high":' + f(high) + ',"low":' + f(low) + ',"bos15":""}', alert.freq_once_per_bar_close)
+
+// ---------- Strategy Tester: the same rules as orders
+var float tSL = na
+var float tTP = na
+var float tE = na
+var bool tBE = false
+if strategy.position_size == 0
+    tE := na
+    tBE := false
+    if canTrade and not inFlat
+        strategy.entry("Long", strategy.long, stop = rHi, oca_name = "london", oca_type = strategy.oca.cancel)
+        strategy.entry("Short", strategy.short, stop = rLo, oca_name = "london", oca_type = strategy.oca.cancel)
+    else
+        strategy.cancel("Long")
+        strategy.cancel("Short")
+else
+    if na(tE)
+        tE := strategy.opentrades.entry_price(0)
+        tSL := strategy.position_size > 0 ? rLo : rHi
+        float r1 = math.abs(tE - tSL)
+        tTP := strategy.position_size > 0 ? tE + tpR * r1 : tE - tpR * r1
+        done := true
+    if beR > 0 and not tBE
+        float r0 = math.abs(tE - tSL)
+        if (strategy.position_size > 0 and high >= tE + beR * r0) or (strategy.position_size < 0 and low <= tE - beR * r0)
+            tBE := true
+            tSL := tE
+    strategy.exit("Exit L", "Long", stop = tSL, limit = tTP)
+    strategy.exit("Exit S", "Short", stop = tSL, limit = tTP)
+    if inFlat
+        strategy.close_all(comment = "close-out")
+
+plot(strategy.position_size != 0 ? tSL : na, "Stop", color = color.new(cSell, 0), style = plot.style_linebr, linewidth = 1)
+plot(strategy.position_size != 0 ? tTP : na, "Target", color = color.new(cBuy, 0), style = plot.style_linebr, linewidth = 1)
