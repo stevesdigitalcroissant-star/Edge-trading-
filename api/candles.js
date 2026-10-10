@@ -15,13 +15,16 @@ function parse(j) {
   return out;
 }
 
-async function load(market, days = 59) {
+// Yahoo keeps 5m/15m candles for 60 days and 1-hour candles for 2 years
+const INTERVALS = { "5m": 59, "15m": 59, "60m": 729 };
+
+async function load(market, days = 59, interval = "5m") {
   const sym = SYMBOLS[market];
   if (!sym) throw new Error("Pick gold, crude or natgas");
   let last;
   for (const host of ["query1", "query2"]) {
     try {
-      const r = await fetch(`https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&range=${days}d&includePrePost=true`, {
+      const r = await fetch(`https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${days}d&includePrePost=true`, {
         headers: { "User-Agent": "Mozilla/5.0 (Edge trading co-pilot)", Accept: "application/json" },
       });
       if (!r.ok) throw new Error(`price data ${r.status}`);
@@ -35,9 +38,10 @@ module.exports = async (req, res) => {
   try {
     const url = new URL(req.url, "http://x");
     const market = url.searchParams.get("m") || "gold";
-    const bars = await load(market);
+    const interval = INTERVALS[url.searchParams.get("i")] ? url.searchParams.get("i") : "5m";
+    const bars = await load(market, INTERVALS[interval], interval);
     res.setHeader("Cache-Control", "public, s-maxage=1800, stale-while-revalidate=3600");
-    res.status(200).json({ market, symbol: SYMBOLS[market], bars });
+    res.status(200).json({ market, symbol: SYMBOLS[market], interval, bars });
   } catch (e) {
     res.status(502).json({ error: `Couldn't load candles: ${e.message}` });
   }
