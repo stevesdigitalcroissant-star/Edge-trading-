@@ -711,7 +711,8 @@ async function action(store, broker, body, now = Date.now()) {
   }
   if (a === "backtestLog") {
     // a trade you replayed by hand (TradingView Bar Replay) for one of the tested strategies — practice only
-    const sp = strategyPlan(String(body.strategy || ""), body.market);
+    // "sd" = your supply & demand style from the simulator: its target varies, so the result is the R you had
+    const sp = strategyPlan(String(body.strategy || ""), body.market) || (body.strategy === "sd" && ["gold", "crude", "silver"].includes(body.market) ? { strategy: "sd", tpR: 20, beR: 0 } : null);
     if (!sp) throw new Error("Pick a strategy and one of its markets.");
     const dir = body.dir === "short" ? "short" : "long";
     const outcome = ["tp", "be", "sl", "flat"].includes(body.outcome) ? body.outcome : null;

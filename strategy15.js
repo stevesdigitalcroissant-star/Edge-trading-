@@ -327,12 +327,13 @@
 
   function panel(res, i) {
     const s = res.states[i], f = (x) => (x == null ? "—" : +x.toFixed(x >= 100 ? 2 : 3));
-    const dir = s.gDir || (s.order && s.order.dir) || (s.setup && s.setup.dir) || s.trend;
+    const t15 = res.params && res.params.trendTF === "15m", trend = t15 ? s.m15 : s.trend; // the trend this rule set trades with
+    const dir = s.gDir || (s.order && s.order.dir) || (s.setup && s.setup.dir) || trend;
     const side = dir === 1 ? "LONG" : dir === -1 ? "SHORT" : "";
     const inT = s.gDir !== 0, ord = !!s.order, set = !!s.setup;
     const steps = [
-      ["4H trend (close)", dir !== 0 && s.trend === dir, (s.trend === 1 ? "UP" : s.trend === -1 ? "DOWN" : "none yet") + (s.warn ? " · wick warning" : "")],
-      ["15m zone, first touch", inT || ord || set, inT || ord || set ? "price is in the zone" : "waiting"],
+      [t15 ? "15m trend" : "4H trend (close)", dir !== 0 && trend === dir, (trend === 1 ? "UP" : trend === -1 ? "DOWN" : "none yet") + (!t15 && s.warn ? " · wick warning" : "")],
+      [(res.params && res.params.maxTouches > 2) ? "15m zone touched" : "15m zone, first touch", inT || ord || set, inT || ord || set ? "price is in the zone" : "waiting"],
       ["Liquidity swept (A+)", inT ? s.gGrade === "A+" : ord ? s.order.grade === "A+" : false, inT ? (s.gSw || "no sweep — A") : ord ? (s.order.grade === "A+" ? "yes" : "no sweep — A") : "checked at the 5m break"],
       ["5m break → 5m zone", inT || ord, ord ? `limit at ${f(s.order.entry)}` : inT ? "done" : "waiting"],
       ["Limit order filled", inT, inT ? `in at ${f(s.gE)}` : "waiting"],

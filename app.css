@@ -543,3 +543,10 @@ label.tv-row, .tv-row:not(:has(.tv-tog)) { grid-template-columns: 82px 1fr auto 
 .acct-rules { display: grid; gap: 8px; padding: 10px; border-radius: 12px; background: var(--panel2); }
 .acct-rules .tv-row input { background: var(--panel); }
 .sim-banner b.bad { color: var(--bad); } .sim-banner b.good { color: var(--good); }
+.sd-coach { margin: 6px 0 8px; padding: 10px 12px; border-radius: 12px; background: var(--panel2); border-left: 3px solid #2962ff; }
+.sd-steps { display: grid; gap: 6px; } .sd-steps > div { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; opacity: .65; }
+.sd-steps > div.ok { opacity: 1; } .sd-steps i { font-style: normal; width: 16px; color: var(--muted); } .sd-steps .ok i { color: var(--good); }
+.sd-steps b { display: block; font-size: 13px; } .sd-steps small { color: var(--muted); font-size: 12px; }
+.sd-coach > p { margin: 8px 0 0; font-size: 13.5px; font-weight: 600; }
+.tv-menu .tv-msub { display: block; font-size: 11.5px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.tv-bar button.strat span { color: #f0b90b; }
