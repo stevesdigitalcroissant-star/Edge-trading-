@@ -25,7 +25,7 @@
   window.Edge = { token: () => token, state: () => S, toast, refresh: () => refresh(), go: (t) => { tab = t; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#" + tab); refresh(); scrollTo(0, 0); } };
 
   // ---------- notifications on this device (Web Push; iPhone/iPad need Edge on the Home Screen)
-  const TABS = ["now", "coach", "setups", "bias", "journal", "rules"];
+  const TABS = ["now", "learn", "coach", "setups", "bias", "journal", "rules"];
   const fromHash = () => { const h = location.hash.slice(1); if (TABS.includes(h)) { tab = h; try { localStorage.setItem("edge.tab", tab); } catch {} } };
   fromHash();
   addEventListener("hashchange", () => { fromHash(); if (S) render(); });
@@ -169,8 +169,138 @@
     $("#view").hidden = coachTab;
     if (window.EdgeCoach) window.EdgeCoach.show(coachTab);
     if (coachTab) return;
-    $("#view").innerHTML = ({ now: viewNow, setups: viewSetups, bias: viewBias, journal: viewJournal, rules: viewRules })[tab]();
+    $("#view").innerHTML = ({ now: viewNow, learn: viewLearn, setups: viewSetups, bias: viewBias, journal: viewJournal, rules: viewRules })[tab]();
     bind();
+  }
+
+  // ---------- LEARN: the two tested strategies in plain words, how to backtest them, a one-week plan and a practice log
+  const LEARN_WEEK = [
+    ["Read & look", "Read the two strategies below (10 minutes). Put the Edge scripts on your TradingView charts (Rules → TradingView setup). Scroll back 10 days on gold: find the Asian box and which side broke each morning."],
+    ["Gold London breakout", "Bar Replay, 5-minute MGC1!. Replay 20 mornings, one by one. Log each trade below."],
+    ["Crude London breakout", "Same on MCL1!: 20 mornings. Remember: crude entries only from 03:00 New York."],
+    ["Silver + natural gas", "10 silver mornings (skip the days the Asian box is tiny). Then 1-hour QG1!: mark old zones (5+ days), replay 10 sessions of the gas windows."],
+    ["A full day, like real", "Replay 5 full days with all markets together and the daily rules: 2 London trades max, gas zones on top, stop for the day at −2R."],
+    ["Review", "Compare your numbers below with the test. Did you follow the rules on 95%+ of your trades? Write down the 3 mistakes you made most."],
+    ["Live, tiny", "Switch Edge on with your prop evaluation (or demo) account: 1 micro contract, follow the alerts exactly. Log how you felt on every trade."],
+  ];
+  const TEST = { "london:gold": [43, 0.13], "london:crude": [30, 0.13], "london:silver": [39, 0.1], "ngzone:natgas": [47, 0.65] };
+  const SLOTS = [["london:gold", "Gold · London breakout"], ["london:crude", "Crude · London breakout"], ["london:silver", "Silver · London breakout"], ["ngzone:natgas", "Natural gas · zones"]];
+  const weekDone = () => { try { return JSON.parse(localStorage.getItem("edge.week") || "[]"); } catch { return []; } };
+
+  function londonPic() {
+    // Asian box, then the London breakout up: buy stop fills, stop at the box low, target 2R above
+    return `<svg viewBox="0 0 340 180" class="learnpic" role="img" aria-label="London breakout picture">
+      <rect x="20" y="78" width="140" height="44" fill="var(--c4h)" opacity=".14" stroke="var(--c4h)" stroke-opacity=".6"/>
+      <text x="26" y="72" font-size="10" font-weight="700" fill="var(--c4h)">ASIA 18:00 → 02:00 (the box)</text>
+      <line x1="160" y1="78" x2="330" y2="78" stroke="var(--good)" stroke-dasharray="5 4" stroke-width="1.6"/>
+      <text x="236" y="74" font-size="9.5" font-weight="700" fill="var(--good)">BUY STOP = box high</text>
+      <line x1="160" y1="122" x2="330" y2="122" stroke="var(--bad)" stroke-dasharray="5 4" stroke-width="1.6"/>
+      <text x="236" y="134" font-size="9.5" font-weight="700" fill="var(--bad)">SELL STOP = box low</text>
+      <line x1="200" y1="10" x2="330" y2="10" stroke="var(--good)" stroke-width="2"/><text x="250" y="22" font-size="9.5" font-weight="700" fill="var(--good)">TARGET (2R gold)</text>
+      <line x1="200" y1="56" x2="330" y2="56" stroke="var(--warn)" stroke-dasharray="3 3"/><text x="250" y="52" font-size="9" fill="var(--warn)">break-even here</text>
+      <path d="M20,100 L40,90 L55,108 L75,95 L92,115 L110,86 L128,104 L145,96 L160,110 L175,100 L190,92 L200,78 L214,66 L226,72 L242,50 L258,58 L276,34 L292,40 L310,14" fill="none" stroke="var(--text)" stroke-width="2" stroke-linejoin="round"/>
+      <circle cx="200" cy="78" r="5" fill="var(--good)"/><text x="20" y="156" font-size="9.5" fill="var(--muted)">① box set at 02:00 · ② place both orders · ③ one fills → cancel other</text>
+      <text x="20" y="171" font-size="9.5" fill="var(--bad)">stop for a buy = box low · stop for a sell = box high</text>
+    </svg>`;
+  }
+  function gasPic() {
+    // base candle + explosive candle → zone (wick → body start), price comes back days later, limit buy, stop under, 3R
+    const c = (x, o, cl, h, l, col) => `<line x1="${x + 6}" y1="${h}" x2="${x + 6}" y2="${l}" stroke="${col}"/><rect x="${x}" y="${Math.min(o, cl)}" width="12" height="${Math.max(2, Math.abs(cl - o))}" fill="${col}"/>`;
+    return `<svg viewBox="0 0 340 180" class="learnpic" role="img" aria-label="Natural gas zone picture">
+      <rect x="40" y="118" width="290" height="16" fill="var(--good)" opacity=".18" stroke="var(--good)" stroke-opacity=".6"/>
+      <text x="44" y="146" font-size="9.5" font-weight="700" fill="var(--good)">DEMAND ZONE: base candle wick → start of its body</text>
+      ${c(22, 104, 118, 100, 134, "var(--bad)")}${c(40, 118, 122, 112, 134, "var(--bad)")}${c(58, 118, 60, 56, 120, "var(--good)")}
+      <text x="80" y="110" font-size="9.5" font-weight="700" fill="var(--text)">← explosive Heikin Ashi candle</text>
+      <path d="M76,60 L110,40 L140,55 L170,30 L200,48 L228,80 L250,100 L268,118" fill="none" stroke="var(--text)" stroke-width="2" stroke-linejoin="round"/>
+      <text x="160" y="80" font-size="9.5" fill="var(--muted)">5+ trading days later…</text>
+      <circle cx="268" cy="118" r="5" fill="var(--good)"/>
+      <path d="M268,118 L284,96 L300,70 L318,30" fill="none" stroke="var(--text)" stroke-width="2" stroke-dasharray="4 3"/>
+      <line x1="262" y1="152" x2="334" y2="152" stroke="var(--bad)" stroke-width="1.6"/><text x="300" y="166" font-size="9.5" font-weight="700" fill="var(--bad)">STOP</text>
+      <line x1="262" y1="22" x2="334" y2="22" stroke="var(--good)" stroke-width="2"/><text x="276" y="16" font-size="9.5" font-weight="700" fill="var(--good)">TARGET 3R</text>
+      <text x="150" y="176" font-size="9.5" fill="var(--muted)">limit BUY at the zone top</text>
+    </svg>`;
+  }
+
+  function viewLearn() {
+    const done = weekDone();
+    const bt = (S.practice || []).filter((t) => t.source === "backtest");
+    const row = ([slot, label]) => {
+      const [stg, mk] = slot.split(":"), a = bt.filter((t) => t.strategy === stg && t.market === mk);
+      const n = a.length, won = a.filter((t) => t.resultR > 0.1).length, tot = Math.round(a.reduce((x, t) => x + t.resultR, 0) * 100) / 100;
+      const ok = a.filter((t) => t.grade === "A+").length, [tw, ta] = TEST[slot];
+      return `<tr><td>${label}</td><td>${n}</td><td>${n ? Math.round((won / n) * 100) + "%" : "—"} <small class="muted">(${tw}%)</small></td><td class="${cls(tot)}">${n ? rs(tot) : "—"}</td><td>${n ? rs(Math.round((tot / n) * 100) / 100) : "—"} <small class="muted">(+${ta})</small></td><td>${n ? Math.round((ok / n) * 100) + "%" : "—"}</td></tr>`;
+    };
+    const total = bt.length, okAll = bt.filter((t) => t.grade === "A+").length;
+    const ready = total >= 60 && okAll / Math.max(1, total) >= 0.95;
+    return `<section class="card hero" style="--state:var(--accent)"><div>
+        <div class="state">Learn · one week</div>
+        <div class="headline">Two strategies. One week of practice. Then Edge.</div>
+        <p class="sub">The <b>London breakout</b> (gold, crude oil, silver) and <b>natural gas zones</b>. Tested on 2.4 years of futures data. Learn them by replaying the past, one candle at a time.</p></div></section>
+
+      <section class="card"><h2>Your week</h2>
+        <ol class="week">${LEARN_WEEK.map(([t, d], i) => `<li><label><input type="checkbox" data-week="${i}" ${done.includes(i) ? "checked" : ""}><span><b>Day ${i + 1} · ${t}</b><br><span class="muted">${d}</span></span></label></li>`).join("")}</ol>
+        <p class="${ready ? "" : "muted"}" style="margin:10px 0 0">${ready ? "✅ You're ready for Day 7: 60+ replayed trades with the rules followed." : `Ready for live when: <b>60 replayed trades</b> logged (you have ${total}) and the rules followed on <b>95%</b> of them.`}</p>
+      </section>
+
+      <section class="card"><h2>1 · London breakout — gold, crude oil, silver</h2>
+        ${londonPic()}
+        <ol class="steps">
+          <li><b>The box.</b> From 18:00 to 02:00 New York the market is quiet (Asia). Its highest and lowest price make the box.</li>
+          <li><b>Two orders.</b> When London opens, place a <b>buy stop</b> at the box high and a <b>sell stop</b> at the box low. Each one with its stop loss and target attached.</li>
+          <li><b>One fills, cancel the other.</b> The side London breaks is your trade. One trade per market per day.</li>
+          <li><b>Stop</b> = the other side of the box. <b>Target</b> = 2R (gold, silver) or 3R (crude).</li>
+          <li><b>Break-even</b> when price reaches +1.5R (gold) or +1R (crude, silver). Then hands off until target, stop or 16:40 New York.</li>
+        </ol>
+        <table class="ltable"><tr><th></th><th>Orders live (New York)</th><th>Dubai Mar–Nov</th><th>Dubai Nov–Mar</th><th>Break-even</th><th>Target</th></tr>
+          <tr><td>Gold</td><td>02:00–08:00</td><td>10:00–16:00</td><td>11:00–17:00</td><td>+1.5R</td><td>2R</td></tr>
+          <tr><td>Crude</td><td>03:00–08:00</td><td>11:00–16:00</td><td>12:00–17:00</td><td>+1R</td><td>3R</td></tr>
+          <tr><td>Silver</td><td>02:00–08:00 · skip if the box is tiny</td><td>10:00–16:00</td><td>11:00–17:00</td><td>+1R</td><td>2R</td></tr></table>
+        <p class="muted">You'll lose more often than you win (30–43% winners). That's normal: each winner pays 2–3 losers. Never close early because it "looks weak" — the tests did worse every time.</p>
+      </section>
+
+      <section class="card"><h2>2 · Natural gas zones (your own idea, tested)</h2>
+        ${gasPic()}
+        <ol class="steps">
+          <li><b>Find an explosive move</b> on the 1-hour Heikin Ashi chart: a candle about twice as big as the ones before it.</li>
+          <li><b>Draw the zone</b> on the candle just before it (the base): from its wick to the start of its body. It stays valid until a candle <b>closes through</b> it.</li>
+          <li><b>Only old zones:</b> at least <b>5 trading days</b> old, and only on the <b>1st or 2nd</b> time price comes back.</li>
+          <li><b>Only in your windows:</b> 06:00–09:00 and 11:00–12:00 New York (Dubai 14:00–17:00 and 19:00–20:00 Mar–Nov, one hour later Nov–Mar).</li>
+          <li><b>Limit order</b> at the zone edge, stop just past the far side, <b>target 3R</b>, break-even at +2R.</li>
+        </ol>
+        <p class="muted">About 2 trades a month, but the best ones in the plan: 47% winners, +0.65R a trade on average.</p>
+      </section>
+
+      <section class="card"><h2>How to backtest (TradingView Bar Replay)</h2>
+        <ol class="steps">
+          <li>Open the chart (5-minute MGC1! / MCL1! / SIL1!, or 1-hour QG1! for gas) with the Edge script on it.</li>
+          <li>Click <b>Replay</b> (top toolbar) and pick a day in the past, around 17:00 New York.</li>
+          <li>Press <b>▶ forward</b> one candle at a time (Shift + →). Never look ahead — hide the future.</li>
+          <li>At 02:00 (03:00 crude): write down the box high and low, and where your two orders would go. Then keep stepping.</li>
+          <li>When an order fills, follow the plan: break-even at its level, out at target, stop or 16:40.</li>
+          <li><b>Log it below</b> — 20 seconds. Honest: tick "I followed the rules" only if you did.</li>
+        </ol>
+        <p class="muted">The scripts also run in the <b>Strategy Tester</b> (bottom panel), which shows the results of the same rules over your chart's history in one click. Replay is still the training: it teaches your eyes and hands.</p>
+      </section>
+
+      <section class="card"><h2>Log a replayed trade</h2>
+        <div class="grid2">
+          <label class="f">Strategy · market<select id="btSlot">${SLOTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
+          <label class="f">Day you replayed<input id="btDate" type="date"></label>
+        </div>
+        <div class="seg" id="btDir" style="grid-template-columns:repeat(2,1fr);margin:8px 0"><button type="button" data-val="long" class="on">Buy</button><button type="button" data-val="short">Sell</button></div>
+        <div class="seg" id="btOut" style="grid-template-columns:repeat(4,1fr);margin:8px 0"><button type="button" data-val="tp">Target</button><button type="button" data-val="be">Break-even</button><button type="button" data-val="sl">Stop</button><button type="button" data-val="flat">16:40 out</button></div>
+        <label class="f" id="btRwrap" hidden>R at 16:40 (e.g. 0.6 or −0.4)<input id="btR" inputmode="decimal"></label>
+        <label class="f" style="flex-direction:row;display:flex;gap:8px;align-items:center"><input type="checkbox" id="btOk" checked style="width:auto"> I followed every rule on this one</label>
+        <label class="f">Note (optional)<input id="btNote" placeholder="what you saw, what you felt"></label>
+        <button class="btn primary" id="btSave">Save</button>
+        <h3 style="margin-top:16px">Your replay results <small class="muted">(test result in brackets)</small></h3>
+        <div style="overflow-x:auto"><table class="ltable"><tr><th></th><th>Trades</th><th>Won</th><th>Total</th><th>Per trade</th><th>Rules kept</th></tr>${SLOTS.map(row).join("")}</table></div>
+        <p class="muted" style="margin-bottom:0">After 20 trades your win rate can easily be 15 points off the test — that's normal luck. What matters this week: the rules kept column.</p>
+      </section>
+
+      <section class="card"><h2>Better charts for backtesting</h2>
+        <p class="muted" style="margin-top:0">Free price data only keeps 60 days of 15-minute candles. To go back years: TradingView <b>Premium</b> replays all its intraday history (lower plans replay months, not years). For Edge's own tests, <b>Databento</b> sells official CME futures data (gold, crude, gas, silver, S&amp;P) back 15+ years, pay as you go, with free credit for new accounts.</p>
+      </section>`;
   }
 
   // ---------- NOW
@@ -653,6 +783,16 @@
       const seg = b.parentElement; seg.dataset.v = b.dataset.val;
       seg.querySelectorAll("button").forEach((y) => y.classList.toggle("on", y === b));
     }));
+    v.querySelectorAll("[data-week]").forEach((el) => el.addEventListener("change", () => {
+      const d = new Set(weekDone()); el.checked ? d.add(Number(el.dataset.week)) : d.delete(Number(el.dataset.week));
+      try { localStorage.setItem("edge.week", JSON.stringify([...d])); } catch {}
+    }));
+    const bo = $("#btOut"); if (bo) bo.addEventListener("click", () => { $("#btRwrap").hidden = bo.dataset.v !== "flat"; });
+    const bs = $("#btSave"); if (bs) bs.addEventListener("click", async () => {
+      const [strategy, market] = $("#btSlot").value.split(":");
+      const r = await act({ action: "backtestLog", strategy, market, dir: $("#btDir").dataset.v || "long", outcome: bo.dataset.v, r: $("#btR").value.replace("−", "-"), date: $("#btDate").value, rulesOk: $("#btOk").checked, note: $("#btNote").value }, "Logged.");
+      if (r) render();
+    });
     v.querySelectorAll("[data-savebias]").forEach((b) => b.addEventListener("click", () => {
       const card = b.closest("[data-biascard]"), answers = {};
       card.querySelectorAll("[data-factor]").forEach((s) => (answers[s.dataset.factor] = Number(s.dataset.v)));

@@ -130,3 +130,20 @@ test("contracts from the dollars you type", () => {
   assert.equal(R.orderSize(setup, s).qty, 2);          // $250 / $100 a contract
   assert.equal(R.orderSize(setup, s, 2410, 640).qty, 6); // $640 → 6 (never above)
 });
+
+test("replayed trades go to the practice journal with the strategy's own result", async () => {
+  const store = memory();
+  const now = NY(12);
+  await core.action(store, broker, { action: "backtestLog", strategy: "london", market: "crude", dir: "long", outcome: "tp", date: "2025-03-04" }, now);
+  await core.action(store, broker, { action: "backtestLog", strategy: "ngzone", market: "natgas", dir: "short", outcome: "flat", r: "0.6", rulesOk: false }, now);
+  await assert.rejects(core.action(store, broker, { action: "backtestLog", strategy: "london", market: "natgas", outcome: "tp" }, now), /Pick a strategy/);
+  await assert.rejects(core.action(store, broker, { action: "backtestLog", strategy: "london", market: "gold", outcome: "flat" }, now), /close-out/);
+  const st = await core.state(store, broker, now);
+  assert.equal(st.journal.length, 0); // never counts as real trading
+  const crude = st.practice.find((t) => t.market === "crude");
+  assert.equal(crude.resultR, 3);
+  assert.equal(crude.grade, "A+");
+  const gas = st.practice.find((t) => t.market === "natgas");
+  assert.equal(gas.resultR, 0.6);
+  assert.equal(gas.grade, "unplanned");
+});

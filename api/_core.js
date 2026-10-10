@@ -637,6 +637,26 @@ async function action(store, broker, body, now = Date.now()) {
     await store.hset("journal", j.id, j);
     return { trade: j };
   }
+  if (a === "backtestLog") {
+    // a trade you replayed by hand (TradingView Bar Replay) for one of the tested strategies — practice only
+    const sp = strategyPlan(String(body.strategy || ""), body.market);
+    if (!sp) throw new Error("Pick a strategy and one of its markets.");
+    const dir = body.dir === "short" ? "short" : "long";
+    const outcome = ["tp", "be", "sl", "flat"].includes(body.outcome) ? body.outcome : null;
+    if (!outcome) throw new Error("How did it end? Target, break-even, stop or close-out.");
+    const flatR = num(body.r);
+    if (outcome === "flat" && flatR == null) throw new Error("Enter the R you had at the close-out (e.g. 0.6 or -0.4).");
+    const resultR = R.round(outcome === "tp" ? sp.tpR : outcome === "be" ? 0 : outcome === "sl" ? -1 : Math.max(-1, Math.min(sp.tpR, flatR)));
+    const when = Date.parse(String(body.date || "")) || now;
+    const rulesOk = body.rulesOk !== false;
+    const j = {
+      id: `practice:${id()}`, source: "backtest", practice: true, strategy: sp.strategy, tpR: sp.tpR, beR: sp.beR, market: body.market, dir,
+      grade: rulesOk ? "A+" : "unplanned", ruleBreaks: rulesOk ? [] : ["didn't follow the rules"], openedAt: when, closedAt: when, resultR,
+      exitReason: { tp: "target", be: "break-even", sl: "stop", flat: "session close-out" }[outcome] + " (replay)", note: String(body.note || "").slice(0, 500), maxR: null,
+    };
+    await store.hset("journal", j.id, j);
+    return { trade: j };
+  }
   if (a === "chartSetup") {
     // the free chart reader saw the script's ENTER signal (the script only shows it when every A+ step is done)
     const market = marketOf(body.symbol || "") || (MARKETS[body.market] ? body.market : null);
