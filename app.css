@@ -396,7 +396,7 @@ body.sim-on .tabs { display: none; }
 .sim-pnl { text-align: right; flex: none; } .sim-pnl small { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; } .sim-pnl b { font: 700 16px var(--display); }
 .sim-pnl b.good, .sim-clock .good { color: var(--good); } .sim-pnl b.bad { color: var(--bad); }
 .sim-info { padding: 6px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
-.sim-chart { position: relative; flex: 1 1 auto; min-height: 220px; }
+.sim-chart { position: relative; flex: 1 1 auto; min-height: 220px; overflow: hidden; }
 .sim-ov { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; overflow: visible; }
 .sim-ov .annt { font: 700 11px var(--font); paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
 .sim-ov .pulse { animation: simPulse 1.4s ease-in-out infinite; }
@@ -437,3 +437,22 @@ body.sim-on .tabs { display: none; }
 .lab-legend { display: flex; gap: 14px; font-size: 12px; margin: 10px 0 4px; } .lab-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
 .lab-chart { height: 240px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); margin-bottom: 10px; }
 .sim:fullscreen, .sim:-webkit-full-screen { padding: 0; }
+
+/* position tools on the simulator chart */
+.sim-tools { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none; overflow: hidden; }
+.sim-tools .hit { stroke: transparent; stroke-width: 20; pointer-events: stroke; touch-action: none; }
+.sim-tools .knob { fill: #fff; stroke: #d9b46c; stroke-width: 2; pointer-events: all; cursor: grab; touch-action: none; }
+.sim-tools .tt { font: 700 11px var(--font); paint-order: stroke; stroke: var(--panel); stroke-width: 3px; pointer-events: none; }
+#simTB { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+.tbar { position: absolute; display: flex; align-items: center; gap: 6px; pointer-events: auto; background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; padding: 4px 4px 4px 10px; font: 700 12px var(--font); box-shadow: 0 8px 20px -8px rgba(0, 0, 0, .55); white-space: nowrap; }
+.tbar.long { border-color: #26a69a; } .tbar.short { border-color: #ef5350; }
+.tbar button { border: 0; border-radius: 7px; padding: 5px 9px; font: 700 12px var(--font); cursor: pointer; background: var(--panel2); color: var(--text); }
+.tbar button[data-s="tplace"] { background: #d9b46c; color: #1b1407; }
+.sim-chart.arming { cursor: crosshair; }
+.sim-ctl .tool-long.on { border-color: #26a69a; background: color-mix(in srgb, #26a69a 18%, var(--panel2)); }
+.sim-ctl .tool-short.on { border-color: #ef5350; background: color-mix(in srgb, #ef5350 18%, var(--panel2)); }
+.sim-toolrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: var(--panel2); border-left: 3px solid #26a69a; margin-bottom: 6px; font-size: 13px; }
+.sim-toolrow.short { border-left-color: #ef5350; }
+.sim-type { margin-top: 8px; } .sim-type summary { cursor: pointer; color: var(--muted); font-size: 12.5px; padding: 4px 0; }
+.sim-tools .knob.sl { stroke: #ef5350; } .sim-tools .knob.tp { stroke: #26a69a; }
+@media (max-width: 520px) { .tbar .sz { display: none; } }

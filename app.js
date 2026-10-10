@@ -376,7 +376,7 @@
       <section class="card simcard" data-tour="sim"><div class="card-head"><h2>🕹 Practice simulator</h2><span class="muted">real past prices</span></div>
         <p class="muted" style="margin:0 0 10px">Like TradingView, on a real past day. Play the candles, place your orders, and after each trade tap <b>Review</b> — Edge shows you on the chart what you missed, one point at a time. At the end, your session summary.</p>
         <div class="chips">${[["gold", "🥇 Gold"], ["crude", "🛢️ Crude"], ["silver", "🥈 Silver"], ["natgas", "🔥 Gas"]].map(([m, l]) => `<button type="button" data-sim="${m}">${l}</button>`).join("")}</div>
-        <p class="muted" style="margin:8px 0 0;font-size:12.5px">On a laptop or iPad: ⛶ for full screen. Keys: Space play · → next candle · B / S buy or sell · 1 2 3 price, stop, target · Enter place.</p>
+        <p class="muted" style="margin:8px 0 0;font-size:12.5px">📈 Long / 📉 Short then tap the chart, drag the lines, one tap to place. Laptop/iPad: ⛶ full screen · Space play · → next candle · B / S long or short at price · P draw the plan · Enter place · Delete remove.</p>
       </section>
 
       <section class="card" data-tour="lab"><div class="card-head"><h2>🧪 Style lab</h2><span class="muted">your stop & target</span></div>

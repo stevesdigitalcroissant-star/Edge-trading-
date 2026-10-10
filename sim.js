@@ -4,10 +4,10 @@
 (function () {
   const NYZ = "America/New_York";
   const MK = {
-    gold: { name: "Gold", sym: "MGC", strategy: "london", tf: "5m", win: [120, 480], tpR: 2, beR: 1.5, dec: 2 },
-    crude: { name: "Crude oil", sym: "MCL", strategy: "london", tf: "5m", win: [180, 480], tpR: 3, beR: 1, dec: 2 },
-    silver: { name: "Silver", sym: "SIL", strategy: "london", tf: "5m", win: [120, 480], tpR: 2, beR: 1, dec: 3, minRangeAtr: 1.5 },
-    natgas: { name: "Natural gas", sym: "QG", strategy: "ngzone", tf: "60m", wins: [[360, 540], [660, 720]], tpR: 3, beR: 2, dec: 3 },
+    gold: { name: "Gold", sym: "MGC", pv: 10, strategy: "london", tf: "5m", win: [120, 480], tpR: 2, beR: 1.5, dec: 2 },
+    crude: { name: "Crude oil", sym: "MCL", pv: 100, strategy: "london", tf: "5m", win: [180, 480], tpR: 3, beR: 1, dec: 2 },
+    silver: { name: "Silver", sym: "SIL", pv: 1000, strategy: "london", tf: "5m", win: [120, 480], tpR: 2, beR: 1, dec: 3, minRangeAtr: 1.5 },
+    natgas: { name: "Natural gas", sym: "QG", pv: 2500, strategy: "ngzone", tf: "60m", wins: [[360, 540], [660, 720]], tpR: 3, beR: 2, dec: 3 },
   };
   const FLAT = 16 * 60 + 40;
   const cache = {};
@@ -201,6 +201,8 @@
     }
     if (tr.mfe >= P.beR && !tr.beAt && R < -0.5) add("beMissed", `It reached +${P.beR}R — break-even would have saved this`, `Price got to ${fx(beLvl)} (+${P.beR}R). Moving the stop to your entry there turns this loss into a scratch.`, [{ type: "hline", p: beLvl, color: "var(--warn)", label: `break-even level +${P.beR}R` }]);
     if (tr.beAt != null && tr.beAt < P.beR - 0.15 && Math.abs(R) < 0.15) add("beEarly", `You moved to break-even at +${tr.beAt.toFixed(1)}R`, `The plan waits for +${P.beR}R. Moving earlier got you stopped at entry.`, [{ type: "hline", p: beLvl, color: "var(--warn)", label: `break-even level +${P.beR}R` }]);
+    if (tr.widened) add("stopWide", "You moved your stop further away", "Once you're in, the stop only moves toward profit (to entry at the break-even level). Moving it away makes the loss bigger.", [{ type: "hline", p: tr.sl0, color: "var(--bad)", label: "your first stop" }]);
+    if (tr.tpMoved) add("target", "You pushed the target further", `The plan's target is ${P.tpR}R. Pushing it out is how winners turn into break-evens.`, []);
     if (tr.otherFilled) add("other", "Your other order filled too", "When one London order fills, cancel the other. Leaving it in flipped or doubled your position.", []);
     if (tr.second) add("second", "Second trade in the same session", "One trade per market per session — the tests never took a second one.", []);
     if (!f.length) {
@@ -224,8 +226,11 @@
         <button class="sim-x" data-s="fs" title="Full screen (F)">⛶</button>
         <div class="sim-pnl"><small>Session</small><b id="simPnl">0.00R</b></div></div>
       <div class="sim-info" id="simInfo">Loading prices…</div>
-      <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><div class="sim-banner" id="simBanner" hidden></div></div>
+      <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><div id="simTB"></div><div class="sim-banner" id="simBanner" hidden></div></div>
       <div class="sim-ctl">
+        <button class="btn small tool-long" data-s="tool" data-a="1" title="Long position (B)">📈 Long</button>
+        <button class="btn small tool-short" data-s="tool" data-a="-1" title="Short position (S)">📉 Short</button>
+        <button class="btn small" data-s="plan" id="simPlanBtn" title="Draw the London plan (P)" hidden>✨ Plan</button>
         <button class="btn small" data-s="play" id="simPlay">▶ Play</button>
         <button class="btn small" data-s="step">Next candle ›</button>
         <button class="btn small" data-s="speed" id="simSpeed">1×</button>
@@ -265,7 +270,7 @@
     // start: London → the evening the box starts (18:00); gas → 03:00 New York with plenty of history for old zones
     const startI = P.strategy === "london" ? first : Math.max(first, all.findIndex((b) => b.cme === day && b.min >= 180 && b.min < 18 * 60));
     const hist = P.strategy === "london" ? 160 : 24 * 12;
-    S = { market, P, day, bars: all, sess, i: startI, from: Math.max(0, startI - hist), speed: 1, orders: [], pos: null, trades: [], ha: P.strategy === "ngzone", plan: P.strategy === "london" ? londonPlan(sess, P) : null, ticket: { side: 1, type: P.strategy === "london" ? "stop" : "limit", entry: "", sl: "", tp: "", field: "entry" }, reviewing: null };
+    S = { market, P, day, bars: all, sess, i: startI, from: Math.max(0, startI - hist), speed: 1, orders: [], pos: null, trades: [], ha: P.strategy === "ngzone", plan: P.strategy === "london" ? londonPlan(sess, P) : null, ticket: { side: 1, type: P.strategy === "london" ? "stop" : "limit", entry: "", sl: "", tp: "", field: "entry" }, reviewing: null, tools: [], arm: 0 };
     buildChart();
     paintAll();
     const d = new Date(day * 864e5); // the New York trading day
@@ -288,9 +293,20 @@
       crosshair: { mode: LW.CrosshairMode.Normal },
     });
     series = chart.addCandlestickSeries({ upColor: "#26a69a", downColor: "#ef5350", wickUpColor: "#26a69a", wickDownColor: "#ef5350", borderVisible: false, priceFormat: { type: "price", precision: S.P.dec, minMove: S.P.dec === 2 ? 0.01 : 0.001 } });
-    chart.subscribeClick((p) => { if (!p.point || !S || S.reviewing) return; const price = series.coordinateToPrice(p.point.y); if (price == null) return; S.ticket[S.ticket.field] = price.toFixed(S.P.dec); if (S.ticket.field === "entry") S.ticket.field = "sl"; else if (S.ticket.field === "sl") S.ticket.field = "tp"; panel(); drawLines(); });
+    // keep every stop and target on screen
+    series.applyOptions({ autoscaleInfoProvider: (orig) => {
+      if (S && S.freeze) return { priceRange: S.freeze };
+      const r = orig(); if (!r || !S) return r;
+      const xs = []; for (const o of objects()) xs.push(o.e, o.sl, ...(o.pos && o.tp != null ? [o.tp] : []));
+      if (!xs.length) return r;
+      return { priceRange: { minValue: Math.min(r.priceRange.minValue, ...xs), maxValue: Math.max(r.priceRange.maxValue, ...xs) }, margins: r.margins };
+    } });
+    chart.subscribeClick((p) => { if (!p.point || !S || S.reviewing || S.justDragged) return; if (S.arm) { const pr = series.coordinateToPrice(p.point.y); if (pr != null) addTool(S.arm, pr); S.arm = 0; armUi(); return; } const price = series.coordinateToPrice(p.point.y); if (price == null) return; S.ticket[S.ticket.field] = price.toFixed(S.P.dec); if (S.ticket.field === "entry") S.ticket.field = "sl"; else if (S.ticket.field === "sl") S.ticket.field = "tp"; panel(); drawLines(); });
     chart.timeScale().subscribeVisibleLogicalRangeChange(() => drawOverlay());
     new ResizeObserver(() => drawOverlay()).observe(el);
+    $("#simTools").addEventListener("pointerdown", dragStart);
+    const loop = () => { if (!S || !chart) return; drawTools(); requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
   }
   const candle = (b) => (S.ha ? { time: b.t / 1000, open: b.ha.o, high: b.ha.h, low: b.ha.l, close: b.ha.c } : { time: b.t / 1000, open: b.o, high: b.h, low: b.l, close: b.c });
   function paintAll() {
@@ -313,7 +329,153 @@
     const LW = window.LightweightCharts, add = (price, color, title, style = LW.LineStyle.Solid) => { if (price === "" || price == null) return; const p = Number(price); if (Number.isFinite(p)) lines.push(series.createPriceLine({ price: p, color, lineWidth: 2, lineStyle: style, axisLabelVisible: true, title })); };
     if (S.pos) { add(S.pos.e, "#9aa4b2", "entry", LW.LineStyle.Dotted); add(S.pos.sl, "#ef5350", "SL"); if (S.pos.tp != null) add(S.pos.tp, "#26a69a", "TP"); }
     for (const o of S.orders) { add(o.price, o.side > 0 ? "#26a69a" : "#ef5350", `${o.side > 0 ? "BUY" : "SELL"} ${o.type.toUpperCase()}`, LW.LineStyle.Dashed); }
+    for (const t of S.tools) { add(t.e, "#d9b46c", t.dir > 0 ? "long" : "short", LW.LineStyle.Dashed); add(t.sl, "#ef5350", "SL"); add(t.tp, "#26a69a", "TP"); }
+    if (S.orders.length || S.pos) for (const o of S.orders) { add(o.sl, "#ef5350", "SL", LW.LineStyle.Dotted); if (o.tp != null) add(o.tp, "#26a69a", "TP", LW.LineStyle.Dotted); }
     if (!S.pos && !S.reviewing) { const k = S.ticket; add(k.entry, "#d9b46c", "entry?", LW.LineStyle.SparseDotted); add(k.sl, "#ef5350", "SL?", LW.LineStyle.SparseDotted); add(k.tp, "#26a69a", "TP?", LW.LineStyle.SparseDotted); }
+  }
+
+
+  // ---------- Long / Short position tools (like TradingView): tap to drop, drag to adjust, one button to place
+  const tick = () => (S.P.dec === 2 ? 0.01 : 0.001);
+  const riskUSD = () => { try { const v = Number(localStorage.getItem("edge.riskUSD")); if (v > 0) return v; } catch {} const st = window.Edge && window.Edge.state && window.Edge.state(); return st && st.settings ? Math.round(st.settings.accountSize * st.settings.riskPct / 100) : 100; };
+  const contracts = (r) => (r > 0 ? Math.floor(riskUSD() / (r * S.P.pv) + 1e-9) : 0);
+  // key levels to snap to: the Asian box so far (London) or the old gas zones
+  function levels() {
+    if (S.lv && S.lv.i === S.i) return S.lv.list;
+    const list = [];
+    if (S.P.strategy === "london") {
+      const box = S.sess.filter((b) => b.t <= S.bars[S.i].t && (b.min >= 18 * 60 || b.min < 120));
+      if (box.length) { S.box = { hi: Math.max(...box.map((b) => b.h)), lo: Math.min(...box.map((b) => b.l)) }; list.push(S.box.hi, S.box.lo); }
+    } else {
+      for (const z of gasZones(S.bars, S.i)) if (z.ageDays >= 1) list.push(z.prox, z.dist);
+    }
+    S.lv = { i: S.i, list };
+    return list;
+  }
+  function snap(price, extra = []) {
+    let best = price, bd = 9;
+    const y0 = series.priceToCoordinate(price);
+    if (y0 == null) return price;
+    for (const c of [...levels(), ...extra]) { const y = series.priceToCoordinate(c); if (y != null && Math.abs(y - y0) < bd) { bd = Math.abs(y - y0); best = c; } }
+    return best;
+  }
+  const hourAtr = () => { const b = S.bars[S.i]; return S.P.tf === "60m" ? b.atr : b.atr * Math.sqrt(12); };
+  function addTool(dir, price) {
+    const e = snap(price, [S.bars[S.i].c]);
+    levels();
+    let sl = null;
+    if (S.P.strategy === "london" && S.box) { const other = dir > 0 ? S.box.lo : S.box.hi; if (dir * (e - other) > tick()) sl = other; }
+    if (sl == null) sl = e - dir * hourAtr();
+    const r = Math.abs(e - sl);
+    S.tools.push({ dir, e, sl, tp: e + dir * S.P.tpR * r });
+    if (S.tools.length > 2) S.tools.shift();
+    drawLines(); panel();
+  }
+  function planTools() {
+    levels();
+    if (S.P.strategy !== "london" || !S.box) return toast("The plan needs the Asian box first (from 02:00 New York).");
+    const { hi, lo } = S.box, r = hi - lo;
+    S.tools = [{ dir: 1, e: hi, sl: lo, tp: hi + S.P.tpR * r }, { dir: -1, e: lo, sl: hi, tp: lo - S.P.tpR * r }];
+    drawLines(); panel();
+    toast("The plan: both orders drawn. Check them, then Place each one.");
+  }
+  function armUi() { document.querySelectorAll('#sim [data-s="tool"]').forEach((b) => b.classList.toggle("on", Number(b.dataset.a) === S.arm)); const c = $("#simChart"); if (c) c.classList.toggle("arming", !!S.arm); }
+  const kindOf = (t) => { const c = S.bars[S.i].c, tk = tick() * 2; return t.dir * (t.e - c) > tk ? "stop" : t.dir * (t.e - c) < -tk ? "limit" : "market"; };
+  function placeTool(i) {
+    const t = S.tools[i]; if (!t) return;
+    const type = kindOf(t), b = S.bars[S.i];
+    if (type === "market") { if (S.pos) return toast("You're already in a trade."); openPos(t.dir, b.c, t.sl, t.tp, b); }
+    else S.orders.push({ side: t.dir, type, price: t.e, sl: t.sl, tp: t.tp });
+    S.tools.splice(i, 1);
+    toast(type === "market" ? "In the trade." : `${t.dir > 0 ? "Buy" : "Sell"} ${type} placed — step forward.`);
+    panel(); markers(); drawLines();
+  }
+
+  // everything you can drag: tools, pending orders, the open trade's stop and target
+  function objects() {
+    const o = S.tools.map((t, i) => ({ k: `tool:${i}`, t, dir: t.dir, e: t.e, sl: t.sl, tp: t.tp, tool: true }));
+    S.orders.forEach((x, i) => o.push({ k: `ord:${i}`, t: x, dir: x.side, e: x.price, sl: x.sl, tp: x.tp }));
+    if (S.pos) o.push({ k: "pos", t: S.pos, dir: S.pos.dir, e: S.pos.e, sl: S.pos.sl, tp: S.pos.tp, pos: true });
+    return o;
+  }
+  function drawTools() {
+    const svg = $("#simTools"), tb = $("#simTB"); if (!svg || !S || !series) return;
+    if (S.reviewing) { if (svg.__last) { svg.__last = ""; svg.innerHTML = ""; tb.innerHTML = ""; } return; }
+    const ts = chart.timeScale(), w = ts.width(), Y = (p) => series.priceToCoordinate(p);
+    const xc = ts.timeToCoordinate(S.bars[S.i].t / 1000), x0 = Math.max(0, Math.min(w - 170, (xc ?? w - 170) - 24)), x1 = w;
+    let html = "", bar = "", hits = "", hitsTop = "";
+    objects().forEach((o, oi) => {
+      const ye = Y(o.e), ys = Y(o.sl), yt = o.tp != null ? Y(o.tp) : null;
+      if (ye == null || ys == null) return;
+      const r = Math.abs(o.e - o.sl), rr = o.tp != null ? Math.abs(o.tp - o.e) / r : null, a = o.tool ? 1 : 0.6;
+      if (yt != null) html += `<rect x="${x0}" y="${Math.min(ye, yt)}" width="${x1 - x0}" height="${Math.abs(yt - ye)}" fill="#26a69a" fill-opacity="${0.16 * a}"/>`;
+      html += `<rect x="${x0}" y="${Math.min(ye, ys)}" width="${x1 - x0}" height="${Math.abs(ys - ye)}" fill="#ef5350" fill-opacity="${0.16 * a}"/>`;
+      if (o.tool) {
+        html += `<line x1="${x0}" x2="${x1}" y1="${ye}" y2="${ye}" stroke="#d9b46c" stroke-width="2"/>`;
+        if (yt != null) html += `<text x="${x0 + 6}" y="${yt + (o.dir > 0 ? 14 : -6)}" class="tt" fill="#26a69a">Target ${o.tp.toFixed(S.P.dec)} · ${rr.toFixed(1)}R</text>`;
+        html += `<text x="${x0 + 6}" y="${ys + (o.dir > 0 ? -6 : 14)}" class="tt" fill="#ef5350">Stop ${o.sl.toFixed(S.P.dec)} · −1R</text>`;
+      }
+      // drag handles: grab anywhere along a line (big touch areas)
+      // each object's knobs sit a little to the right of the previous one's, so overlapping lines can still be grabbed
+      const kx = x0 - 7 + oi * 22;
+      const hit = (y, f, cur = "ns-resize") => `<line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" class="hit" data-k="${o.k}" data-f="${f}" style="cursor:${cur}"/><rect x="${kx}" y="${y - 7}" width="14" height="14" rx="4" class="knob ${f}" data-k="${o.k}" data-f="${f}"/>`;
+      if (!o.pos) hits += hit(ye, "e", "move");      // entries underneath…
+      hitsTop += hit(ys, "sl");                      // …stops and targets on top
+      if (yt != null) hitsTop += hit(yt, "tp");
+      if (o.tool) {
+        const i = Number(o.k.split(":")[1]), type = kindOf(o.t), n = contracts(r);
+        const lbl = type === "market" ? (o.dir > 0 ? "Buy now" : "Sell now") : `${o.dir > 0 ? "Buy" : "Sell"} ${type}`;
+        const cw = $("#simChart").clientWidth;
+        bar += `<div class="tbar ${o.dir > 0 ? "long" : "short"}" style="left:${Math.max(4, Math.min(x0 + 8, cw - (cw < 520 ? 190 : 300)))}px;top:${Math.max(4, ye + (o.dir > 0 ? -44 : 8))}px">
+          <span>${o.dir > 0 ? "▲" : "▼"}</span><button data-s="trr" data-a="${i}" title="Tap to change the target">${rr != null ? rr.toFixed(1) + "R" : "R"} ▾</button>
+          <span class="sz">${n ? `${n} ${S.P.sym}` : `1 ${S.P.sym} = $${Math.round(r * S.P.pv)}`}</span>
+          <button data-s="tplace" data-a="${i}">${lbl}</button><button data-s="tdel" data-a="${i}" aria-label="Remove">✕</button></div>`;
+      }
+    });
+    html += hits + hitsTop;
+    if (html !== svg.__last) { svg.__last = html; svg.innerHTML = html; }
+    if (bar !== tb.__last) { tb.__last = bar; tb.innerHTML = bar; }
+  }
+  function dragStart(ev) {
+    const h = ev.target.closest("[data-k]"); if (!h || !S) return;
+    ev.preventDefault();
+    const o = objects().find((x) => x.k === h.dataset.k); if (!o) return;
+    const f = h.dataset.f, rect = $("#simChart").getBoundingClientRect(), start = { e: o.e, sl: o.sl, tp: o.tp };
+    const y0 = ev.clientY, p0 = series.coordinateToPrice(y0 - rect.top);
+    chart.applyOptions({ handleScroll: false, handleScale: false });
+    const H = $("#simChart").clientHeight - 30, a1 = series.coordinateToPrice(0), a2 = series.coordinateToPrice(H);
+    if (a1 != null && a2 != null) S.freeze = { minValue: Math.min(a1, a2), maxValue: Math.max(a1, a2) }; // hold the scale still while dragging
+    const move = (e) => {
+      const p = series.coordinateToPrice(e.clientY - rect.top); if (p == null || p0 == null) return;
+      const t = o.t, dir = o.dir, set = (k, v) => { if (o.tool || o.pos) t[k] = v; else t[k === "e" ? "price" : k] = v; };
+      if (f === "e") {
+        const ne = snap(start.e + (p - p0), [S.bars[S.i].c]), d = ne - start.e;
+        set("e", ne); set("sl", start.sl + d); if (start.tp != null) set("tp", start.tp + d);
+      } else if (f === "sl") {
+        const e0 = o.pos ? t.e : (o.tool ? t.e : t.price), nv = snap(p);
+        if (dir * (e0 - nv) > 0 || (o.pos && dir * (nv - e0) < Math.abs(t.tp - e0))) set("sl", nv); // a trade's stop may go past entry (locking profit)
+      } else if (f === "tp") {
+        const e0 = o.tool ? t.e : o.pos ? t.e : t.price, s0 = o.tool ? t.sl : o.pos ? t.sl0 : t.sl, r = Math.abs(e0 - s0);
+        const nv = snap(p, [1, 1.5, 2, 2.5, 3, 4, 5].map((k) => e0 + dir * k * r));
+        if (dir * (nv - e0) > 0) set("tp", nv);
+      }
+      drawLines(); if (o.tool) return; panel();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+      chart.applyOptions({ handleScroll: true, handleScale: true });
+      S.freeze = null;
+      S.justDragged = true; setTimeout(() => { if (S) S.justDragged = false; }, 250);
+      if (o.pos) { // moving the stop to entry (or past it) = break-even; further away = a rule break the review will flag
+        const p = S.pos; if (!p) return;
+        const r0 = Math.abs(p.e - p.sl0);
+        if (p.beAt == null && p.dir * (p.sl - p.e) >= -r0 * 0.05) { p.beAt = (p.dir * (S.bars[S.i].c - p.e)) / r0; toast("Stop at break-even."); }
+        if (p.dir * (p.sl0 - p.sl) > r0 * 0.05) p.widened = true;
+        if (p.tp != null && p.tp0 != null && p.dir * (p.tp - p.tp0) > r0 * 0.05) p.tpMoved = true;
+      }
+      panel(); drawLines();
+    };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
   }
 
   // annotations drawn over the chart (boxes, levels, markers) during a review
@@ -415,6 +577,7 @@
   function panel() {
     const el = $("#simPanel"); if (!el || !S) return;
     const P = S.P, b = S.bars[S.i], k = S.ticket, dec = P.dec;
+    const pb = $("#simPlanBtn"); if (pb) pb.hidden = !(P.strategy === "london" && b.min >= 120 && b.min < P.win[1]);
     const ny = hm(b.min), live = P.strategy === "london" ? inWins(P, b.min) && b.min < 18 * 60 : inWins(P, b.min);
     const clock = `<div class="sim-clock"><span>${local(b.t)} your time · <b>NY ${ny}</b></span><span class="${live ? "good" : "muted"}">${live ? "● window open" : P.strategy === "london" && (b.min >= 18 * 60 || b.min < 120) ? "Asian box forming" : "window closed"}</span></div>`;
     if (S.pos) {
@@ -427,13 +590,14 @@
     }
     const e = Number(k.entry), sl = Number(k.sl), tp = Number(k.tp), risk = Math.abs(e - sl), rr = risk > 0 && k.tp !== "" ? Math.abs(tp - e) / risk : null;
     const f = (name, label) => `<label class="sim-f ${k.field === name ? "on" : ""}" data-s="field" data-a="${name}"><small>${label}</small><input data-sf="${name}" inputmode="decimal" value="${esc(k[name])}" placeholder="tap chart"></label>`;
-    el.innerHTML = `${clock}<div class="sim-ticket">
+    const toolsHtml = S.tools.length ? S.tools.map((t, i) => { const r = Math.abs(t.e - t.sl), type = kindOf(t); return `<div class="sim-toolrow ${t.dir > 0 ? "long" : "short"}"><span><b>${t.dir > 0 ? "▲ Long" : "▼ Short"}</b> ${t.e.toFixed(dec)} · SL ${t.sl.toFixed(dec)} · TP ${t.tp.toFixed(dec)} <small class="muted">${(Math.abs(t.tp - t.e) / r).toFixed(1)}R · ${contracts(r) ? `${contracts(r)} ${P.sym} for $${riskUSD()}` : `1 ${P.sym} risks $${Math.round(r * P.pv)} (> your $${riskUSD()})`}</small></span><button class="btn small primary" data-s="tplace" data-a="${i}">${type === "market" ? (t.dir > 0 ? "Buy now" : "Sell now") : `${t.dir > 0 ? "Buy" : "Sell"} ${type}`}</button></div>`; }).join("")
+      : `<p class="sim-hint" style="margin:4px 0 8px"><b>📈 Long</b> or <b>📉 Short</b>, then tap the chart${P.strategy === "london" ? " — or <b>✨ Plan</b> once the box is set" : ""}. Drag the lines to adjust; they snap to the ${P.strategy === "london" ? "box edges" : "zone edges"} and to whole R targets.</p>`;
+    el.innerHTML = `${clock}${toolsHtml}${S.orders.length ? `<div class="sim-orders">${orderRows()}</div>` : ""}<details class="sim-type"><summary>Type prices instead</summary><div class="sim-ticket">
       <div class="chips two">${["1", "-1"].map((v) => `<button data-s="side" data-a="${v}" class="${String(k.side) === v ? "on" : ""}">${v === "1" ? "▲ Buy" : "▼ Sell"}</button>`).join("")}</div>
       <div class="chips three">${["market", "stop", "limit"].map((t) => `<button data-s="type" data-a="${t}" class="${k.type === t ? "on" : ""}">${t === "market" ? "Market" : t === "stop" ? "Stop" : "Limit"}</button>`).join("")}</div>
       <div class="sim-fields">${k.type === "market" ? "" : f("entry", "Price")}${f("sl", "Stop loss")}${f("tp", "Take profit")}</div>
       <p class="muted sim-hint">${k.type === "market" ? "" : "Tap a box, then tap the chart to set it. "}${rr != null && Number.isFinite(rr) ? `Target = <b>${rr.toFixed(1)}R</b> (plan ${P.tpR}R)` : ""}</p>
-      <button class="btn primary" data-s="place" style="width:100%">${k.type === "market" ? (k.side > 0 ? "Buy now" : "Sell now") : `Place ${k.side > 0 ? "buy" : "sell"} ${k.type}`}</button>
-      ${S.orders.length ? `<div class="sim-orders">${orderRows()}</div>` : ""}</div>`;
+      <button class="btn primary" data-s="place" style="width:100%">${k.type === "market" ? (k.side > 0 ? "Buy now" : "Sell now") : `Place ${k.side > 0 ? "buy" : "sell"} ${k.type}`}</button></div></details>`;
     el.querySelectorAll("[data-sf]").forEach((inp) => inp.addEventListener("input", () => { S.ticket[inp.dataset.sf] = inp.value; drawLines(); }));
   }
   const orderRows = () => S.orders.map((o, i) => `<div class="row between"><span>${o.side > 0 ? "▲ BUY" : "▼ SELL"} ${o.type.toUpperCase()} <b>${o.price.toFixed(S.P.dec)}</b> <small class="muted">SL ${o.sl.toFixed(S.P.dec)} · TP ${o.tp != null ? o.tp.toFixed(S.P.dec) : "—"}</small></span><button class="btn small" data-s="cancel" data-a="${i}">Cancel</button></div>`).join("");
@@ -518,6 +682,11 @@
       case "type": S.ticket.type = a; return panel();
       case "field": S.ticket.field = a; return panel();
       case "place": return place();
+      case "tool": S.arm = S.arm === Number(a) ? 0 : Number(a); armUi(); if (S.arm) toast(`Tap the chart where you want to ${S.arm > 0 ? "buy" : "sell"}.`); return;
+      case "plan": return planTools();
+      case "tplace": return placeTool(Number(a));
+      case "tdel": S.tools.splice(Number(a), 1); drawLines(); return panel();
+      case "trr": { const t = S.tools[Number(a)]; if (!t) return; const RS = [1, 1.5, 2, 2.5, 3, 4, 5], r = Math.abs(t.e - t.sl), cur = Math.abs(t.tp - t.e) / r; const nx = RS.find((x) => x > cur + 0.05) || RS[0]; t.tp = t.e + t.dir * nx * r; drawLines(); return panel(); }
       case "cancel": S.orders.splice(Number(a), 1); panel(); return drawLines();
       case "be": if (S.pos) { S.pos.beAt = (S.pos.dir * (S.bars[S.i].c - S.pos.e)) / Math.abs(S.pos.e - S.pos.sl0); S.pos.sl = S.pos.e; panel(); drawLines(); } return;
       case "closepos": if (S.pos) { const bar = S.bars[S.i]; exit(bar.c, bar, "closed by you"); panel(); } return;
@@ -534,8 +703,11 @@
     const k = e.key.toLowerCase(), go = (fn) => { e.preventDefault(); fn(); };
     if (k === " ") return go(play);
     if (k === "arrowright") return go(() => { stop(); step(); });
-    if (k === "b") return go(() => { S.ticket.side = 1; panel(); });
-    if (k === "s") return go(() => { S.ticket.side = -1; panel(); });
+    if (k === "b") return go(() => addTool(1, S.bars[S.i].c));
+    if (k === "s") return go(() => addTool(-1, S.bars[S.i].c));
+    if (k === "p") return go(planTools);
+    if ((k === "delete" || k === "backspace") && S.tools.length) return go(() => { S.tools.pop(); drawLines(); panel(); });
+    if (k === "enter" && S.tools.length && !S.reviewing) return go(() => placeTool(0));
     if (["1", "2", "3"].includes(k)) return go(() => { S.ticket.field = ["entry", "sl", "tp"][Number(k) - 1]; panel(); });
     if (k === "enter" && !S.reviewing) return go(place);
     if (k === "f") return go(fullScreen);
