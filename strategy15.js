@@ -296,7 +296,10 @@
             for (const p of sw5) lv.push(p.v);
             for (let a = 0; a < sw5.length; a++) for (let c = a + 1; c < sw5.length; c++) if (Math.abs(sw5[a].v - sw5[c].v) <= 0.15 * atr5) lv.push(k === 1 ? Math.max(sw5[a].v, sw5[c].v) : Math.min(sw5[a].v, sw5[c].v));
             const ok = lv.filter((v) => (k * (v - entry)) / risk >= P.minZoneR).sort((x, y) => k * (x - y));
-            if (ok.length) tp = ok[0];
+            if (P.liqMode === "nearest") { // the nearest liquidity, unless it's closer than minZoneR — then take tpR instead
+              const near = lv.filter((v) => k * (v - entry) > 0).sort((x, y) => k * (x - y))[0];
+              tp = near != null && (k * (near - entry)) / risk >= P.minZoneR ? near : entry + k * P.tpR * risk;
+            } else if (ok.length) tp = ok[0];
           }
           const tpR = risk > 0 ? (k * (tp - entry)) / risk : 0;
           const roomR = opp != null && risk > 0 ? (k * (opp - entry)) / risk : null;
