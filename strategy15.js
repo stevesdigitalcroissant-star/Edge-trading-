@@ -22,6 +22,10 @@
     bigMult: 1.5, // the big candle's body ≥ 1.5 × the average body of the 20 candles before it
     ltfMin: 5, // entry timeframe in minutes (5 or 1) — the bars passed in must be this size
     waitMin: 480, // minutes from the zone touch to the entry break (8 hours)
+    trendTF: "4h", // the trend that decides long or short: "4h" or "15m" (more trades)
+    maxTouches: 1, // 1 = first touch only · 2 = a second touch is also tradeable
+    entry: "zone5", // "zone5" = limit at the 5m zone · "retest" = limit at the broken 5m level · "market" = in on the 5m break close
+    needZ5: true, // the 5m break must leave a gap (imbalance) — the best filter in the 6-month test
     z5Fallback: "skip", // the entry move left no gap: "skip" or "opposite" (use the last opposite candle)
     discount: true, // buy only in the lower half of the last 4H swing range, sell only in the upper half
     target: "liquidity", // "liquidity" = nearest liquidity ≥ 2R (swing / equal highs / previous day) · "fixed" = 3.2R
@@ -77,10 +81,12 @@
     // each rule: "required" (fails → no trade) · "grade" (fails → one grade lower) · "off"
     // defaults from the 6-month gold test (Apr–Sep 2026): the 4H-zone rule never occurred and the 15m-against
     // block made results worse, so both are off; discount, inducement and strength only affect the grade
-    P.rules = { discount: P.discount === false ? "off" : P.discount === true && opt.discount === true ? "required" : "grade", m15: P.block15 === true && opt.block15 === true ? "required" : "off", inducement: "grade", zone4h: "off", strength: "grade", ...(opt.rules || {}) };
+    P.rules = { discount: P.discount === false ? "off" : P.discount === true && opt.discount === true ? "required" : "grade", m15: P.block15 === true && opt.block15 === true ? "required" : "off", inducement: "grade", zone4h: "off", strength: "grade", major: "off", ...(opt.rules || {}) };
     const RQ = (k) => P.rules[k] === "required", GR = (k) => P.rules[k] === "grade";
     if (typeof P.windows === "string") P.windows = WINDOWS[P.windows] || DEFAULTS.windows;
     const H4 = new TF((m) => Math.floor((m - 1080) / 240), P.htfLen);
+    const D1 = new TF((m) => Math.floor((m + 360) / 1440), 2); // the daily trend (CME days)
+    let dSnap = { trend: 0 };
     const M15 = new TF((m) => Math.floor(m / 15), P.mtfLen);
     const L5 = new Structure(P.ltfLen, 1.5);
     const events = [], states = [];
@@ -102,7 +108,9 @@
 
     for (let i = 0; i < bars.length; i++) {
       const b = bars[i], mod0 = nyMin(b.t), mod = ((mod0 % 1440) + 1440) % 1440;
-      const r4 = H4.feed(b, mod0), r15 = M15.feed(b, mod0);
+      const r4 = H4.feed(b, mod0), r15 = M15.feed(b, mod0), rD = D1.feed(b, mod0);
+      if (rD.closed) dSnap = rD.snap;
+      const trendNow = P.trendTF === "15m" ? m.trend : h.trend;
       const pl = l; l = L5.step(b);
       const atr5 = L5.atr() || 0;
       const inWin = P.windows.some((w) => inWindow(mod, w)), flat = inWindow(mod, [P.flatBy, "18:00"]);
@@ -205,9 +213,11 @@
         if (!z.valid || i <= z.createdI) continue;
         if (z.dir === 1 ? b.c < z.bot : b.c > z.top) { z.valid = false; events.push({ i, type: "zoneDead", side: z.dir === 1 ? "demand" : "supply" }); if (setup && setup.zone === z) setup = null; continue; }
         const inZ = z.dir === 1 ? b.l <= z.top : b.h >= z.bot;
-        if (!inZ || z.touched) continue;
-        z.touched = true; // first touch only
-        if (setup || order || pos) continue;
+        const newVisit = inZ && !z.wasIn;
+        z.wasIn = inZ;
+        if (!newVisit) continue;
+        z.touches = (z.touches || 0) + 1; z.touched = true;
+        if (z.touches > P.maxTouches || setup || order || pos) continue;
         const dir = z.dir;
         // 1. premium / discount of the last 4H swing range
         // the current 4H dealing range: uptrend = from the swing low that started the move to the highest high since
@@ -225,12 +235,13 @@
         let dd = 0;
         if (P.daily === "prevclose" && prevOpen != null && prevClose != null) dd = prevClose > prevOpen ? 1 : -1;
         else if (P.daily === "bias") dd = P.biasDir || 0;
+        else if (P.daily === "trend") dd = dSnap.trend || 0;
         else if (P.daily === "level") {
           const open = dayLevels.filter((d) => !d.taken);
           const near = open.reduce((best, d) => (best == null || Math.abs(d.v - b.c) < Math.abs(best.v - b.c) ? d : best), null);
           dd = near ? (near.v > b.c ? 1 : -1) : 0;
         }
-        const why = h.trend !== dir ? "against the 4H trend" : RQ("m15") && m.trend !== dir ? "15m trend against"
+        const why = trendNow !== dir ? `against the ${P.trendTF === "15m" ? "15m" : "4H"} trend` : RQ("m15") && m.trend !== dir ? "15m trend against"
           : RQ("discount") && !inHalf ? (dir === 1 ? "demand is in premium (upper half of the 4H range)" : "supply is in discount (lower half of the 4H range)")
           : P.daily !== "off" && dd && dd !== dir ? "against today's direction" : tradesDay >= P.maxPerDay ? `${P.maxPerDay} trades today already` : "";
         if (why) { events.push({ i, type: "skip", dir, why, stage: "touch", top: z.top, bot: z.bot, zoneT: z.t, rLo, rHi, dd }); continue; }
@@ -238,7 +249,8 @@
         const ind = piv.filter((p) => p.dir === -dir && p.t > z.createdT && (dir === 1 ? p.v > z.top : p.v < z.bot)).pop();
         // 2. the 15m zone sits inside a 4H zone
         const in4H = zones4.some((x) => x.valid && x.dir === dir && x.bot <= z.top && x.top >= z.bot);
-        setup = { dir, zone: z, touchI: i, extreme: dir === 1 ? b.l : b.h, ind, in4H, strong: z.strong, inHalf, m15ok: m.trend === dir };
+        setup = { dir, zone: z, touchI: i, extreme: dir === 1 ? b.l : b.h, ind, in4H, strong: z.strong, inHalf, m15ok: m.trend === dir,
+          majors: dir === 1 ? [["previous day low", pdl], ["Asian low", asiaLo]] : [["previous day high", pdh], ["Asian high", asiaHi]] };
         events.push({ i, type: "touch", dir, top: z.top, bot: z.bot, zoneT: z.t, rLo, rHi, dd, inducement: ind ? ind.v : null, indT: ind ? ind.t : null, in4H, strong: z.strong });
         if (ind) events.push({ i, type: "sweep", dir, name: "inducement", lvl: ind.v, from: idxAt(bars, ind.t) });
       }
@@ -247,20 +259,22 @@
       if (setup && i > setup.touchI) {
         const k = setup.dir, z = setup.zone;
         setup.extreme = k === 1 ? Math.min(setup.extreme, b.l) : Math.max(setup.extreme, b.h);
-        if (h.trend !== k || i - setup.touchI > maxWait || flat) { events.push({ i, type: "skip", dir: k, why: h.trend !== k ? "4H trend flipped" : flat ? "session over" : `no ${ltfName} break within ${P.waitMin / 60} hours`, stage: "wait" }); setup = null; }
+        if (trendNow !== k || i - setup.touchI > maxWait || flat) { events.push({ i, type: "skip", dir: k, why: trendNow !== k ? "trend flipped" : flat ? "session over" : `no ${ltfName} break within ${P.waitMin / 60} hours`, stage: "wait" }); setup = null; }
         else if (k === 1 ? l5Up : l5Dn) {
           const start = idxAt(bars, k === 1 ? l.plT : l.phT);
           const from5 = Math.max(start - 1, setup.touchI - back);
           const z5 = start >= 0 ? findZone(bars, from5, i, k, P.bigMult) || (P.z5Fallback === "opposite" ? findOpposite(bars, from5, i, k) : null) : null;
           // grade: A+ = inducement swept + inside a 4H zone + strong zone · one missing = A · more = B (skip)
-          const fails = { inducement: !setup.ind && "no inducement", zone4h: !setup.in4H && "not inside a 4H zone", strength: !setup.strong && "weak zone",
+          const major = setup.majors.find(([, v]) => v != null && (k === 1 ? setup.extreme < v && b.c > v : setup.extreme > v && b.c < v));
+          const fails = { major: !major && "no big-level sweep", inducement: !setup.ind && "no inducement", zone4h: !setup.in4H && "not inside a 4H zone", strength: !setup.strong && "weak zone",
             discount: !setup.inHalf && (k === 1 ? "in premium" : "in discount"), m15: !setup.m15ok && "15m trend against" };
           const missing = Object.keys(fails).filter((r) => GR(r) && fails[r]).map((r) => fails[r]);
           const blocked = Object.keys(fails).filter((r) => RQ(r) && fails[r] && !["discount", "m15"].includes(r)).map((r) => fails[r]);
           let grade = missing.length === 0 ? "A+" : missing.length === 1 ? "A" : "B";
           if (warn === -k) grade = grade === "A+" ? "A" : "B";
-          const sw = setup.ind ? ["inducement", setup.ind.v] : null;
-          const entry = z5 ? (k === 1 ? z5.top : z5.bot) : null;
+          const sw = major ? [major[0], major[1]] : setup.ind ? ["inducement", setup.ind.v] : null;
+          const entry = P.entry === "market" ? b.c : P.entry === "retest" ? (k === 1 ? l.upLvl : l.dnLvl) : z5 ? (k === 1 ? z5.top : z5.bot) : null;
+          const z5ok = !!z5 || !P.needZ5;
           const sl = k === 1 ? z.bot - P.slBufAtr * atr5 : z.top + P.slBufAtr * atr5;
           const risk = entry != null ? k * (entry - sl) : 0;
           // the nearest opposing 15m zone limits the target
@@ -281,12 +295,16 @@
           }
           const tpR = risk > 0 ? (k * (tp - entry)) / risk : 0;
           const roomR = opp != null && risk > 0 ? (k * (opp - entry)) / risk : null;
-          const why = blocked.length ? `required: ${blocked.join(", ")}` : !z5 ? `no ${ltfName} imbalance zone` : !(risk > 0) ? `${ltfName} zone not above the stop` : k * (b.c - entry) <= 0 ? `price already beyond the ${ltfName} zone` : grade === "B" ? `grade B — ${missing.join(", ")}${warn === -k ? ", 4H wick warning" : ""}` : !inWin ? "outside your trading hours"
+          const why = blocked.length ? `required: ${blocked.join(", ")}` : !z5ok || entry == null ? `no ${ltfName} imbalance zone` : !(risk > 0) ? `${ltfName} zone not above the stop` : P.entry !== "market" && k * (b.c - entry) <= 0 ? `price already beyond the ${ltfName} zone` : grade === "B" ? `grade B — ${missing.join(", ")}${warn === -k ? ", 4H wick warning" : ""}` : !inWin ? "outside your trading hours"
             : P.exit === "zone" && tpR < P.minZoneR ? `opposing zone only ${tpR.toFixed(1)}R away` : P.exit !== "zone" && roomR != null && roomR < tpR - 1e-9 ? `opposing zone too close (${roomR.toFixed(1)}R)` : "";
           if (why) events.push({ i, type: "skip", dir: k, why, stage: "order" });
           else {
             order = { dir: k, entry, sl, tp, be: entry + k * P.beR * risk, beStop: entry + k * P.beOffR * risk, cancelAt: entry + k * P.beR * risk, grade, swept: sw ? sw[0] : "", missing, zone: z, z5, placedI: i };
-            events.push({ i, type: "order", dir: k, entry, sl, tp, be: order.be, grade, missing, tpR: +tpR.toFixed(2), swept: order.swept, z5top: z5.top, z5bot: z5.bot });
+            events.push({ i, type: "order", dir: k, entry, sl, tp, be: order.be, grade, missing, tpR: +tpR.toFixed(2), swept: order.swept, z5top: z5 ? z5.top : null, z5bot: z5 ? z5.bot : null });
+            if (P.entry === "market") { // in on the close of the break candle
+              pos = { ...order, i, beDone: false }; order = null; tradesDay++;
+              events.push({ i, type: "enter", dir: k, entry, sl, be: pos.be, beStop: pos.beStop, tp, grade, swept: pos.swept, missing, visit: 1, zoneTop: z.top, zoneBot: z.bot });
+            }
           }
           setup = null;
         }
