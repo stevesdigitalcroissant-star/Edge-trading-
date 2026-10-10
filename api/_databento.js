@@ -1,9 +1,10 @@
 // Databento: official CME futures data (years of 1-minute candles) for the simulator and the Style lab.
 // Needs DATABENTO_API_KEY (databento.com → Portal → API keys). Pay as you go; new accounts get free credit.
-// Each month is fetched once as 1-minute candles, rolled up to 5 minutes or 1 hour, and saved in Edge's
-// storage, so the same month never costs twice.
+// Each month is fetched once as 1-minute candles and kept in the candle archive (_bars.js, the private
+// Blob store), so the same month never costs twice; it's rolled up to 5 minutes, 15 minutes or 1 hour on read.
 const ROOT = { gold: "GC", crude: "CL", natgas: "NG", silver: "SI", es: "ES" };
-const TF = { "5m": 5, "15m": 15, "60m": 60 };
+const TF = { "1m": 1, "5m": 5, "15m": 15, "60m": 60 };
+const archive = require("./_bars");
 const API = "https://hist.databento.com/v0/timeseries.get_range";
 
 const key = () => process.env.DATABENTO_API_KEY || "";
@@ -61,19 +62,49 @@ async function fetchMonth(market, month, fetchImpl = fetch) {
   return parseCsv(text);
 }
 
-// cached month of candles at the asked timeframe
+// One month of 1-minute candles: from the archive (free) when Edge already bought it, otherwise
+// from Databento once — a finished month then goes into the archive for good.
+async function oneMinute(store, market, monthStr, fetchImpl = fetch) {
+  const done = monthStr < new Date().toISOString().slice(0, 7);
+  if (done) { const a = await archive.get(market, monthStr); if (a) return a; }
+  const ck = `db1:${market}:${monthStr}`; // fallback cache when there's no archive (local runs) and for the running month
+  if (!done || !archive.ready()) { const c = await store.get(ck); if (c && (done || Date.now() - c.at < 3600e3)) return c.bars; }
+  const one = await fetchMonth(market, monthStr, fetchImpl);
+  if (done && archive.ready()) await archive.put(market, monthStr, one);
+  else await store.set(ck, { at: Date.now(), bars: one }).catch(() => {}); // too big for the store? just don't cache
+  return one;
+}
+
+// a month of candles at the asked timeframe
 // (".v.0" = the contract with the most volume each day, like TradingView's GC1! — the nearest expiry is often barely traded)
 async function month(store, market, monthStr, tf = "5m", fetchImpl = fetch) {
   if (!/^\d{4}-\d{2}$/.test(monthStr)) throw new Error("month must look like 2024-03");
   const mins = TF[tf];
-  if (!mins) throw new Error("timeframe must be 5m, 15m or 60m");
-  const ck = `db2:${market}:${monthStr}:${tf}`;
-  const cached = await store.get(ck);
-  const thisMonth = new Date().toISOString().slice(0, 7);
-  if (cached && (monthStr < thisMonth || Date.now() - cached.at < 3600e3)) return cached.bars;
-  const bars = rollUp(await fetchMonth(market, monthStr, fetchImpl), mins);
-  await store.set(ck, { at: Date.now(), bars }).catch(() => {}); // too big for the store? just don't cache
-  return bars;
+  if (!mins) throw new Error("timeframe must be 1m, 5m, 15m or 60m");
+  return rollUp(await oneMinute(store, market, monthStr, fetchImpl), mins);
 }
 
-module.exports = { key, parseCsv, rollUp, fetchMonth, month, ROOT };
+// Fill the archive: buy every month in [from, to] that isn't there yet, until the time budget runs out.
+// Call again with the returned `next` to continue. Months already archived cost nothing.
+async function fill(store, market, from, to, budgetMs = 45000, fetchImpl = fetch) {
+  if (!ROOT[market]) throw new Error("Pick gold, crude, natgas, silver or es");
+  if (!archive.ready()) throw new Error("No Blob store connected — nowhere to keep the candles");
+  const last = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+  const months = [];
+  for (let [y, m] = (from < "2019-01" ? "2019-01" : from).split("-").map(Number); ; m++) {
+    if (m > 12) { y++; m = 1; }
+    const s = `${y}-${String(m).padStart(2, "0")}`;
+    if (s > to || s > last) break;
+    months.push(s);
+  }
+  const have = new Set(await archive.have(market)), t0 = Date.now(), stored = [];
+  for (const mo of months) {
+    if (have.has(mo)) continue;
+    if (Date.now() - t0 > budgetMs) return { market, stored, next: mo, done: false };
+    await archive.put(market, mo, await fetchMonth(market, mo, fetchImpl));
+    stored.push(mo);
+  }
+  return { market, stored, next: null, done: true, have: have.size + stored.length };
+}
+
+module.exports = { key, parseCsv, rollUp, fetchMonth, month, fill, ROOT };

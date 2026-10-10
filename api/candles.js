@@ -41,6 +41,13 @@ module.exports = async (req, res) => {
     // Databento: ?src=db&month=2024-03&i=5m (years back) · ?status=1 says whether it's connected
     const db = require("./_databento");
     if (url.searchParams.get("status")) return res.status(200).json({ databento: !!db.key(), yahoo: true });
+    // ?src=db&fill=1&from=2019-01&to=2026-09 — buy the missing months into the archive (each month once, ever)
+    // ?src=db&have=1 — which months are archived
+    if (url.searchParams.get("src") === "db" && url.searchParams.get("have")) return res.status(200).json({ market, months: await require("./_bars").have(market) });
+    if (url.searchParams.get("src") === "db" && url.searchParams.get("fill")) {
+      const r = await db.fill(require("./_store").getStore(), market, url.searchParams.get("from") || "2019-01", url.searchParams.get("to") || "2099-12");
+      return res.status(200).json(r);
+    }
     if (url.searchParams.get("src") === "db") {
       const tf = url.searchParams.get("i") || "5m", month = url.searchParams.get("month") || "";
       const bars = await db.month(require("./_store").getStore(), market, month, tf);

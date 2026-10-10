@@ -39,3 +39,11 @@ test("a month is fetched once with your key, then served from storage", async ()
   await assert.rejects(db.month(memory(), "gold", "2024-04", "5m", bad), /Databento 401: Invalid API key/);
   delete process.env.DATABENTO_API_KEY;
 });
+
+test("the candle archive packs a month small and unpacks it exactly", () => {
+  const bars = require("../api/_bars");
+  const one = [[Date.parse("2024-03-04T10:00:00Z"), 2100.1, 2101, 2099.5, 2100.8], [Date.parse("2024-03-04T10:01:00Z"), 2100.8, 2102.4, 2100.2, 2102], [Date.parse("2024-03-04T10:04:00Z"), 2102, 2102.1, 2098, 2098.5]];
+  assert.deepEqual(bars.decode(bars.encode("gold", one)), one);
+  const ag = [[Date.parse("2024-03-04T10:00:00Z"), 22.105, 22.12, 22.1, 22.115]];
+  assert.deepEqual(bars.decode(bars.encode("silver", ag)), ag);
+});
