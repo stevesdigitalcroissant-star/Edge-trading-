@@ -75,7 +75,9 @@
   function run(bars, market, opt = {}) {
     const P = { ...DEFAULTS, ...opt };
     // each rule: "required" (fails → no trade) · "grade" (fails → one grade lower) · "off"
-    P.rules = { discount: P.discount === false ? "off" : "required", m15: P.block15 === false ? "off" : "required", inducement: "grade", zone4h: "grade", strength: "grade", ...(opt.rules || {}) };
+    // defaults from the 6-month gold test (Apr–Sep 2026): the 4H-zone rule never occurred and the 15m-against
+    // block made results worse, so both are off; discount, inducement and strength only affect the grade
+    P.rules = { discount: P.discount === false ? "off" : P.discount === true && opt.discount === true ? "required" : "grade", m15: P.block15 === true && opt.block15 === true ? "required" : "off", inducement: "grade", zone4h: "off", strength: "grade", ...(opt.rules || {}) };
     const RQ = (k) => P.rules[k] === "required", GR = (k) => P.rules[k] === "grade";
     if (typeof P.windows === "string") P.windows = WINDOWS[P.windows] || DEFAULTS.windows;
     const H4 = new TF((m) => Math.floor((m - 1080) / 240), P.htfLen);
@@ -254,6 +256,7 @@
           const fails = { inducement: !setup.ind && "no inducement", zone4h: !setup.in4H && "not inside a 4H zone", strength: !setup.strong && "weak zone",
             discount: !setup.inHalf && (k === 1 ? "in premium" : "in discount"), m15: !setup.m15ok && "15m trend against" };
           const missing = Object.keys(fails).filter((r) => GR(r) && fails[r]).map((r) => fails[r]);
+          const blocked = Object.keys(fails).filter((r) => RQ(r) && fails[r] && !["discount", "m15"].includes(r)).map((r) => fails[r]);
           let grade = missing.length === 0 ? "A+" : missing.length === 1 ? "A" : "B";
           if (warn === -k) grade = grade === "A+" ? "A" : "B";
           const sw = setup.ind ? ["inducement", setup.ind.v] : null;
@@ -278,7 +281,7 @@
           }
           const tpR = risk > 0 ? (k * (tp - entry)) / risk : 0;
           const roomR = opp != null && risk > 0 ? (k * (opp - entry)) / risk : null;
-          const why = !z5 ? `no ${ltfName} imbalance zone` : !(risk > 0) ? `${ltfName} zone not above the stop` : k * (b.c - entry) <= 0 ? `price already beyond the ${ltfName} zone` : grade === "B" ? `grade B — ${missing.join(", ")}${warn === -k ? ", 4H wick warning" : ""}` : !inWin ? "outside your trading hours"
+          const why = blocked.length ? `required: ${blocked.join(", ")}` : !z5 ? `no ${ltfName} imbalance zone` : !(risk > 0) ? `${ltfName} zone not above the stop` : k * (b.c - entry) <= 0 ? `price already beyond the ${ltfName} zone` : grade === "B" ? `grade B — ${missing.join(", ")}${warn === -k ? ", 4H wick warning" : ""}` : !inWin ? "outside your trading hours"
             : P.exit === "zone" && tpR < P.minZoneR ? `opposing zone only ${tpR.toFixed(1)}R away` : P.exit !== "zone" && roomR != null && roomR < tpR - 1e-9 ? `opposing zone too close (${roomR.toFixed(1)}R)` : "";
           if (why) events.push({ i, type: "skip", dir: k, why, stage: "order" });
           else {
