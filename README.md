@@ -8,7 +8,7 @@ It takes the emotional decisions away from you:
 
 | The old problem | What Edge does |
 |---|---|
-| Taking setups that weren't really your setup | Every setup is graded A+ / A / B / C on a fixed checklist. B and C can't be taken. A is allowed only while at least 90% of your last 20 trades are A+ |
+| Taking setups that weren't really your setup | Every setup is graded A+ / A / B / C on a fixed checklist. A+ and A can be taken; B and C can't. |
 | Impatience: entering early, chasing | The entry only comes on a **closed** 5m candle. A setup expires after 15 min, and the entry is refused if price already ran 0.3R past it |
 | Greed: waiting for TP, giving profit back | At **+2R the stop goes to break-even** (by itself if the broker is connected). The exit is fixed at **3.2R**. If you move the target further away, Edge puts it back |
 | Not putting the stop at break-even | Same as above: it's automatic, or you get a phone alert to do it right now |
@@ -138,7 +138,7 @@ The Coach (screen watching) needs a computer, because iPhone and iPad browsers c
 - 4H trend from break of structure; the last 5 demand and 5 supply zones are tracked.
 - A **visit** = price comes back into a zone after having really left it (wicks in and out are one visit).
 - **A+** = liquidity taken (previous day / Asian / 15m swing high or low swept, then reclaimed), on any visit.
-- **A** = no sweep, first visit only — allowed only while 90% of your trades are A+. A later visit without a sweep is skipped.
+- **A** = no sweep, first visit only. A later visit without a sweep is skipped.
 - After the touch, up to **8 hours** for the 15m break, then the 5m candle close that breaks structure = entry.
 - **Stop** beyond the 5m swing the entry broke from; break-even at +2R, full exit at +3.2R, out by 16:40 New York.
 
@@ -301,7 +301,7 @@ For a webhook to reach your computer, you need a public address (e.g. a tunnel l
 ```bash
 cd edge && npm test
 ```
-The tests cover grading, the 90% rule, guardrails, news blackout, break-even at 2R, the 3.2R target, the greed check
+The tests cover grading, guardrails, news blackout, break-even at 2R, the 3.2R target, the greed check
 (target moved back), and a complete trade from alert → break-even → target. They use a fake broker for the automatic mode.
 
 ## Files
@@ -310,7 +310,7 @@ The tests cover grading, the 90% rule, guardrails, news blackout, break-even at 
 | `pine/edge_supply_demand.pine` | TradingView strategy: 4H trend + zones, 15m confirmation, 5m entry. Includes the backtest and the alerts |
 | `api/hook.js` | Receives TradingView alerts |
 | `api/app.js` | The dashboard's API (password-protected) |
-| `api/_rules.js` | The rules: grade, guardrails, the 90% rule, trade management. Pure functions, all tested |
+| `api/_rules.js` | The rules: grade, guardrails, trade management. Pure functions, all tested |
 | `api/_core.js` | Webhook handling, trade manager, journal |
 | `api/_coach.js`, `api/coach.js`, `coach.js` | The Coach: screen sharing in the browser, the chart read by Claude, the rules applied after it |
 | `sw.js`, `api/_notify.js` | Notifications: phone/iPad/computer push (Web Push), Telegram, and the event log |

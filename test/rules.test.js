@@ -52,13 +52,12 @@ test("news blocks an A+ setup", () => {
   assert.equal(blockingEvent([ev], "gold", NY(9, 5), s), null);
 });
 
-test("A is allowed only while 90% of trades stay A+", () => {
+test("A setups can always be taken (no A+ quota); B and C can't", () => {
   const graded = { grade: "A", blocks: [] };
   const guard = { ok: true, reasons: [] };
   const hist = (nonA) => Array.from({ length: 19 }, (_, i) => ({ grade: i < nonA ? "A" : "A+", openedAt: 1000 - i }));
   assert.equal(R.canTake({ graded, setup: setup(), guard, history: hist(0), settings: s, open: [] }).ok, true);
-  assert.equal(R.canTake({ graded, setup: setup(), guard, history: hist(1), settings: s, open: [] }).ok, true);
-  assert.equal(R.canTake({ graded, setup: setup(), guard, history: hist(2), settings: s, open: [] }).ok, false);
+  assert.equal(R.canTake({ graded, setup: setup(), guard, history: hist(19), settings: s, open: [] }).ok, true);
   assert.equal(R.canTake({ graded: { grade: "B", blocks: [] }, setup: setup(), guard, history: [], settings: s, open: [] }).ok, false);
 });
 

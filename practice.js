@@ -87,7 +87,7 @@
             ${k === "liquidity taken" && p.steps[k] ? `<br><select id="pLiq" style="margin-top:6px">${["", ...LIQ].map((l) => `<option ${p.liquidity === l ? "selected" : ""} value="${esc(l)}">${l ? esc(l) : "Which one?"}</option>`).join("")}</select>` : ""}</span></label>`).join("")}
         </div>
       </section>
-      <section class="banner ${grade === "A+" ? "good" : "bad"}" style="font-size:18px">${grade === "A+" ? `A+ — all 5 steps done. Enter on the 5m close.` : grade === "A" ? "A — no liquidity sweep, first visit. Only take it while 90% of your trades are A+." : `${n}/5 — no trade. ${n === 4 && !p.steps["liquidity taken"] ? "Second visit without a liquidity sweep = no trade." : "Wait for the missing step."}`}</section>
+      <section class="banner ${grade === "A+" ? "good" : "bad"}" style="font-size:18px">${grade === "A+" ? `A+ — all 5 steps done. Enter on the 5m close.` : grade === "A" ? "A — no liquidity sweep, first visit. Tradeable. Enter on the 5m close." : `${n}/5 — no trade. ${n === 4 && !p.steps["liquidity taken"] ? "Second visit without a liquidity sweep = no trade." : "Wait for the missing step."}`}</section>
       <section class="card">
         <div class="grid2">
           <label class="f"><span>Entry (5m close)</span><input id="pEntry" inputmode="decimal" value="${esc(p.entry)}"></label>
@@ -104,11 +104,11 @@
   }
 
   function statsHtml(st) {
-    if (!st || !st.n) return `<section class="card"><p class="muted" style="margin:0">Your practice results show here and in Journal → Practice. Aim for 30+ practice trades with 90% A+ before going live.</p></section>`;
+    if (!st || !st.n) return `<section class="card"><p class="muted" style="margin:0">Your practice results show here and in Journal → Practice. Aim for 30+ practice trades that follow the plan before going live.</p></section>`;
     const share = st.n ? Math.round((st.aPlus.n / st.n) * 100) : 0;
     return `<section class="card"><h2>Practice so far</h2><div class="grid2">
       <div class="stat"><small>Trades</small><b>${st.n}</b><small>${st.ruleBreaks} with a rule break</small></div>
-      <div class="stat"><small>A+ share</small><b class="${share >= 90 ? "pos" : "neg"}">${share}%</b><small>goal 90%</small></div>
+      <div class="stat"><small>A+ share</small><b class="pos">${share}%</b><small>A+ or A only</small></div>
       <div class="stat"><small>Total</small><b class="${st.totalR >= 0 ? "pos" : "neg"}">${st.totalR > 0 ? "+" : ""}${st.totalR}R</b><small>avg ${st.avgR ?? "—"}R</small></div>
       <div class="stat"><small>A+ only</small><b class="${st.aPlus.totalR >= 0 ? "pos" : "neg"}">${st.aPlus.totalR > 0 ? "+" : ""}${st.aPlus.totalR}R</b><small>win ${st.aPlus.winRate ?? "—"}%</small></div>
     </div></section>`;

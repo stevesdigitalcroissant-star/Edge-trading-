@@ -176,7 +176,7 @@
       : live ? ["Setup ready", "var(--accent)", `${live} A+ setup${live > 1 ? "s" : ""} waiting for you.`, `<a href="#setups" style="color:var(--accent);font-weight:600">Open it →</a> it's only valid for ${s.setupExpiryMin} minutes.`]
       : inTrade ? ["In a trade", "var(--info)", "Hands off. The rules manage it.", `Stop to break-even at +${s.beAtR}R · exit at +${s.tpAtR}R.`]
       : ["Ready", "var(--good)", "Waiting for an A+ setup.", "No setup, no trade. Patience is the position."];
-    const share = S.share.share, C = 2 * Math.PI * 40, okShare = share >= s.minAPlusShare;
+    const share = S.share.share, C = 2 * Math.PI * 40, okShare = true;
     const hero = `<section class="card hero" style="--state:${stateColor}">
       <div><div class="state"><span class="dot ${g.ok ? "live" : ""}"></span>${stateTxt}</div>
         <div class="headline">${headline}</div><p class="sub">${sub}</p></div>
@@ -551,7 +551,7 @@
         ${n("riskPct", "Risk per trade (%)", "0.1")}${n("accountSize", "Account size (manual mode)", "100")}
         ${n("maxTradesPerDay", "Max trades per day")}${n("maxDailyLossR", "Stop for the day after losing (R)", "0.5")}
         ${n("cooldownMin", "Cool-down after a loss (min)", "5")}${n("maxOpen", "Max open trades")}
-        ${n("minAPlusShare", "Minimum A+ share (%)", "5")}${n("setupExpiryMin", "Setup valid for (min)", "1")}
+        ${n("setupExpiryMin", "Setup valid for (min)", "1")}
         ${n("maxChaseR", "Refuse entry if price ran past it by (R)", "0.1")}
         ${n("newsBeforeMin", "No trades before news (min)", "5")}${n("newsAfterMin", "No trades after news (min)", "5")}
       </div></section>

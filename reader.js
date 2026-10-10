@@ -140,7 +140,7 @@
         seenSignals.add(key);
         try { localStorage.setItem("edge.seenSignals", JSON.stringify([...seenSignals].slice(-50))); } catch {}
         signal = { ...p, key, at: Date.now() };
-        say(p.grade === "A+" ? `A plus ${p.dir} signal. Entry ${p.entry}, stop ${p.sl}. Check it in Edge before you click.` : `A ${p.dir} signal, no liquidity sweep. Only if 90 percent of your trades are A plus.`, "act_now", true);
+        say(p.grade === "A+" ? `A plus ${p.dir} signal. Entry ${p.entry}, stop ${p.sl}. Check it in Edge before you click.` : `A ${p.dir} signal, no liquidity sweep. Entry ${p.entry}, stop ${p.sl}. Check it in Edge before you click.`, "act_now", true);
       }
     }
     // the live price → Edge's trade manager (break-even, target, phone alerts)

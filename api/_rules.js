@@ -2,7 +2,7 @@
 //
 //   gradeSetup   → A+ / A / B / C from the checklist, plus hard blocks
 //   guardrails   → daily limits, cool-down, open-trade limits
-//   canTake      → the final yes/no (A+ always; A only while ≥90% of trades stay A+)
+//   canTake      → the final yes/no (A+ and A can be taken; B and C can't)
 //   evaluateTrade→ what to do with an open trade right now (break-even at 2R, TP at 3.2R…)
 const { dayKey, nextDayStart, inWindow } = require("./_time");
 const { MARKETS, BIAS_MAX_AGE_DAYS } = require("./_config");
@@ -112,12 +112,6 @@ function canTake({ graded, setup, guard, history, settings: s, open }) {
   if (!guard.ok) why.push(...guard.reasons);
   if (open.some((t) => t.market === setup.market)) why.push(`You already have a ${MARKETS[setup.market].name} trade open.`);
   if (graded.grade === "B" || graded.grade === "C") why.push(`Grade ${graded.grade} — not your setup. Skip it.`);
-  if (graded.grade === "A") {
-    const window = 20;
-    const allowed = Math.floor((window * (100 - s.minAPlusShare)) / 100 + 1e-9); // 2 of 20
-    const recent = aPlusShare(history, window - 1);
-    if (recent.nonA + 1 > allowed) why.push(`Grade A — you've used your non-A+ allowance (${s.minAPlusShare}% of trades must be A+). Skip it.`);
-  }
   return { ok: why.length === 0, why };
 }
 

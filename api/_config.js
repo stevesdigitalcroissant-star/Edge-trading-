@@ -63,7 +63,6 @@ const DEFAULT_SETTINGS = {
   maxDailyLossR: 2, // stop for the day after losing 2R
   cooldownMin: 60, // pause after a losing trade (revenge-trade blocker)
   maxOpen: 2,
-  minAPlusShare: 90, // at least 90% of trades must be A+ (rolling last 20)
   newsBeforeMin: 30,
   newsAfterMin: 30,
   newsOpenTrade: "warn", // warn | close   (open trade not yet at break-even before big news)

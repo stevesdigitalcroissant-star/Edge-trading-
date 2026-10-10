@@ -72,7 +72,7 @@
       const side = ev.dir === 1 ? "LONG" : "SHORT";
       if (autoTake) { taken.set(ev.i, { ev, be: false }); say(`${ev.grade} ${side} ${name} — taken at ${fx(ev.entry)}. Stop ${fx(ev.sl)}, target ${fx(ev.tp)}.`, true); return; }
       pending = ev; stop();
-      say(ev.grade === "A+" ? `A+ ${side} on ${name}. Enter at ${fx(ev.entry)}, stop ${fx(ev.sl)}. Take it or skip it.` : `A ${side} on ${name} — no liquidity sweep. Only allowed while 90 percent of your trades are A plus.`, true);
+      say(ev.grade === "A+" ? `A+ ${side} on ${name}. Enter at ${fx(ev.entry)}, stop ${fx(ev.sl)}. Take it or skip it.` : `A ${side} on ${name} — no liquidity sweep. Enter at ${fx(ev.entry)}, stop ${fx(ev.sl)}. Take it or skip it.`, true);
     }
     if (ev.type === "skip") feed = [{ at: bars[i].t, text: `${ev.dir === 1 ? "Long" : "Short"} trigger skipped — ${ev.why}. No trade.` }, ...feed].slice(0, 30);
     const mine = [...taken.values()].find((x) => !x.done);
@@ -192,7 +192,7 @@
     const live = [...taken.values()].find((t) => !t.done);
     return `
       ${pending ? `<section class="banner bad" style="font-size:19px">${esc(pending.grade)} ${pending.dir === 1 ? "LONG" : "SHORT"} — enter at ${fx(pending.entry)} · stop ${fx(pending.sl)} · target ${fx(pending.tp)}
-          <p>${pending.grade === "A+" ? `Every step is done. The liquidity taken: ${esc(pending.swept)}. Calm? Then take it.` : "Every step except the liquidity sweep (first visit to the zone). An A setup: only take it while 90% of your trades are A+."}</p>
+          <p>${pending.grade === "A+" ? `Every step is done. The liquidity taken: ${esc(pending.swept)}. Calm? Then take it.` : "Every step except the liquidity sweep (first visit to the zone). An A setup: tradeable if you're calm."}</p>
           <div class="row" style="margin-top:10px"><button class="btn primary" id="rpTake">Take it</button><button class="btn" id="rpSkip">Skip</button></div></section>`
       : `<section class="banner ${live ? (live.be ? "good" : "bad") : "good"}" style="font-size:17px">${esc(p.doNow)}</section>`}
       <section class="card">
