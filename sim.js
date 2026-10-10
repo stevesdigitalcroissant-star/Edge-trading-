@@ -226,6 +226,7 @@
         <button class="sim-x" data-s="fs" title="Full screen (F)">⛶</button>
         <button class="sim-pnl" data-s="acct" title="Your practice account"><small>Balance</small><b id="simBal">—</b><em id="simPnl">0.00R</em></button></div>
       <div class="sim-info" id="simInfo">Loading prices…</div>
+      <div class="tv-bar" id="tvBar"></div>
       <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><div id="simTB"></div>${toolbarHtml()}<div class="sim-banner" id="simBanner" hidden></div></div>
       <div class="sim-ctl">
         <button class="btn small" data-s="play" id="simPlay">▶ Play</button>
@@ -272,8 +273,7 @@
     let startI = P.strategy === "london" ? first : Math.max(first, all.findIndex((b) => b.cme === day && b.min >= 180 && b.min < 18 * 60));
     const at = o.at ?? startAt(market);
     if (at != null && at !== 18 * 60) { const j = all.findIndex((b, k) => k >= startI && b.cme === day && b.min >= at && b.min < 18 * 60); if (j > 0) startI = j; } // your chosen start time
-    const hist = P.strategy === "london" ? 160 : 24 * 12;
-    S = { market, P, day, bars: all, sess, i: startI, from: Math.max(0, startI - hist), speed: 1, orders: [], pos: null, trades: [], ha: P.strategy === "ngzone", plan: P.strategy === "london" ? londonPlan(sess, P) : null, reviewing: null, tools: [], draws: [], mode: null, pend: null, sel: null, tk: null, tkLines: null, src: useDb ? "db" : "free", month, days: data.days, seq: !!o.seq };
+    S = { market, P, day, bars: all, sess, i: startI, from: 0, view: viewPrefs(market), speed: 1, orders: [], pos: null, trades: [], plan: P.strategy === "london" ? londonPlan(sess, P) : null, reviewing: null, tools: [], draws: [], mode: null, pend: null, sel: null, tk: null, tkLines: null, src: useDb ? "db" : "free", month, days: data.days, seq: !!o.seq };
     closeTicket(); closeMenu(); if (S) modeUi();
     setTimeout(paintPnl, 0);
     buildChart();
@@ -286,19 +286,29 @@
   }
 
   function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888"; }
+  let chartGen = 0, emaSeries = [];
   function buildChart() {
     if (chart) chart.remove();
-    const el = $("#simChart"), LW = window.LightweightCharts;
+    lines = []; emaSeries = [];
+    const el = $("#simChart"), LW = window.LightweightCharts, V = S.view, gen = ++chartGen;
+    const tz = V.clock === "ny" ? NYZ : undefined;
+    const tick = (t, type) => new Date(t * 1000).toLocaleString([], type < 3 ? { timeZone: tz, day: "numeric", month: "short" } : { timeZone: tz, hour: "2-digit", minute: "2-digit" });
     chart = LW.createChart(el, {
       autoSize: true,
       layout: { background: { type: "solid", color: css("--panel") }, textColor: css("--muted"), fontFamily: "Inter, sans-serif" },
       grid: { vertLines: { color: css("--line") }, horzLines: { color: css("--line") } },
       rightPriceScale: { borderColor: css("--line2") },
-      timeScale: { borderColor: css("--line2"), timeVisible: true, secondsVisible: false, rightOffset: 12, tickMarkFormatter: (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) },
-      localization: { timeFormatter: (t) => `${new Date(t * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })} · NY ${hm(nyInfo(t * 1000).min)}` },
+      timeScale: { borderColor: css("--line2"), timeVisible: true, secondsVisible: false, rightOffset: 12, tickMarkFormatter: tick },
+      localization: { locale: "en-US", timeFormatter: (t) => V.clock === "ny" ? `${new Date(t * 1000).toLocaleString([], { timeZone: NYZ, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} NY` : `${new Date(t * 1000).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · NY ${hm(nyInfo(t * 1000).min)}` },
       crosshair: { mode: LW.CrosshairMode.Normal },
     });
-    series = chart.addCandlestickSeries({ upColor: "#26a69a", downColor: "#ef5350", wickUpColor: "#26a69a", wickDownColor: "#ef5350", borderVisible: false, priceFormat: { type: "price", precision: S.P.dec, minMove: S.P.dec === 2 ? 0.01 : 0.001 } });
+    const pf = { priceFormat: { type: "price", precision: S.P.dec, minMove: S.P.dec === 2 ? 0.01 : 0.001 } }, UP = "#26a69a", DN = "#ef5350";
+    series = V.type === "bars" ? chart.addBarSeries({ upColor: UP, downColor: DN, thinBars: false, ...pf })
+      : V.type === "line" ? chart.addLineSeries({ color: "#2962ff", lineWidth: 2, ...pf })
+      : V.type === "area" ? chart.addAreaSeries({ lineColor: "#2962ff", topColor: "rgba(41,98,255,.35)", bottomColor: "rgba(41,98,255,0)", lineWidth: 2, ...pf })
+      : V.type === "hollow" ? chart.addCandlestickSeries({ upColor: "rgba(0,0,0,0)", downColor: DN, borderVisible: true, borderUpColor: UP, borderDownColor: DN, wickUpColor: UP, wickDownColor: DN, ...pf })
+      : chart.addCandlestickSeries({ upColor: UP, downColor: DN, wickUpColor: UP, wickDownColor: DN, borderVisible: false, ...pf });
+    emaSeries = V.ema.map((p) => ({ p, s: chart.addLineSeries({ color: EMA_C[p] || "#f0b90b", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }) }));
     // keep every stop and target on screen
     series.applyOptions({ autoscaleInfoProvider: (orig) => {
       if (S && S.freeze) return { priceRange: S.freeze };
@@ -310,6 +320,7 @@
     chart.subscribeClick((p) => { if (!p.point || !S || S.reviewing || S.justDragged || S.mode || Date.now() - (S.tapAt || 0) < 400) return; chartTap(p.point.x, p.point.y); });
     // while a drawing tool is picked, our own tap detection places it (sturdier than the chart's click on touch screens)
     let down = null;
+    if (!el.__wired) { el.__wired = true; // once per simulator (the chart itself is rebuilt when you change the view)
     el.addEventListener("pointerdown", (e) => { down = S && S.mode && !e.target.closest("[data-k],.tv-tools,.tv-sel,.sim-banner") ? { x: e.clientX, y: e.clientY, t: Date.now() } : null; }, true);
     el.addEventListener("pointerup", (e) => {
       if (!down || !S || !S.mode) return;
@@ -317,28 +328,108 @@
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10 || Date.now() - d.t > 800) return;
       S.tapAt = Date.now(); const r = el.getBoundingClientRect(); chartTap(e.clientX - r.left, e.clientY - r.top);
     }, true);
-    chart.subscribeCrosshairMove((p) => { if (S) S.hover = p.point && S.pend ? { x: p.point.x, y: p.point.y } : null; });
-    chart.timeScale().subscribeVisibleLogicalRangeChange(() => drawOverlay());
     new ResizeObserver(() => drawOverlay()).observe(el);
     $("#simTools").addEventListener("pointerdown", pointerDown);
     $("#simTools").addEventListener("contextmenu", onContext);
-    const loop = () => { if (!S || !chart) return; drawTools(); requestAnimationFrame(loop); };
+    }
+    chart.subscribeCrosshairMove((p) => { if (S) S.hover = p.point && S.pend ? { x: p.point.x, y: p.point.y } : null; });
+    chart.timeScale().subscribeVisibleLogicalRangeChange(() => drawOverlay());
+    const loop = () => { if (!S || !chart || gen !== chartGen) return; drawTools(); requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
   }
-  const candle = (b) => (S.ha ? { time: b.t / 1000, open: b.ha.o, high: b.ha.h, low: b.ha.l, close: b.ha.c } : { time: b.t / 1000, open: b.o, high: b.h, low: b.l, close: b.c });
+  // ---------- what the chart shows: your timeframe, chart type, indicators and clock (the replay itself always runs on
+  // the strategy's candles — 5-minute, or 1-hour for gas — and bigger timeframes are built from them as they print)
+  const TFS = [[5, "5m"], [15, "15m"], [30, "30m"], [60, "1h"], [240, "4h"], [1440, "D"]];
+  const TYPES = [["candles", "Candles", "🕯"], ["hollow", "Hollow candles", "◻"], ["ha", "Heikin Ashi", "🟩"], ["bars", "Bars", "┤"], ["line", "Line", "〰"], ["area", "Area", "◢"]];
+  const EMAS = [9, 20, 50, 200], EMA_C = { 9: "#f0b90b", 20: "#00bcd4", 50: "#e91e63", 200: "#ffffff" };
+  const baseMin = () => (S.P.tf === "60m" ? 60 : 5);
+  const kTF = () => Math.max(1, S.view.tf / baseMin());
+  function viewPrefs(market) {
+    const P = MK[market], base = P.tf === "60m" ? 60 : 5;
+    let v = {}; try { v = JSON.parse(localStorage.getItem(`edge.sim.view.${market}`) || "{}"); } catch {}
+    const d = { tf: base, type: P.strategy === "ngzone" ? "ha" : "candles", ema: [], clock: "local", pdhl: false, seps: true };
+    const out = { ...d, ...v };
+    if (!(out.tf >= base)) out.tf = base;
+    return out;
+  }
+  const saveView = () => { try { localStorage.setItem(`edge.sim.view.${S.market}`, JSON.stringify(S.view)); } catch {} };
+  const gKey = (b) => (S.view.tf >= 1440 ? b.cme : b.cme * 1440 + Math.floor(((b.min - 1080 + 1440) % 1440) / S.view.tf)); // aligned to the 18:00 New York open, like TradingView
+  function dispAdd(i) {
+    const D = S.D, b = S.bars[i], key = gKey(b);
+    let g = D.g[D.g.length - 1];
+    if (g && g.key === key) { g.h = Math.max(g.h, b.h); g.l = Math.min(g.l, b.l); g.c = b.c; g.i1 = i; }
+    else { g = { key, t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, i0: i, i1: i }; D.g.push(g); }
+    D.of[i] = D.g.length - 1;
+    const p = D.g[D.g.length - 2], hc = (g.o + g.h + g.l + g.c) / 4, ho = p ? (p.ha.o + p.ha.c) / 2 : (g.o + g.c) / 2;
+    g.ha = { o: ho, c: hc, h: Math.max(g.h, ho, hc), l: Math.min(g.l, ho, hc) };
+    g.ema = {}; for (const n of S.view.ema) g.ema[n] = p ? p.ema[n] + (g.c - p.ema[n]) * 2 / (n + 1) : g.c;
+    return g;
+  }
+  function dispBuild() { S.D = { g: [], of: [] }; for (let i = S.from; i <= S.i; i++) dispAdd(i); }
+  const barOf = (g) => {
+    const t = g.t / 1000, ty = S.view.type;
+    if (ty === "line" || ty === "area") return { time: t, value: g.c };
+    if (ty === "ha") return { time: t, open: g.ha.o, high: g.ha.h, low: g.ha.l, close: g.ha.c };
+    return { time: t, open: g.o, high: g.h, low: g.l, close: g.c };
+  };
+  // base candle index ⇄ chart position (a 1-hour chart has one bar for twelve 5-minute candles)
+  const dIdx = (i) => { const D = S.D, last = D.g.length - 1; if (i > S.i) return last + (i - S.i) / kTF(); if (i < S.from) return (i - S.from) / kTF(); return D.of[i] ?? last; };
+  const bIdx = (l) => { const D = S.D, last = D.g.length - 1; if (l > last) return S.i + (l - last) * kTF(); if (l < 0) return S.from + l * kTF(); return D.g[Math.round(l)].i0; };
+  const idxOf = (t) => { let lo = 0, hi = S.bars.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (S.bars[m].t <= t) lo = m; else hi = m - 1; } return lo; };
+  const gTime = (t) => { const i = idxOf(t), g = S.D.g[S.D.of[i]]; return (g ? g.t : t) / 1000; };
   function paintAll() {
-    series.setData(S.bars.slice(S.from, S.i + 1).map(candle));
-    chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, S.i - S.from - 90), to: S.i - S.from + 12 });
-    markers(); drawLines(); drawOverlay();
+    dispBuild();
+    series.setData(S.D.g.map(barOf));
+    for (const e of emaSeries) e.s.setData(S.D.g.map((g) => ({ time: g.t / 1000, value: g.ema[e.p] })));
+    const last = S.D.g.length - 1;
+    chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, last - 90), to: last + 12 });
+    markers(); drawLines(); drawOverlay(); viewBar();
+  }
+  function setView(patch) {
+    Object.assign(S.view, patch); saveView();
+    S.lv = null; buildChart(); paintAll(); closeMenu();
+  }
+  function viewBar() {
+    const el = $("#tvBar"); if (!el || !S) return;
+    const V = S.view, ty = TYPES.find((x) => x[0] === V.type) || TYPES[0];
+    el.innerHTML = `<button data-s="vmenu" data-a="tf" class="tf">${(TFS.find((x) => x[0] === V.tf) || [0, V.tf + "m"])[1]} ▾</button>
+      <button data-s="vmenu" data-a="type" title="Chart type">${ty[2]} <span>${ty[1]}</span> ▾</button>
+      <button data-s="vmenu" data-a="ind" title="Indicators">ƒx <span>Indicators</span>${V.ema.length + (V.pdhl ? 1 : 0) + (V.seps ? 1 : 0) ? ` <i>${V.ema.length + (V.pdhl ? 1 : 0) + (V.seps ? 1 : 0)}</i>` : ""}</button>
+      <button data-s="vclock" title="Time on the chart">🕐 ${V.clock === "ny" ? "New York" : "Your time"}</button>`;
+  }
+  function viewMenu(kind, btn) {
+    const V = S.view, r = btn.getBoundingClientRect(), base = baseMin();
+    const check = (on) => `<i>${on ? "✓" : ""}</i>`;
+    let html = "";
+    if (kind === "tf") html = `<div class="tv-mh">Timeframe</div>` + TFS.filter(([m]) => m >= base).map(([m, l]) => `<button data-s="vtf" data-a="${m}">${check(V.tf === m)}${l === "D" ? "1 day" : l.replace("m", " minutes").replace("h", " hour" + (l === "1h" ? "" : "s"))}</button>`).join("")
+      + `<p class="tv-mnote">The replay moves one ${base === 5 ? "5-minute" : "1-hour"} candle at a time; bigger candles build up as you go.</p>`;
+    if (kind === "type") html = `<div class="tv-mh">Chart type</div>` + TYPES.map(([k, l, ic]) => `<button data-s="vtype" data-a="${k}">${check(V.type === k)}<span class="ic">${ic}</span>${l}</button>`).join("");
+    if (kind === "ind") html = `<div class="tv-mh">Indicators</div>` + EMAS.map((n) => `<button data-s="vema" data-a="${n}">${check(V.ema.includes(n))}<span class="sw" style="background:${EMA_C[n]}"></span>EMA ${n}</button>`).join("")
+      + `<hr><button data-s="vpdhl">${check(V.pdhl)}Previous day high / low</button><button data-s="vseps">${check(V.seps)}New-day lines (18:00 New York)</button>`;
+    closeMenu();
+    const m = document.createElement("div");
+    m.id = "tvMenu"; m.className = "tv-menu"; m.innerHTML = html;
+    $("#sim").appendChild(m);
+    const mr = m.getBoundingClientRect();
+    m.style.left = `${Math.max(6, Math.min(r.left, innerWidth - mr.width - 6))}px`; m.style.top = `${r.bottom + 4}px`;
+    S.keepMenu = true; setTimeout(() => { if (S) S.keepMenu = false; }, 50);
   }
   function markers() {
     const m = [];
     for (const t of S.trades) {
-      m.push({ time: t.tIn / 1000, position: t.dir > 0 ? "belowBar" : "aboveBar", color: t.dir > 0 ? "#26a69a" : "#ef5350", shape: t.dir > 0 ? "arrowUp" : "arrowDown", text: t.dir > 0 ? "BUY" : "SELL" });
-      m.push({ time: t.tOut / 1000, position: t.dir > 0 ? "aboveBar" : "belowBar", color: t.R > 0.1 ? "#26a69a" : t.R < -0.1 ? "#ef5350" : "#9e9e9e", shape: "circle", text: `${t.R > 0 ? "+" : ""}${t.R.toFixed(1)}R` });
+      m.push({ time: gTime(t.tIn), position: t.dir > 0 ? "belowBar" : "aboveBar", color: t.dir > 0 ? "#26a69a" : "#ef5350", shape: t.dir > 0 ? "arrowUp" : "arrowDown", text: t.dir > 0 ? "BUY" : "SELL" });
+      m.push({ time: gTime(t.tOut), position: t.dir > 0 ? "aboveBar" : "belowBar", color: t.R > 0.1 ? "#26a69a" : t.R < -0.1 ? "#ef5350" : "#9e9e9e", shape: "circle", text: `${t.R > 0 ? "+" : ""}${t.R.toFixed(1)}R` });
     }
-    if (S.pos) m.push({ time: S.pos.tIn / 1000, position: S.pos.dir > 0 ? "belowBar" : "aboveBar", color: S.pos.dir > 0 ? "#26a69a" : "#ef5350", shape: S.pos.dir > 0 ? "arrowUp" : "arrowDown", text: S.pos.dir > 0 ? "BUY" : "SELL" });
-    series.setMarkers(m.sort((a, b) => a.time - b.time));
+    if (S.pos) m.push({ time: gTime(S.pos.tIn), position: S.pos.dir > 0 ? "belowBar" : "aboveBar", color: S.pos.dir > 0 ? "#26a69a" : "#ef5350", shape: S.pos.dir > 0 ? "arrowUp" : "arrowDown", text: S.pos.dir > 0 ? "BUY" : "SELL" });
+    m.sort((a, b) => a.time - b.time);
+    if (S.view.tf > baseMin()) m.forEach((x) => { if (x.text === "BUY" || x.text === "SELL") x.text = ""; }); // keep big candles readable
+    series.setMarkers(m);
+  }
+  function prevDay() {
+    if (S.pd && S.pd.day === S.day) return S.pd;
+    const prev = S.bars.filter((b) => b.cme < S.day).reduce((m, b) => Math.max(m, b.cme), -1), bs = S.bars.filter((b) => b.cme === prev);
+    S.pd = bs.length ? { day: S.day, h: Math.max(...bs.map((b) => b.h)), l: Math.min(...bs.map((b) => b.l)) } : { day: S.day };
+    return S.pd.h != null ? S.pd : null;
   }
   function drawLines() {
     for (const l of lines) series.removePriceLine(l);
@@ -350,6 +441,7 @@
     S.orders.forEach((o) => add(o.price, o.side > 0 ? "#2962ff" : "#ef5350", `${o.side > 0 ? "BUY" : "SELL"} ${o.type.toUpperCase()} ${o.qty || ""}`));
     const so = S.sel && S.sel.startsWith("tool:") && S.tools[Number(S.sel.slice(5))];
     if (so && !S.tkLines) { add(so.e, "#787b86"); add(so.sl, "#7e57c2"); add(so.tp, "#2962ff"); }
+    if (S.view.pdhl) { const p = prevDay(); if (p) { add(p.h, "#9598a1", "PDH", true); add(p.l, "#9598a1", "PDL", true); } }
     if (S.tkLines) { const k = S.tkLines; add(k.e, "#787b86", "ticket", true); add(k.sl, "#7e57c2", "SL", true); add(k.tp, "#2962ff", "TP", true); }
   }
 
@@ -363,7 +455,7 @@
   const money = (x) => `$${Math.round(x).toLocaleString("en-US")}`;
   const riskUSD = () => { try { const v = Number(localStorage.getItem("edge.riskUSD")); if (v > 0) return v; } catch {} const st = window.Edge && window.Edge.state && window.Edge.state(); return st && st.settings ? Math.round(st.settings.accountSize * st.settings.riskPct / 100) : 100; };
   const contracts = (r, usd = riskUSD()) => (r > 0 ? Math.floor(usd / (r * S.P.pv) + 1e-9) : 0);
-  const boxW = () => (S.P.tf === "60m" ? 12 : 30); // a position tool is this many candles wide
+  const boxW = () => Math.round((S.P.tf === "60m" ? 12 : 24) * kTF()); // a position tool is about this many chart bars wide
   const PROFIT = "#2962ff", LOSS = "#7e57c2", ENTRY = "#787b86";
   // key levels to snap to: the Asian box so far (London) or the old gas zones, plus your own lines
   function levels() {
@@ -387,8 +479,8 @@
     return best != null ? best : onTick(price);
   }
   // candle index ⇄ x on the chart (works in the empty space to the right too)
-  const L2X = (i) => chart.timeScale().logicalToCoordinate(i - S.from);
-  const X2L = (x) => { const l = chart.timeScale().coordinateToLogical(x); return l == null ? S.i : Math.round(l) + S.from; };
+  const L2X = (i) => chart.timeScale().logicalToCoordinate(dIdx(i));
+  const X2L = (x) => { const l = chart.timeScale().coordinateToLogical(x); return l == null ? S.i : Math.round(bIdx(l)); };
   // keep a new box inside the visible chart (it starts where you tapped, unless that would run off the right edge)
   const fit = (t0, w = boxW()) => Math.min(t0, X2L(chart.timeScale().width() - 8) - w);
   const hourAtr = () => { const b = S.bars[S.i]; return S.P.tf === "60m" ? b.atr : b.atr * Math.sqrt(12); };
@@ -437,6 +529,13 @@
     if (S.reviewing) { if (svg.__last) { svg.__last = ""; svg.innerHTML = ""; tb.innerHTML = ""; tb.__last = ""; } return; }
     const W = (PW = chart.timeScale().width()), Y = (p) => series.priceToCoordinate(p), H = $("#simChart").clientHeight;
     let back = "", front = "", bar = "";
+    if (S.view.seps && S.view.tf < 1440 && S.D) { // a dashed line where each trading day starts (18:00 New York)
+      const ts = chart.timeScale(), vr = ts.getVisibleLogicalRange(), G = S.D.g;
+      if (vr) for (let gi = Math.max(1, Math.floor(vr.from)); gi <= Math.min(G.length - 1, Math.ceil(vr.to)); gi++) {
+        if (S.bars[G[gi].i0].cme === S.bars[G[gi - 1].i0].cme) continue;
+        const x = ts.logicalToCoordinate(gi - 0.5); if (x != null) back += `<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="#9598a1" stroke-opacity=".7" stroke-dasharray="4 4"/>`;
+      }
+    }
     // your lines, rectangles and trend lines
     S.draws.forEach((d, n) => {
       const k = `dr:${n}`, sel = S.sel === k;
@@ -751,7 +850,7 @@
   function drawOverlay() {
     const svg = $("#simOv"); if (!svg || !S || !chart) return;
     const items = S.reviewing ? S.reviewing.items[S.reviewing.k].ann : [];
-    const ts = chart.timeScale(), X = (t) => ts.timeToCoordinate(t / 1000), Y = (p) => series.priceToCoordinate(p);
+    const X = (t) => L2X(idxOf(t)), Y = (p) => series.priceToCoordinate(p);
     const w = svg.clientWidth;
     const html = items.map((a) => {
       if (a.type === "box") {
@@ -772,7 +871,8 @@
     const nx = S.i + 1, b = S.bars[nx];
     if (!b || b.cme !== S.day || (b.min >= FLAT && b.min < 18 * 60)) { endSession(); return false; }
     S.i = nx;
-    series.update(candle(b));
+    const g = dispAdd(nx); series.update(barOf(g));
+    for (const e of emaSeries) e.s.update({ time: g.t / 1000, value: g.ema[e.p] });
     const prev = S.bars[nx - 1];
     if (S.orders.length && inWins(S.P, prev.min) && !inWins(S.P, b.min) && prev.min < 18 * 60) { S.orders = []; toast("Window closed — your orders were cancelled, as the plan says."); }
     fills(b);
@@ -984,7 +1084,7 @@
       <div class="row between"><button class="btn small" data-s="rprev" ${R.k ? "" : "disabled"}>‹ Back</button><button class="btn small primary" data-s="rnext">${R.k < R.items.length - 1 ? "Next point ›" : "Done — keep going"}</button></div></div>`;
     // bring the annotations into view
     const ts = it.ann.map((a) => a.t1 || a.t).filter(Boolean);
-    if (ts.length) { const idx = S.bars.findIndex((b) => b.t === Math.min(...ts)); if (idx >= 0) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, idx - S.from - 20), to: S.i - S.from + 10 }); }
+    if (ts.length) { const idx = S.bars.findIndex((b) => b.t === Math.min(...ts)); if (idx >= 0) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, dIdx(idx) - 20), to: dIdx(S.i) + 10 }); }
     drawLines(); drawOverlay();
   }
   function endReview() { S.reviewing = null; drawOverlay(); if (S.ended) return endSession(); panel(); drawLines(); }
@@ -1021,6 +1121,13 @@
       case "close": return close();
       case "pick": return openPicker();
       case "acct": return openAcct();
+      case "vmenu": return viewMenu(a, b);
+      case "vtf": return setView({ tf: Number(a) });
+      case "vtype": return setView({ type: a });
+      case "vema": { const n = Number(a), e = S.view.ema.includes(n) ? S.view.ema.filter((x) => x !== n) : [...S.view.ema, n].sort((x, y) => x - y); setView({ ema: e }); return viewMenu("ind", $('#tvBar [data-a="ind"]')); }
+      case "vpdhl": setView({ pdhl: !S.view.pdhl }); return viewMenu("ind", $('#tvBar [data-a="ind"]'));
+      case "vseps": setView({ seps: !S.view.seps }); return viewMenu("ind", $('#tvBar [data-a="ind"]'));
+      case "vclock": return setView({ clock: S.view.clock === "ny" ? "local" : "ny" });
       case "acctclose": { const el = $("#simAcct"); if (el) el.remove(); return; }
       case "acctsave": return acctSave(false);
       case "acctreset": return acctSave(true);
