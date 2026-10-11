@@ -13,6 +13,9 @@ const num = (x) => (x == null || x === "" || !Number.isFinite(Number(x)) ? null 
 const fx = (x) => (x == null ? "—" : Number(x) >= 100 ? Number(x).toFixed(2) : Number(x).toFixed(3));
 const rp = (x) => (x == null ? x : Math.round(x * 1e6) / 1e6); // computed prices without float dust
 const id = () => crypto.randomBytes(6).toString("hex");
+// brokers Edge sends orders to for you (Tradovate direct, or Tradovate through TradersPost); "manual" = you click yourself
+const ROUTED = (b) => !!b && (b.kind === "tradovate" || b.kind === "traderspost");
+const routedTo = (t, b) => ROUTED(b) && t.source === b.kind;
 const PRACTICE_STEPS = ["4H trend", "fresh zone", "liquidity taken", "15m break", "5m close"];
 const BAD_MOODS = { fomo: "FOMO", revenge: "revenge", bored: "boredom" };
 
@@ -232,9 +235,9 @@ async function closeAll(store, broker, { now = Date.now(), reason = "Close every
   for (const t of ctx.open) {
     try {
       if (t.source === "oanda" && broker.kind === "oanda") { await broker.close(t.brokerId); out.closed++; continue; }
-      if (t.source === "traderspost" && broker.kind === "traderspost") {
+      if (routedTo(t, broker)) {
         const tk = t.ticker || t.symbol;
-        if (!sentTickers.has(tk)) { await broker.exit(tk); sentTickers.add(tk); }
+        if (!sentTickers.has(tk)) { await broker.exit(tk, t); sentTickers.add(tk); }
       } else { out.manual++; if (auto) continue; }
       const hb = await store.get(`price:${t.market}`);
       const exit = hb && now - hb.time < 10 * 60e3 ? hb.price : t.lastPrice ?? t.entry;
@@ -316,30 +319,55 @@ async function syncTrades(store, broker, { now = Date.now(), market = null, mark
 
   // your planned limit orders: filled when price trades through the entry; cancelled if price runs to the target without you
   for (const o of Object.values((await store.hgetall("orders")) || {})) {
+    if (o.routed && broker.status && o.trade.tv) { // Tradovate direct: ask the platform whether the limit filled
+      const st = await broker.status(o.trade.tv.orderId).catch(() => null);
+      if (st && /Filled/.test(st.status)) {
+        await store.hdel("orders", o.id);
+        const px = st.price ?? o.entry, t = { ...o.trade, entry: px, openedAt: now, filledAt: now };
+        if (R.sign(t.dir) * (px - t.initialSL) > 0) t.tpR = R.round(Math.abs(t.tp - px) / Math.abs(px - t.initialSL)); // R measured from the real fill
+        await store.hset("trades", t.id, t);
+        await notify(store, `✅ ${MARKETS[o.market].name}: your ${o.dir === "long" ? "buy" : "sell"} limit filled on Tradovate at ${fx(px)}. Stop ${fx(o.sl)} · target ${fx(o.tp)} are working. Hands off until +${s.lockAtR}R.`, "action");
+        continue;
+      }
+      if (st && /Canceled|Rejected|Expired/.test(st.status)) {
+        await store.hdel("orders", o.id);
+        await notify(store, `ℹ️ ${MARKETS[o.market].name}: your limit order was ${st.status.toLowerCase()} on Tradovate.`, "info");
+        continue;
+      }
+    }
     const m = market === o.market && mark ? mark : await store.get(`price:${o.market}`);
     if (!m || now - m.time > 15 * 60e3 || m.time < o.placedAt) continue;
     const k = R.sign(o.dir), lo = m.low ?? m.price, hi = m.high ?? m.price, name = MARKETS[o.market].name;
-    if (k > 0 ? lo <= o.entry : hi >= o.entry) {
+    if ((k > 0 ? lo <= o.entry : hi >= o.entry) && !(o.routed && broker.status && o.trade.tv)) { // (Tradovate direct reports its own fills)
       await store.hdel("orders", o.id);
       const t = { ...o.trade, openedAt: now, filledAt: now };
       await store.hset("trades", t.id, t);
       await notify(store, `✅ ${name}: your ${o.dir === "long" ? "buy" : "sell"} limit filled at ${fx(o.entry)}. Stop ${fx(o.sl)} · target ${fx(o.tp)}. Hands off until +${s.lockAtR}R.`, "action");
     } else if (k > 0 ? hi >= o.tp : lo <= o.tp) {
       await store.hdel("orders", o.id);
-      if (o.routed && broker.kind === "traderspost") await broker.exit(o.trade.ticker).catch(() => {});
+      if (o.routed && ROUTED(broker)) await broker.exit(o.trade.ticker, o.trade).catch(() => {});
       await notify(store, `🏃 ${name}: price ran to your target without filling the limit — order ${o.routed ? "cancelled on Tradovate" : "cancelled (cancel it on your platform too)"}. No chasing.`, "action");
     }
   }
 
   // manual mode: prices come from the TradingView heartbeat
-  for (const t of ctx.open.filter((x) => x.source === "manual" || x.source === "traderspost")) {
+  for (const t of ctx.open.filter((x) => x.source === "manual" || x.source === "traderspost" || x.source === "tradovate")) {
+    if (routedTo(t, broker) && broker.status && t.tv) { // Tradovate direct: did the stop or the target fill?
+      let done = null;
+      for (const [k2, how] of [["stopId", "stop"], ["tpId", "target"]]) {
+        if (!t.tv[k2] || done) continue;
+        const st = await broker.status(t.tv[k2]).catch(() => null);
+        if (st && /Filled/.test(st.status)) done = { px: st.price ?? (how === "stop" ? t.currentSL ?? t.initialSL : t.tp), how };
+      }
+      if (done) { await recordClose(store, t, done.px, now, null, s, ` (${done.how} filled on Tradovate)`); out.closed++; continue; }
+    }
     const m = market === t.market && mark ? mark : await store.get(`price:${t.market}`);
     if (!m || now - m.time > 15 * 60e3) continue;
     const k = R.sign(t.dir);
     const stop = t.currentSL ?? t.initialSL;
     const hitStop = k > 0 ? (m.low ?? m.price) <= stop : (m.high ?? m.price) >= stop;
     const hitTP = t.tp != null && (k > 0 ? (m.high ?? m.price) >= t.tp : (m.low ?? m.price) <= t.tp);
-    if (hitStop || hitTP) {
+    if ((hitStop || hitTP) && !(routedTo(t, broker) && broker.status && t.tv)) {
       await recordClose(store, t, hitStop ? stop : t.tp, now, null, s, " (auto-detected from the chart — edit if your fill was different)");
       out.closed++;
       continue;
@@ -365,7 +393,7 @@ async function manage(store, broker, t, mark, ctx, out, bos15) {
   const ev = R.evaluateTrade(t, mark, s);
   t.r = ev.r; t.maxR = ev.maxR; t.lastPrice = mark.price; t.lastPriceAt = ctx.now;
   if (ev.beDone && !t.beMoved && t.currentSL != null) t.beMoved = true;
-  const routed = t.source === "traderspost" && broker.kind === "traderspost"; // Edge sends the changes to Tradovate
+  const routed = routedTo(t, broker); // Edge sends the changes to Tradovate
   const manual = !routed && t.source !== "oanda";
   const k = R.sign(t.dir);
   const ticker = t.ticker || t.symbol;
@@ -374,6 +402,17 @@ async function manage(store, broker, t, mark, ctx, out, bos15) {
     if (a.ruleBreak && !(t.ruleBreaks || []).includes(a.code || a.type)) t.ruleBreaks = [...(t.ruleBreaks || []), a.code || a.type];
     if (a.type === "warn") { await once(store, t, a.code, `⚠️ ${name}: ${a.text}`); continue; }
     if (a.type === "moveSL") {
+      if (routed && broker.moveStop && t.tv && t.tv.stopId) { // Tradovate direct: Edge moves the stop on the platform itself
+        if (t.notified && t.notified.be) continue;
+        try {
+          await broker.moveStop(t, a.price);
+          t.currentSL = a.price; t.beMoved = true;
+          await once(store, t, "be", `🔒 ${name}: +${ev.plan.beR}R reached — stop moved to ${fx(a.price)} on Tradovate${a.lock ? ` (+${t.lockR}R locked in). Trail it behind each new 15m swing from here` : ". This trade can't lose now"}.`, "action");
+        } catch (e) {
+          await once(store, t, "be", `❗ ${name}: +${ev.plan.beR}R reached but moving the stop failed (${e.message}). Move it to ${fx(a.price)} yourself NOW.`, "action");
+        }
+        continue;
+      }
       if (a.lock && (routed || manual)) { // your playbook: lock in profit at +3R, then trail behind the 15m swings (you move it on the platform)
         await once(store, t, "be", `🔒 ${name}: ${a.text} Move your stop to ${fx(a.price)} now, then tap "Done" in Edge.`, "action");
         continue;
@@ -480,7 +519,7 @@ function stats(journal) {
 }
 
 async function state(store, broker, now = Date.now()) {
-  if (broker.kind === "oanda") await syncTrades(store, broker, { now }).catch(() => {});
+  if (broker.kind === "oanda" || broker.kind === "tradovate") await syncTrades(store, broker, { now }).catch(() => {});
   const ctx = await context(store, now);
   await newsReminders(store, ctx).catch(() => {});
   await closeOutCheck(store, broker, ctx).catch(() => {});
@@ -493,7 +532,7 @@ async function state(store, broker, now = Date.now()) {
     if (pl && now < pl.expires) plans.push(pl);
   }
   let account = null;
-  if (broker.kind === "oanda") account = await broker.account().catch((e) => ({ error: e.message }));
+  if (broker.kind === "oanda" || broker.kind === "tradovate") account = await broker.account().catch((e) => ({ error: e.message }));
   const open = ctx.open.map((t) => ({ ...t, plan: t.initialSL != null ? R.plan(t, ctx.settings) : null, xp: R.exits(t, ctx.settings) }));
   return {
     now, settings: ctx.settings, defaults: DEFAULT_SETTINGS, markets: Object.fromEntries(Object.entries(MARKETS).map(([k, v]) => [k, { name: v.name, unit: v.unit }])),
@@ -528,8 +567,8 @@ async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: 
     ...(setup.strategy ? { strategy: setup.strategy, tpR: xp.tpR, beR: xp.beR, extra: !!setup.extra } : {}) };
   const beTxt = xp.beR > 0 ? `moves the stop to break-even at +${xp.beR}R` : "leaves the stop alone (no break-even in this plan)";
 
-  if (broker.kind === "manual" || broker.kind === "traderspost") {
-    const routed = broker.kind === "traderspost";
+  if (broker.kind === "manual" || ROUTED(broker)) {
+    const routed = ROUTED(broker);
     // routed: the order goes out at market now — check the latest chart price for chasing
     const hb = routed ? await store.get(`price:${setup.market}`) : null;
     const entry = num(myEntry) ?? (hb && now - hb.time < 6 * 60e3 ? hb.price : setup.entry);
@@ -542,9 +581,9 @@ async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: 
     const tp = rp(entry + k * xp.tpR * risk);
     if (routed) {
       if (size.kind !== "futures") throw new Error("Sending orders through TradersPost is set up for futures (MGC, MCL, QG…). Use a futures chart.");
-      await broker.order({ ticker: setup.symbol, dir: setup.dir, qty: size.qty, sl: setup.sl, tp, price: entry, ref: setupId });
+      var sent = await broker.order({ ticker: setup.symbol, dir: setup.dir, qty: size.qty, sl: setup.sl, tp, price: entry, ref: setupId });
     }
-    const t = { ...base, id: `${routed ? "tp" : "manual"}:${id()}`, source: routed ? "traderspost" : "manual", symbol: setup.symbol, ticker: setup.symbol, entry, initialSL: setup.sl, currentSL: setup.sl, tp, units: size.qty, unitLabel: size.unit, contract: size.contract || null, riskUSD };
+    const t = { ...base, id: `${routed ? "tp" : "manual"}:${id()}`, source: routed ? broker.kind : "manual", ...(sent && sent.orderId ? { tv: sent } : {}), symbol: setup.symbol, ticker: setup.symbol, entry, initialSL: setup.sl, currentSL: setup.sl, tp, units: size.qty, unitLabel: size.unit, contract: size.contract || null, riskUSD };
     if (routed) await notify(store, `▶️ Order sent: ${setup.dir === "long" ? "BUY" : "SELL"} ${size.qty} ${size.contract} · SL ${fx(setup.sl)} · TP ${fx(tp)}. Hands off — Edge ${beTxt}.`, "action");
     await store.hset("trades", t.id, t);
     await store.hset("setups", setupId, { ...setup, status: "taken" });
@@ -605,13 +644,13 @@ async function planTrade(store, broker, body, now) {
   const size = R.orderSize({ symbol, sl }, s, entry, num(body.riskUSD));
   if (size.kind !== "futures") throw new Error(`${root} isn't a futures contract Edge knows.`);
   if (size.qty < 1) throw new Error(`One ${size.contract} would risk $${size.riskPerContract} with this stop — more than your $${size.riskUSD}. Use the micro contract or skip it.`);
-  const routed = broker.kind === "traderspost" && !!body.send;
+  const routed = ROUTED(broker) && !!body.send;
   const type = body.type === "market" ? "market" : "limit";
   const lockR = rr > s.lockAtR + 0.25 ? s.lockToR : null;
-  const trade = { id: `plan:${id()}`, market, dir, grade: "A+", source: routed ? "traderspost" : "manual", symbol, ticker: symbol, entry, initialSL: sl, currentSL: sl, tp,
+  const trade = { id: `plan:${id()}`, market, dir, grade: "A+", source: routed ? broker.kind : "manual", symbol, ticker: symbol, entry, initialSL: sl, currentSL: sl, tp,
     strategy: "playbook", tpR: R.round(rr), beR: lockR != null ? s.lockAtR : 0, lockR, units: size.qty, unitLabel: size.unit, contract: size.contract, riskUSD: size.totalRisk,
     emotion: ["calm", "focused"].includes(body.emotion) ? body.emotion : "calm", checks, note: String(body.note || "").slice(0, 500), maxR: 0, ruleBreaks: [], notified: {}, openedAt: now };
-  if (routed) await broker.order({ ticker: symbol, dir, qty: size.qty, sl, tp, price: entry, ref: trade.id, type });
+  if (routed) { const sent = await broker.order({ ticker: symbol, dir, qty: size.qty, sl, tp, price: entry, ref: trade.id, type }); if (sent && sent.orderId) trade.tv = sent; }
   const side = `${dir === "long" ? "BUY" : "SELL"} ${size.qty} ${size.contract}`;
   if (type === "market") {
     await store.hset("trades", trade.id, trade);
@@ -631,7 +670,7 @@ async function action(store, broker, body, now = Date.now()) {
   if (a === "cancelOrder") {
     const o = await store.hget("orders", String(body.id || ""));
     if (!o) throw new Error("That order isn't waiting any more.");
-    if (o.routed && broker.kind === "traderspost") await broker.exit(o.trade.ticker).catch(() => {});
+    if (o.routed && ROUTED(broker)) await broker.exit(o.trade.ticker, o.trade).catch(() => {});
     await store.hdel("orders", o.id);
     return { ok: true };
   }
@@ -738,11 +777,12 @@ async function action(store, broker, body, now = Date.now()) {
   if (a === "close") {
     const t = await store.hget("trades", body.tradeId);
     if (!t) throw new Error("Trade not found");
-    if (t.source === "manual" || t.source === "traderspost") {
-      if (t.source === "traderspost" && broker.kind === "traderspost") await broker.exit(t.ticker || t.symbol);
-      const exit = num(body.exit) ?? (t.source === "traderspost" ? t.lastPrice : null);
+    if (t.source === "manual" || t.source === "traderspost" || t.source === "tradovate") {
+      const sentOut = routedTo(t, broker);
+      if (sentOut) await broker.exit(t.ticker || t.symbol, t);
+      const exit = num(body.exit) ?? (sentOut || t.source !== "manual" ? t.lastPrice ?? t.entry : null);
       if (exit == null) throw new Error("Enter your exit price");
-      await recordClose(store, t, exit, now, null, mergeSettings(await store.get("settings")), t.source === "traderspost" ? " (sent to Tradovate — correct the exit price if needed)" : "");
+      await recordClose(store, t, exit, now, null, mergeSettings(await store.get("settings")), sentOut ? " (closed on Tradovate — correct the exit price if needed)" : "");
     } else {
       await broker.close(t.brokerId);
       await syncTrades(store, broker, { now, force: true });

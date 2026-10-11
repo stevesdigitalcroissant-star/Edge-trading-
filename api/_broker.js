@@ -138,8 +138,104 @@ function traderspost() {
   };
 }
 
+// Tradovate, direct (its REST API — https://api.tradovate.com): Edge signs in to your account and places the order
+// itself, as a bracket (entry + stop + target, OSO) — and it can read it back: when the limit fills, when the stop or
+// target is hit, and it moves the stop on the platform when you lock in profit. Needs API access on the Tradovate
+// account (Tradovate → Application Settings → API Access → generate a key: that gives the CID and secret).
+// Env: TRADOVATE_USERNAME, TRADOVATE_PASSWORD, TRADOVATE_CID, TRADOVATE_SECRET, TRADOVATE_ENV = demo | live (default demo),
+//      TRADOVATE_ACCOUNT (the account name, if you have several), TRADOVATE_CONTRACTS ("MGC=MGCZ6,MCL=MCLF7" to pin a month).
+const TV = { token: null, exp: 0, acct: null, contracts: {} }; // kept while the server instance lives
+function tradovate() {
+  const base = process.env.TRADOVATE_ENV === "live" ? "https://live.tradovateapi.com/v1" : "https://demo.tradovateapi.com/v1";
+  const env = process.env.TRADOVATE_ENV === "live" ? "live" : "demo";
+  async function auth(force = false) {
+    if (!force && TV.token && Date.now() < TV.exp - 120e3) return TV.token;
+    const r = await fetch(`${base}/auth/accesstokenrequest`, {
+      method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, signal: AbortSignal.timeout(10000),
+      body: JSON.stringify({ name: process.env.TRADOVATE_USERNAME, password: process.env.TRADOVATE_PASSWORD, appId: "Edge", appVersion: "1.0",
+        cid: Number(process.env.TRADOVATE_CID) || process.env.TRADOVATE_CID, sec: process.env.TRADOVATE_SECRET, deviceId: process.env.TRADOVATE_DEVICE_ID || "edge-trading-copilot" }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (j["p-ticket"]) throw new Error(`Tradovate asked to wait ${j["p-time"] || "a few"} seconds before signing in again — try again shortly.`);
+    if (!j.accessToken) throw new Error(`Tradovate sign-in failed: ${j.errorText || r.status}`);
+    TV.token = j.accessToken; TV.exp = Date.parse(j.expirationTime) || Date.now() + 60 * 60e3;
+    return TV.token;
+  }
+  async function call(method, path, body, retry = true) {
+    const r = await fetch(`${base}${path}`, {
+      method, headers: { Authorization: `Bearer ${await auth()}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(10000),
+    });
+    if (r.status === 401 && retry) { await auth(true); return call(method, path, body, false); }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`Tradovate: ${j.errorText || j.failureText || r.status}`);
+    if (j && (j.errorText || j.failureReason) && !j.orderId && !Array.isArray(j)) throw new Error(`Tradovate refused it: ${j.failureText || j.errorText || j.failureReason}`);
+    return j;
+  }
+  async function acct() {
+    if (TV.acct) return TV.acct;
+    const list = await call("GET", "/account/list");
+    const want = process.env.TRADOVATE_ACCOUNT;
+    const a = (list || []).find((x) => (want ? x.name === want : x.active !== false && !x.archived));
+    if (!a) throw new Error(want ? `Tradovate: no account called ${want}` : "Tradovate: no active account");
+    return (TV.acct = { id: a.id, name: a.name });
+  }
+  // "MGC1!" → the contract to trade now, e.g. "MGCZ6" (Tradovate's front month, unless you pinned one)
+  async function contract(ticker) {
+    const root = String(ticker || "").replace(/^[A-Z_]+:/i, "").toUpperCase().replace(/(\d!|[FGHJKMNQUVXZ]\d{1,2})$/, "");
+    const pinned = Object.fromEntries(String(process.env.TRADOVATE_CONTRACTS || "").split(",").map((x) => x.split("=").map((y) => y.trim().toUpperCase())).filter((x) => x[1]));
+    if (pinned[root]) return pinned[root];
+    const hit = TV.contracts[root];
+    if (hit && Date.now() - hit.at < 6 * 3600e3) return hit.name;
+    const list = (await call("GET", `/contract/suggest?t=${encodeURIComponent(root)}&l=12`)) || [];
+    const mine = list.filter((c) => new RegExp(`^${root}[FGHJKMNQUVXZ]\\d{1,2}$`).test(c.name));
+    if (!mine.length) throw new Error(`Tradovate: couldn't find a ${root} contract`);
+    let pick = mine[0];
+    const ids = [...new Set(mine.map((c) => c.contractMaturityId).filter(Boolean))];
+    if (ids.length) {
+      const mats = (await call("GET", `/contractMaturity/items?ids=${ids.join(",")}`).catch(() => [])) || [];
+      const front = mats.find((m) => m.isFront);
+      const soon = mats.filter((m) => Date.parse(m.expirationDate) > Date.now() + 2 * 864e5).sort((a, b) => Date.parse(a.expirationDate) - Date.parse(b.expirationDate))[0];
+      const m = front || soon;
+      if (m) pick = mine.find((c) => c.contractMaturityId === m.id) || pick;
+    }
+    TV.contracts[root] = { name: pick.name, at: Date.now() };
+    return pick.name;
+  }
+  const side = (dir) => (dir === "short" ? "Sell" : "Buy"), other = (dir) => (dir === "short" ? "Buy" : "Sell");
+  const fills = async (orderId) => { const f = (await call("GET", `/fill/deps?masterid=${orderId}`).catch(() => [])) || []; const q = f.reduce((a, x) => a + x.qty, 0); return q ? f.reduce((a, x) => a + x.price * x.qty, 0) / q : null; };
+  return {
+    kind: "tradovate", label: `Tradovate (${env === "live" ? "live" : "demo"} — direct)`, env,
+    async account() { const a = await acct(); const c = await call("POST", "/cashBalance/getcashbalancesnapshot", { accountId: a.id }).catch(() => null); return { name: a.name, currency: "USD", balance: c ? c.totalCashValue : null }; },
+    // entry (limit or market) with the stop and the target attached on Tradovate's servers
+    async order({ ticker, dir, qty, sl, tp, price, type = "market" }) {
+      const a = await acct(), symbol = await contract(ticker);
+      const r = await call("POST", "/order/placeOSO", {
+        accountSpec: a.name, accountId: a.id, action: side(dir), symbol, orderQty: qty, orderType: type === "limit" ? "Limit" : "Market", ...(type === "limit" ? { price } : {}), isAutomated: true,
+        bracket1: { action: other(dir), orderType: "Stop", stopPrice: sl },
+        bracket2: { action: other(dir), orderType: "Limit", price: tp },
+      });
+      if (!r.orderId) throw new Error(`Tradovate refused the order: ${r.failureText || r.errorText || "no order id"}`);
+      return { orderId: r.orderId, stopId: r.oso1Id, tpId: r.oso2Id, symbol, accountId: a.id };
+    },
+    async status(orderId) { const o = await call("GET", `/order/item?id=${orderId}`); return { status: o.ordStatus, price: /Filled/.test(o.ordStatus) ? await fills(orderId) : null }; },
+    async moveStop(t, stopPrice) { const tv = t.tv || {}; if (!tv.stopId) throw new Error("no stop order on Tradovate"); await call("POST", "/order/modifyorder", { orderId: tv.stopId, orderQty: t.units, orderType: "Stop", stopPrice, isAutomated: true }); },
+    async cancel(orderId) { await call("POST", "/order/cancelorder", { orderId, isAutomated: true }); },
+    breakeven: async () => { throw new Error("use moveStop"); },
+    // close: cancel what's still working (entry / stop / target), then flatten the position
+    async exit(ticker, t) {
+      const tv = (t && t.tv) || {}, a = await acct();
+      for (const id of [tv.orderId, tv.stopId, tv.tpId].filter(Boolean)) await call("POST", "/order/cancelorder", { orderId: id, isAutomated: true }).catch(() => {});
+      const name = tv.symbol || (await contract(ticker));
+      const c = await call("GET", `/contract/find?name=${encodeURIComponent(name)}`).catch(() => null);
+      if (c && c.id) await call("POST", "/order/liquidatePosition", { accountId: a.id, contractId: c.id, admin: false }).catch((e) => { if (!/no position|not found/i.test(e.message)) throw e; });
+    },
+  };
+}
+
 function getBroker() {
   if (process.env.OANDA_TOKEN && process.env.OANDA_ACCOUNT_ID) return oanda();
+  if (process.env.TRADOVATE_USERNAME && process.env.TRADOVATE_PASSWORD && process.env.TRADOVATE_CID && process.env.TRADOVATE_SECRET) return tradovate();
   if (process.env.TRADERSPOST_WEBHOOK_URL) return traderspost();
   return { kind: "manual", label: "Manual (no broker connected)" };
 }

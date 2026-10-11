@@ -257,6 +257,7 @@
 
   // ---------- TODAY: what to do now · plan a trade with your playbook · setups Edge found · your open trades
   const PB = () => window.EdgePlaybook;
+  const sendsOrders = () => S.broker.kind === "traderspost" || S.broker.kind === "tradovate"; // Edge places the order on Tradovate for you
   // the contracts you can trade (prop firm futures): $ per 1.00 move
   const CONTRACTS = { gold: [["MGC", 10, "Micro gold"], ["GC", 100, "Gold"]], crude: [["MCL", 100, "Micro crude"], ["CL", 1000, "Crude"]], silver: [["SIL", 1000, "Micro silver"], ["SI", 5000, "Silver"]], natgas: [["MNG", 1000, "Micro gas"], ["QG", 2500, "E-mini gas"]], es: [["MES", 5, "Micro S&P"], ["ES", 50, "E-mini S&P"]] };
   const PL = { open: false, checks: [], market: "gold", contract: "MGC", dir: "long", entry: "", sl: "", tp: "", mood: "", type: "limit", info: null, busy: false };
@@ -296,7 +297,7 @@
     const s = S.settings;
     if (!PL.open) return `<section class="card plan" data-tour="plan" id="planCard"><div class="plan-intro"><div><h2>🧭 Plan a trade</h2><p class="muted">Edge walks you through your strategy, step by step — and only lets the trade through when every step is there.</p></div><button class="btn primary" data-pl="open">Start</button></div></section>`;
     const done = P.required.filter((x) => PL.checks.includes(x)).length, all = P.required.length;
-    const c = planCalc(), routed = S.broker.kind === "traderspost";
+    const c = planCalc(), routed = sendsOrders();
     const rrCls = c.rr == null ? "" : c.rr < s.minR - 0.005 || c.rr > s.maxR + 0.005 ? "bad" : "good";
     const step = (st, n) => { const on = PL.checks.includes(st.id), info = PL.info === st.id;
       return `<div class="pb-step ${on ? "on" : ""}"><button type="button" class="pb-tick" data-pl="tick" data-a="${st.id}"><i>${on ? "✓" : n}</i><span><b>${esc(st.title)}</b><small>${esc(st.short)}</small></span>${st.req ? "" : `<em>bonus</em>`}</button><button type="button" class="pb-info ${info ? "on" : ""}" data-pl="info" data-a="${st.id}" aria-label="What this means">i</button>${info ? `<p class="pb-text">${esc(st.text)}</p>` : ""}</div>`; };
@@ -330,7 +331,7 @@
   }
   // update the numbers without redrawing the inputs (typing isn't interrupted)
   function planSync() {
-    const c = planCalc(), s = S.settings, rrCls = c.rr == null ? "" : c.rr < s.minR - 0.005 || c.rr > s.maxR + 0.005 ? "bad" : "good", routed = S.broker.kind === "traderspost";
+    const c = planCalc(), s = S.settings, rrCls = c.rr == null ? "" : c.rr < s.minR - 0.005 || c.rr > s.maxR + 0.005 ? "bad" : "good", routed = sendsOrders();
     const el = $("#plCalc"); if (el) el.innerHTML = calcHtml(c, rrCls);
     const w = $("#plWhy"); if (w) { w.className = `pl-why ${c.ready ? "good" : ""}`; w.textContent = c.ready ? `✅ Ready. ${routed ? "Edge sends it to Tradovate with the stop and target attached." : "Place it on your platform, then tap below so Edge tracks it."}` : c.why; }
     document.querySelectorAll('[data-pl="go"]').forEach((b) => (b.disabled = !c.ready || PL.busy));
@@ -451,7 +452,7 @@
     const lo = -1, hi = e.tpR, span = hi - lo, pct = (r) => `${Math.max(0, Math.min(100, ((r - lo) / span) * 100))}%`;
     const r = t.r ?? 0;
     const manual = t.source === "manual";
-    const routed = t.source === "traderspost";
+    const routed = t.source === "traderspost" || t.source === "tradovate";
     const beAdvised = manual && !t.beMoved && e.beR > 0 && (t.maxR || 0) >= e.beR;
     return `<div class="card" style="background:var(--panel2);margin-bottom:10px">
       <div class="row between"><h3>${esc(mname(t.market))} · ${t.dir.toUpperCase()}${stratName(t) ? ` <small class="muted">${esc(stratName(t))}</small>` : ""}</h3>
@@ -681,7 +682,7 @@
       ${live && !g.take.ok ? `<div class="blocks">${g.take.why.map((w) => `<div>⛔ ${esc(w)}</div>`).join("")}</div>` : ""}
       ${live && S.broker.kind !== "oanda" ? ticket(x, tp) : ""}
       ${live ? `<div class="row">${(() => { const tooBig = x.size && x.size.kind === "futures" && qtyFor(x.size, riskNow()) < 1 && S.broker.kind !== "oanda"; const ok = g.take.ok && !tooBig;
-        return `<button class="btn ${ok ? "good" : ""}" data-take="${esc(x.id)}" ${ok ? "" : "disabled"}>${ok ? (S.broker.kind === "manual" ? "I'm taking it" : S.broker.kind === "traderspost" ? "Take it — send the order" : "Take it — place the order") : tooBig ? "Too big for your risk" : "Not allowed"}</button>`; })()}
+        return `<button class="btn ${ok ? "good" : ""}" data-take="${esc(x.id)}" ${ok ? "" : "disabled"}>${ok ? (S.broker.kind === "manual" ? "I'm taking it" : sendsOrders() ? "Take it — send to Tradovate" : "Take it — place the order") : tooBig ? "Too big for your risk" : "Not allowed"}</button>`; })()}
         <button class="btn" data-skip="${esc(x.id)}">Skip</button></div>` : ""}
     </div>`;
   }
@@ -696,7 +697,7 @@
     body.innerHTML = `<h3>${esc(mname(x.market))} ${x.dir.toUpperCase()} · ${x.g.grade}</h3>
       <p>Before you click: how do you feel <b>right now</b>? Be honest — this is your journal.</p>
       <div class="moods">${moods.map(([k, l]) => `<button type="button" data-mood="${k}">${l}</button>`).join("")}</div>
-      ${S.broker.kind === "traderspost" ? `<p>Edge sends <b>${x.dir === "long" ? "BUY" : "SELL"} ${q ?? (x.size && x.size.qty)} ${esc(x.size && x.size.contract || "")}</b> ($${risk} risk) at market to your Tradovate account, with the stop at <b>${fx(x.sl)}</b> and the target at <b>${fx(x.entry + (x.dir === "short" ? -1 : 1) * e.tpR * Math.abs(x.entry - x.sl))}</b>. ${beTxt}</p>`
+      ${sendsOrders() ? `<p>Edge sends <b>${x.dir === "long" ? "BUY" : "SELL"} ${q ?? (x.size && x.size.qty)} ${esc(x.size && x.size.contract || "")}</b> ($${risk} risk) at market to your Tradovate account, with the stop at <b>${fx(x.sl)}</b> and the target at <b>${fx(x.entry + (x.dir === "short" ? -1 : 1) * e.tpR * Math.abs(x.entry - x.sl))}</b>. ${beTxt}</p>`
         : manual ? `<label class="f">Your fill price (leave empty if ${fx(x.entry)})<input id="fill" inputmode="decimal" placeholder="${fx(x.entry)}"></label>
         <p class="muted">${q != null ? `<b>${q} ${esc(x.size.contract)}</b> for $${risk} risk. ` : ""}Place it in TradingView with stop <b>${fx(x.sl)}</b> and take-profit at ${e.tpR}R. ${beTxt}</p>`
         : `<p class="muted">Edge places a market order with your stop at <b>${fx(x.sl)}</b> and take-profit at ${e.tpR}R, sized for $${risk} risk. ${beTxt}</p>`}
@@ -720,7 +721,7 @@
     const body = $("#modalBody");
     body.innerHTML = `<h3>Close all ${S.open.length} trade${S.open.length > 1 ? "s" : ""}?</h3>
       <p>${S.open.map((t) => `${esc(mname(t.market))} ${t.dir} (${rs(t.r)})`).join("<br>")}</p>
-      ${S.broker.kind === "traderspost" || S.broker.kind === "oanda" ? `<p class="muted">Edge sends the exit orders to your account now.</p>` : ""}
+      ${sendsOrders() || S.broker.kind === "oanda" ? `<p class="muted">Edge sends the exit orders to your account now.</p>` : ""}
       ${manual.length ? `<p class="err">Edge can't reach trades you placed by hand: also close them in TradingView — Trading Panel → Positions → close all (or right-click the position → Close).</p>` : ""}
       <div class="row"><button class="btn danger closeall" type="button" id="doCloseAll">⛔ Close everything</button><button class="btn" value="cancel">Cancel</button></div>`;
     $("#doCloseAll").addEventListener("click", async () => {
@@ -734,7 +735,7 @@
 
   function closeDialog(id) {
     const t = S.open.find((y) => y.id === id);
-    const manual = t.source === "manual" || t.source === "traderspost";
+    const manual = t.source === "manual" || t.source === "traderspost" || t.source === "tradovate";
     const e = xpOf(t);
     const early = (t.r ?? 0) < e.tpR - 0.1 && !t.beMoved;
     const body = $("#modalBody");
@@ -877,10 +878,15 @@
     return `${stratCard}${notifCard}<section class="card"><h2>Connections</h2>
         <div class="grid2">
           <div class="stat"><small>TradingView webhook</small><b style="font-size:15px">${ok(S.hookReady)}</b></div>
-          <div class="stat"><small>Broker</small><b style="font-size:15px">${esc(S.broker.label)}</b>${S.broker.account && !S.broker.account.error ? `<small>${esc(S.broker.account.currency)} ${Number(S.broker.account.balance).toFixed(2)}</small>` : S.broker.account && S.broker.account.error ? `<small class="err">${esc(S.broker.account.error)}</small>` : ""}</div>
+          <div class="stat"><small>Broker</small><b style="font-size:15px">${esc(S.broker.label)}</b>${S.broker.account && !S.broker.account.error ? `<small>${S.broker.account.name ? `${esc(S.broker.account.name)} · ` : ""}${S.broker.account.balance != null ? `${esc(S.broker.account.currency)} ${Number(S.broker.account.balance).toFixed(2)}` : ""}</small>` : S.broker.account && S.broker.account.error ? `<small class="err">${esc(S.broker.account.error)}</small>` : ""}</div>
           <div class="stat"><small>Phone alerts (Telegram)</small><b style="font-size:15px">${ok(S.telegram)}</b></div>
           <div class="stat"><small>Storage</small><b style="font-size:15px">${S.storage === "memory" ? `<span class="pill bad">not saved</span>` : esc(S.storage)}</b></div>
         </div>
+        ${S.broker.kind === "manual" ? `<div class="connect"><b>🔌 Connect Tradovate — Edge places your trades for you</b>
+          <ol class="steps"><li>In Tradovate: <b>Settings → API Access</b> → generate a key. Note the <b>CID</b> and the <b>secret</b>. (API access must be allowed on your account — check with your prop firm.)</li>
+          <li>In Vercel → project <b>edge-trading</b> → Settings → <b>Environment Variables</b>, add: <code>TRADOVATE_USERNAME</code>, <code>TRADOVATE_PASSWORD</code>, <code>TRADOVATE_CID</code>, <code>TRADOVATE_SECRET</code>, and <code>TRADOVATE_ENV</code> = <code>demo</code> (practice) or <code>live</code>. Several accounts? Add <code>TRADOVATE_ACCOUNT</code> with the account's name.</li>
+          <li>Redeploy. This card turns into your account name and balance — then "Send to Tradovate" places the order with its stop and target, and Edge moves the stop and sees fills by itself.</li></ol>
+          <p class="muted" style="margin:0;font-size:12.5px">Start on <b>demo</b> and send one test trade before switching to live.</p></div>` : ""}
         <p class="muted">Webhook URL for your TradingView alert: <code>${esc(hook)}</code></p>
         <div class="row"><button class="btn small" data-testalert>Send a test alert</button></div>
       </section>

@@ -688,3 +688,5 @@ details.adv > summary h2 { margin: 0; } details.adv > .card { margin-top: 12px; 
 .chips button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel2)); }
 .chips.moods { display: flex; margin-top: 8px; } .chips.moods button { padding: 8px 11px; border-radius: 999px; }
 a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-items: center; }
+.connect { margin: 12px 0; padding: 14px; border-radius: 14px; background: color-mix(in srgb, var(--info) 8%, var(--panel2)); border: 1px solid color-mix(in srgb, var(--info) 30%, transparent); }
+.connect .steps { margin: 8px 0; padding-left: 18px; font-size: 13.5px; line-height: 1.5; } .connect code { font-size: 12px; }
