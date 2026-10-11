@@ -379,6 +379,7 @@
     const seenKey = `edge.sim.${market}`;
     let seen = []; try { seen = JSON.parse(localStorage.getItem(seenKey) || "[]"); } catch {}
     const fresh = data.days.filter((d) => !seen.includes(d));
+    if (dayPick != null && !data.days.includes(dayPick) && window.Edge) window.Edge.toast("That day isn't in the price data yet — here's another one.", 5000);
     const day = dayPick != null && data.days.includes(dayPick) ? dayPick : (fresh.length ? fresh[Math.floor(Math.random() * fresh.length)] : data.days[Math.floor(Math.random() * data.days.length)]);
     try { localStorage.setItem(seenKey, JSON.stringify([...seen, day].slice(-400))); } catch {}
     const all = data.bars, first = all.findIndex((b) => b.cme === day);

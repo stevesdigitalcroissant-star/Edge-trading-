@@ -151,6 +151,19 @@
     finally { busy = false; }
   }
 
+  // light · dark · follow the device — remembered on this device
+  const TI = (d) => `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">${d}</svg>`;
+  const THEMES = [["", TI('<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/>'), "Follows your device"], ["light", TI('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'), "Light"], ["dark", TI('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'), "Dark"]];
+  const themeNow = () => { try { return localStorage.getItem("edge.theme") || ""; } catch { return ""; } };
+  const themeShow = () => { const t = THEMES.find((x) => x[0] === themeNow()) || THEMES[0], b = $("#themeBtn"); b.innerHTML = t[1]; b.title = `Theme: ${t[2]}`;
+    const dark = t[0] === "dark" || (!t[0] && !matchMedia("(prefers-color-scheme: light)").matches); const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = dark ? "#08090b" : "#f4f2ee"; };
+  themeShow();
+  $("#themeBtn").addEventListener("click", () => {
+    const i = THEMES.findIndex((x) => x[0] === themeNow()), n = THEMES[(i + 1) % THEMES.length];
+    try { n[0] ? localStorage.setItem("edge.theme", n[0]) : localStorage.removeItem("edge.theme"); } catch {}
+    if (n[0]) document.documentElement.dataset.theme = n[0]; else delete document.documentElement.dataset.theme;
+    themeShow(); toast(`Theme: ${n[2]}`, 1500);
+  });
   $("#helpBtn").addEventListener("click", () => { if (tab === "watch") return toast("The live chart coach watches your chart and talks you through it — press Start to begin."); startTour(true); });
   $("#tabs").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-tab]"); if (!b) return;
@@ -167,7 +180,9 @@
   const stratName = (x) => (x && x.strategy && S.strategies && S.strategies[x.strategy] ? S.strategies[x.strategy].name : "");
   // your risk in dollars for the order tickets (remembered on this device; default = account × risk %)
   const riskDefault = () => Math.round(S.settings.accountSize * S.settings.riskPct / 100);
-  const riskNow = () => { try { const v = Number(localStorage.getItem("edge.riskUSD")); return v > 0 ? v : riskDefault(); } catch { return riskDefault(); } };
+  const riskMine = () => { try { const v = Number(localStorage.getItem("edge.riskUSD")); return v > 0 ? v : riskDefault(); } catch { return riskDefault(); } };
+  // with your prop account set up, the risk autopilot decides (it starts from your base risk and only ever makes you smaller)
+  const riskNow = () => { const a = S.prop && S.prop.auto; return a ? a.usd : riskMine(); };
   const qtyFor = (z, risk) => (z && z.kind === "futures" && z.riskPerContract > 0 ? Math.floor(risk / z.riskPerContract + 1e-9) : null);
 
   function render() {
@@ -199,6 +214,8 @@
       ["hero", "What to do right now", "One line. <b>Session open</b> = look for your setup. <b>Setup ready</b> = confirm it below. <b>In a trade</b> = hands off. <b>Locked</b> = a limit was hit — done for today."],
       ["setups", "Edge found a setup", "From your TradingView alerts. Check it, say how you feel, and confirm — Edge sends the order with its stop and target."],
       ["open", "Your open trades", "Where price is between your stop and target, and what to do next. Edge pings you at +3R to lock in profit."],
+      ["gameplan", "Your game plan", "When London and New York open, Edge sends a 5-minute brief: trades left, what to risk, which markets sit at a zone, the news. A recap comes after the session."],
+      ["prop", "Your prop account", "Where the account stands against the firm's rules, what to risk on the next trade (the autopilot only ever makes you smaller), and your real odds of passing."],
       ["plan", "Plan a trade", "Your playbook, step by step. Tick each step as you check it on the chart, type your three prices — Edge checks 3R–10R, sizes it for your $ risk and sends or tracks the order."],
       ["kpis", "Your day in 3 numbers", "Trades taken out of your max, today's result in R (1R = what you risk on one trade), and the loss limit that locks trading for the day."],
       ["push", "Alerts on this device", "Turn this on so Edge can buzz you when an order fills, a setup appears, or it's time to lock in profit."],
@@ -369,6 +386,110 @@
       <p class="muted" style="margin:6px 0 0;font-size:12.5px">If price runs to the target without filling you, Edge cancels it — no chasing.</p></section>`;
   }
 
+  // ---------- YOUR PROP ACCOUNT: where it stands, what to risk next, your odds of passing, when you can be paid
+  const usd = (x, sign = false) => x == null || !Number.isFinite(x) ? "—" : `${sign && x > 0 ? "+" : x < 0 ? "−" : ""}$${Math.abs(Math.round(x)).toLocaleString("en-US")}`;
+  const FIRMS = () => (window.EdgeFirms || {});
+  // your own results feed the odds: real trades first, then practice; under 5 → the playbook's 2019–2026 test
+  const myRs = () => { const live = S.journal.filter((t) => t.resultR != null).map((t) => t.resultR), pr = (CO.ex || []).filter((x) => x.R != null).map((x) => x.R); return live.length >= 20 ? live : [...live, ...pr]; };
+  let oddsMemo = { k: "", v: null };
+  function passOdds() {
+    const P = S.prop, E = window.EdgeProp; if (!P || !P.acct || !E || P.acct.target == null) return null;
+    const rs = myRs(), k = JSON.stringify([P.acct.balance, P.acct.peak, P.acct.best, P.acct.daysTraded, P.cfg, rs.length, rs.reduce((a, b) => a + b, 0)]);
+    if (oddsMemo.k !== k) oddsMemo = { k, v: E.simulate(P.acct, P.cfg, rs, { setupsPerDay: P.cfg.setupsPerDay || 1, maxPerDay: S.settings.maxTradesPerDay || 2, days: 20, base: P.cfg.baseRisk || 250, fee: 2 * (P.cfg.feePerContract || 1.5) }) };
+    return oddsMemo.v;
+  }
+  const bar = (pct, c) => `<div class="pbar ${c || ""}"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div>`;
+  function propCard() {
+    const P = S.prop;
+    if (!P || !P.cfg || !P.cfg.enabled) return `<section class="card slim prop-intro" data-tour="prop"><div class="row between"><div><b>🏁 Passing a prop firm?</b><p class="muted" style="margin:4px 0 0">Tradeify, Phidias, MyFundedFutures or Lucid — Edge tracks your drawdown, sizes every trade so one bad day can't end it, and shows your real odds of passing.</p></div><button class="btn small primary" data-propset>Set up</button></div></section>`;
+    const c = P.cfg, a = P.acct, au = P.auto, f = FIRMS()[c.firm], plan = f && f.plans[c.plan];
+    if (!a) return "";
+    const ST = { on: ["On track", "good"], almost: ["Target hit — keep the rules", "warn"], passed: ["Passed 🎉", "good"], "day-locked": ["Done for today", "warn"], failed: ["Drawdown hit", "bad"] }[a.status] || ["", ""];
+    const funded = c.phase === "funded";
+    const tgt = !funded && a.target != null ? `<div class="pm"><div class="row between"><small>To the target</small><small><b>${a.toTarget > 0 ? `${usd(a.toTarget)} to go` : "reached"}</b> of ${usd(a.target)}</small></div>${bar((a.profit / a.target) * 100, "good")}</div>` : "";
+    const room = `<div class="pm"><div class="row between"><small>Room before the drawdown</small><small><b>${usd(a.room)}</b> · floor ${usd(a.floor)}${c.ddType === "eod" ? " (end of day)" : c.ddType === "intraday" ? " (live)" : ""}</small></div>${bar((a.room / c.dd) * 100, a.room < c.dd * 0.35 ? "bad" : a.room < c.dd * 0.6 ? "warn" : "")}</div>`;
+    const day = a.dailyRoom != null ? `<div class="pm"><div class="row between"><small>Today's loss limit</small><small><b>${usd(a.dailyRoom)}</b> left of ${usd(a.dailyLoss)}</small></div>${bar((a.dailyRoom / a.dailyLoss) * 100, a.dailyRoom < a.dailyLoss * 0.4 ? "bad" : "")}</div>` : "";
+    const con = a.consistencyPct ? `<div class="pm"><div class="row between"><small>Consistency (${a.consistencyPct}%)</small><small>${a.consistCap != null && a.toTarget > 0 ? `today: up to <b>${usd(a.consistCap)}</b> more` : a.consistOk ? "<b class='good'>OK</b>" : `<b class="bad">best day ${usd(a.best)} too big</b> — keep trading small days`}</small></div></div>` : "";
+    const mode = { normal: "", protect: `<span class="pill good">protect mode</span>`, consistency: `<span class="pill warn">consistency</span>`, stop: `<span class="pill bad">stop</span>` }[au.mode] || "";
+    const auto = `<div class="auto ${au.mode}"><div class="row between"><div><small class="muted">Next trade · risk autopilot</small><b>${au.usd > 0 ? `Risk ${usd(au.usd)}` : "No more trades"}</b></div>${mode}</div><ul>${au.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>`;
+    const o = !funded ? passOdds() : null;
+    const odds = o ? `<div class="odds"><div><b>${Math.round(o.pass5 * 100)}%</b><small>pass in 5 trading days</small></div><div><b>${Math.round(o.passN * 100)}%</b><small>pass in 20 days</small></div><div><b class="${o.fail > 0.15 ? "bad" : ""}">${Math.round(o.fail * 100)}%</b><small>fail in 20 days</small></div></div>
+      <p class="muted odds-note">2,000 replays of the next 20 days with ${o.usedOwn ? `your own ${o.n} results` : "your playbook's 2019–2026 test (+0.66R a trade)"}, ${c.setupsPerDay || 1} setup a day on average, sized by the autopilot.${o.medianDays ? ` Typical pass: day ${o.medianDays}.` : ""} An edge needs time — the rules make sure you get it.</p>` : "";
+    let pay = "";
+    if (funded && window.EdgeProp) {
+      const y = window.EdgeProp.payout(a, c, S.now);
+      pay = `<div class="pay ${y.eligible ? "ok" : ""}"><div class="row between"><b>💸 ${y.eligible ? `You can request ${usd(y.safe)} now` : "Payout"}</b>${y.split ? `<span class="muted">${esc(y.split)} split</span>` : ""}</div>
+        <p class="muted" style="margin:4px 0 0">${y.eligible ? `Request it today${y.paidBy ? ` — usually paid by ${esc(new Date(y.paidBy + "T12:00:00Z").toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }))}` : ""}. Leave the buffer in: it's what keeps the account alive.` : [y.needWin ? `${y.needWin} more winning day${y.needWin > 1 ? "s" : ""}${c.payout && c.payout.minWinningDayProfit ? ` (${usd(c.payout.minWinningDayProfit)}+)` : ""}` : "", y.needDays ? `${y.needDays} more trading day${y.needDays > 1 ? "s" : ""}` : "", y.safe <= 0 ? `balance above ${usd(a.size + y.buffer)}` : "", !y.consist ? "a more even spread of days (consistency)" : ""].filter(Boolean).join(" · ") || "Not yet."}</p></div>`;
+    }
+    return `<section class="card prop" data-tour="prop" id="propCard">
+      <div class="card-head"><h2>🏁 ${esc(f ? f.name : "Your account")} <small class="muted">${esc(plan ? plan.name : "")} · ${funded ? "funded" : "evaluation"}</small></h2><button class="btn small" data-propset>Edit</button></div>
+      <div class="row between prop-top"><div><small class="muted">Balance</small><b class="num">${usd(a.balance)}</b><span class="${cls(a.profit)}">${usd(a.profit, true)}</span></div><span class="pill ${ST[1]}">${ST[0]}</span></div>
+      ${tgt}${room}${day}${con}${auto}${odds}${pay}
+      ${a.minDays > a.daysTraded ? `<p class="muted" style="margin:6px 0 0;font-size:12.5px">${a.minDays - a.daysTraded} more trading day${a.minDays - a.daysTraded > 1 ? "s" : ""} required before you can pass.</p>` : ""}
+    </section>`;
+  }
+  function propDialog() {
+    const F = FIRMS(), cur = (S.prop && S.prop.cfg) || {};
+    let firm = cur.firm && (F[cur.firm] || cur.firm === "custom") ? cur.firm : "tradeify", plan = cur.plan || "", phase = cur.phase || "eval";
+    const body = $("#modalBody");
+    const fld = (k, label, v, hint = "") => `<label class="f"><small>${label}${hint ? ` <span class="muted">${hint}</span>` : ""}</small><input data-pf="${k}" inputmode="decimal" value="${v == null ? "" : esc(v)}" placeholder="—"></label>`;
+    const draw = (fromPreset) => {
+      const f = F[firm], plans = f ? Object.entries(f.plans) : [];
+      if (f && !f.plans[plan]) plan = plans[0][0];
+      const p = f && f.plans[plan], r = p ? (phase === "funded" ? p.funded : p.eval) || p.funded : null;
+      const v = fromPreset && r ? { size: 50000, target: phase === "funded" ? null : r.target, ...r, payout: r.payout || {} } : { ...cur, payout: cur.payout || {} };
+      const pay = v.payout || {}, an = (S.prop && S.prop.acct) || {};
+      body.innerHTML = `<h3>🏁 Your prop account</h3>
+        <div class="chips">${Object.entries(F).map(([k, x]) => `<button type="button" data-pfirm="${k}" class="${firm === k ? "on" : ""}">${esc(x.name)}</button>`).join("")}<button type="button" data-pfirm="custom" class="${firm === "custom" ? "on" : ""}">Other</button></div>
+        ${f ? `<label class="f" style="margin-top:8px"><small>Account</small><select data-pplan>${plans.map(([k, x]) => `<option value="${k}" ${k === plan ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>` : ""}
+        <div class="seg two" style="margin:8px 0"><button type="button" data-pphase="eval" class="${phase === "eval" ? "on p1" : ""}">Evaluation</button><button type="button" data-pphase="funded" class="${phase === "funded" ? "on p1" : ""}">Funded</button></div>
+        ${p ? `<p class="muted" style="font-size:12.5px;margin:0 0 6px">${esc(p.note || "")} ${p.src ? `<a href="${esc(p.src)}" target="_blank" rel="noopener">Rules ↗</a>` : ""}<br>Automation: ${esc(f.api || "check with the firm")}.</p>` : ""}
+        <p class="muted" style="font-size:12.5px;margin:0 0 6px">Firms change rules often — check every number against your dashboard.</p>
+        <div class="grid3">${fld("size", "Account size", v.size ?? 50000)}${phase === "funded" ? "" : fld("target", "Profit target", v.target)}${fld("dd", "Max drawdown", v.dd)}</div>
+        <div class="grid3"><label class="f"><small>Drawdown follows</small><select data-pf="ddType">${[["eod", "End of day"], ["intraday", "Live (intraday)"], ["static", "Static"]].map(([k, l]) => `<option value="${k}" ${v.ddType === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>${fld("ddLockAt", "Stops trailing at", v.ddLockAt, "balance")}${fld("dailyLoss", "Daily loss limit", v.dailyLoss)}</div>
+        <div class="grid3">${fld("consistencyPct", "Consistency %", v.consistencyPct, "best day ≤")}${fld("minDays", "Min trading days", v.minDays)}${fld("maxMicros", "Max micros", v.maxMicros)}</div>
+        <b style="display:block;margin:10px 0 4px">Where it stands now</b>
+        <div class="grid3">${fld("balance", "Balance now", an.balance != null ? Math.round(an.balance) : v.size ?? 50000)}${fld("hwm", "Highest end-of-day balance", an.peak != null ? Math.round(an.peak) : "")}${fld("days", "Days traded so far", an.daysTraded ?? 0)}</div>
+        <div class="grid3">${fld("baseRisk", "Normal risk a trade", cur.baseRisk ?? 250, "$")}${fld("setupsPerDay", "A+ setups a day", cur.setupsPerDay ?? 1, "average")}${fld("feePerContract", "Fees a contract", cur.feePerContract ?? 1.5, "$ round turn")}</div>
+        ${phase === "funded" ? `<details open><summary><b>Payout rules</b></summary><div class="grid3">${fld("p.minWinningDays", "Winning days", pay.minWinningDays)}${fld("p.minWinningDayProfit", "Winning day =", pay.minWinningDayProfit, "$+")}${fld("p.minDays", "Min days", pay.minDays)}</div><div class="grid3">${fld("p.buffer", "Buffer above start", pay.buffer)}${fld("p.cap", "Max a payout", pay.cap)}${fld("p.processingDays", "Paid within", pay.processingDays, "business days")}</div><input type="hidden" data-pf="p.split" value="${esc(pay.split || "")}"></details>` : ""}
+        <p class="err" id="pErr"></p>
+        <div class="row"><button class="btn primary" type="button" id="pSave">Save</button>${cur.enabled ? `<button class="btn" type="button" id="pOff">Turn off</button>` : ""}<button class="btn" value="cancel">Cancel</button></div>`;
+      body.querySelectorAll("[data-pfirm]").forEach((b) => b.addEventListener("click", () => { firm = b.dataset.pfirm; plan = ""; draw(true); }));
+      const ps = body.querySelector("[data-pplan]"); if (ps) ps.addEventListener("change", () => { plan = ps.value; draw(true); });
+      body.querySelectorAll("[data-pphase]").forEach((b) => b.addEventListener("click", () => { phase = b.dataset.pphase; draw(true); }));
+      $("#pSave").addEventListener("click", async () => {
+        const g = (k) => { const el = body.querySelector(`[data-pf="${k}"]`); return el ? el.value.replace(",", ".").replace(/[$\s]/g, "") : undefined; };
+        const payout = {}; body.querySelectorAll('[data-pf^="p."]').forEach((el) => (payout[el.dataset.pf.slice(2)] = el.value));
+        const cfg = { enabled: true, firm, plan: F[firm] ? plan : "", phase, size: g("size"), target: g("target"), dd: g("dd"), ddType: g("ddType"), ddLockAt: g("ddLockAt"), dailyLoss: g("dailyLoss"), consistencyPct: g("consistencyPct"), minDays: g("minDays"), maxMicros: g("maxMicros"),
+          baseRisk: g("baseRisk"), setupsPerDay: g("setupsPerDay"), feePerContract: g("feePerContract"), payout: phase === "funded" ? payout : cur.payout, anchor: { balance: g("balance"), hwm: g("hwm") || g("balance"), days: g("days") } };
+        try { $("#pSave").disabled = true; await api("POST", { action: "propSave", cfg }); $("#modal").close(); toast("Saved. The autopilot sizes every trade from now on."); refresh(); }
+        catch (e) { $("#pErr").textContent = e.message; $("#pSave").disabled = false; }
+      });
+      const off = $("#pOff"); if (off) off.addEventListener("click", async () => { await api("POST", { action: "propOff" }).catch(() => {}); $("#modal").close(); refresh(); });
+    };
+    draw(!cur.enabled && !cur.firm);
+    $("#modal").showModal();
+  }
+  function propSwap() { const el = $("#propCard"); if (el) { el.outerHTML = propCard(); $("#view").querySelectorAll("#propCard [data-propset]").forEach((b) => b.addEventListener("click", propDialog)); } }
+
+  // ---------- RADAR: your playbook found by TradingView on all 8 markets — graded, one tap to send the limit
+  function radarCard(x) {
+    const g = x.g, live = x.status === "open" && !(x.expires && S.now > x.expires), k = x.dir === "short" ? -1 : 1;
+    const risk = riskNow(), pv = { gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500 }[x.market] || 1;
+    const qty = Math.floor(risk / (Math.abs(x.entry - x.sl) * pv) + 1e-9), mic = (CONTRACTS[x.market] || [[""]])[0][0];
+    const chips = [[x.withTrend ? "With the trend" : x.fromHtfZone ? "Counter-trend from a 4H zone" : "Against the trend", x.withTrend || x.fromHtfZone], [x.fresh ? "Fresh 15m zone" : "Zone already used", x.fresh], [x.liq ? "Liquidity taken" : "No liquidity sweep (bonus)", x.liq ? true : null], [`${Number(x.rr || 0).toFixed(1)}R`, x.rr >= S.settings.minR], [x.session ? `${x.session} session` : "Session", !!x.session]];
+    return `<div class="card radar ${live ? "" : "dim"}" data-tour="setup">
+      <div class="row between"><div class="row"><div class="grade ${g.grade === "A+" ? "Ap" : g.grade}">${esc(g.grade)}</div>
+        <div><h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY limit" : "▼ SELL limit"}</h3><span class="muted">${time(x.at)} · ${esc(x.tv || x.symbol || "")}</span></div></div>
+        <span class="pill">${live ? `${Math.max(0, Math.round((x.expires - S.now) / 60e3))} min left` : esc(x.status === "open" ? "expired" : x.status)}</span></div>
+      <div class="levels"><div><small>Limit (FVG start)</small><b>${fx(x.entry)}</b></div><div><small>Stop</small><b>${fx(x.sl)}</b></div><div><small>Target</small><b>${fx(x.tp)}</b></div><div><small>Size</small><b>${qty > 0 ? `${qty} ${esc(mic)}` : "too wide"}</b></div></div>
+      <div class="sc-list">${chips.map(([t, ok]) => `<span class="${ok ? "ok" : ok === null ? "" : "no"}">${ok ? "✓" : ok === null ? "·" : "!"} ${esc(t)}</span>`).join("")}</div>
+      ${live && !g.take.ok ? `<div class="blocks">${g.take.why.map((w) => `<div>⛔ ${esc(w)}</div>`).join("")}</div>` : ""}
+      ${live ? `<p class="muted" style="margin:6px 0;font-size:12.5px">Check it on your chart first: is the 15m zone really the base before the explosive move? Then confirm — ${sendsOrders() ? "Edge sends the limit with its stop and target to Tradovate." : "place the limit yourself; Edge tracks it."} Risk ${usd(qty > 0 ? qty * Math.abs(x.entry - x.sl) * pv : risk)}.</p>
+        <div class="row"><button class="btn ${g.take.ok && qty > 0 ? "good" : ""}" data-take="${esc(x.id)}" ${g.take.ok && qty > 0 ? "" : "disabled"}>${g.take.ok ? (qty > 0 ? "Confirm the limit" : "Stop too wide for your risk") : "Not allowed"}</button><button class="btn" data-skip="${esc(x.id)}">Skip</button></div>` : ""}
+    </div>`;
+  }
+
   function viewNow() {
     const g = S.guard, s = S.settings;
     const live = S.setups.filter((x) => x.status === "open" && x.g.take.ok && !(x.expires && S.now > x.expires));
@@ -401,13 +522,14 @@
         <p>You're in ${n} trade${n > 1 ? "s" : ""}. Your prop firm closes you if you don't.</p>
         <button class="btn danger closeall" data-closeall style="margin-top:8px">⛔ Close everything</button></div>` : "";
     const pend = S.open.filter((t) => t.pending).map(confirmCard).join("");
-    const setups = live.length ? `<section class="card" data-tour="setups"><div class="card-head"><h2>📣 Edge found a setup</h2><span class="muted">confirm to send it</span></div><div class="setup-list">${live.map(setupCard).join("")}</div></section>` : "";
+    const setups = live.length ? `<section class="card" data-tour="setups"><div class="card-head"><h2>📣 Edge found a setup</h2><span class="muted">confirm to send it</span></div><div class="setup-list">${live.map((x) => (x.strategy === "playbook" ? radarCard(x) : setupCard(x))).join("")}</div></section>` : "";
+    if (S.prop && S.prop.cfg && S.prop.cfg.enabled && !CO.ex) loadExamples(); // your practice results feed the pass odds
     const openCard = n ? `<section class="card" data-tour="open"><div class="card-head"><h2>Open trades</h2><button class="btn small closeall" data-closeall>Close everything</button></div>${S.open.map(tradeCard).join("")}</section>` : "";
     const nextNews = S.news.events.filter((e) => e.block && e.time > S.now - s.newsAfterMin * 60e3).slice(0, 3);
     const news = nextNews.length ? `<section class="card slim" data-tour="news"><div class="card-head"><h2>📰 Big news</h2><span class="muted">no trades ${s.newsBeforeMin} min either side</span></div><div class="news">${nextNews.map((e) => { const liveN = S.now >= e.time - s.newsBeforeMin * 60e3 && S.now <= e.time + s.newsAfterMin * 60e3; return `<div class="ev ${liveN ? "live" : ""}"><span class="num">${day(e.time).split(",")[0]} ${time(e.time)}</span><span>${esc(e.title)}<br><small class="muted">${e.markets.map(mname).join(" · ")}</small></span><span class="pill ${liveN ? "bad" : "warn"}">${liveN ? "NO TRADES" : e.impact}</span></div>`; }).join("")}</div></section>` : "";
-    const watch = `<section class="card slim"><div class="row between"><div><b>🎥 Live chart coach</b><p class="muted" style="margin:4px 0 0">Share your TradingView window — Edge talks you through it.</p></div><a class="btn small" href="#watch">Open</a></div></section>`;
     const alerts = `<details class="card slim" data-tour="log" data-keep="alerts"><summary><b>Alerts</b> <span class="muted">${S.log.length ? `· last ${time(S.log[0].at)}` : ""}</span></summary><div class="log" style="margin-top:8px">${S.log.slice(0, 15).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></details>`;
-    return `${ceBanner}${pend}${hero}${setups}${openCard}${ordersCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${watch}${alerts}`;
+    const gp = S.gameplan && S.now - S.gameplan.at < 10 * 3600e3 ? `<section class="card slim gameplan" data-tour="gameplan"><div class="row between"><b>${esc(S.gameplan.title)}</b><small class="muted">${time(S.gameplan.at)}</small></div>${S.gameplan.lines.map((l) => `<p>${esc(l)}</p>`).join("")}</section>` : "";
+    return `${ceBanner}${pend}${hero}${gp}${setups}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -477,6 +599,7 @@
       ${t.units ? `<p class="muted">Size: ${t.unitLabel === "contracts" ? `<b>${t.units} ${esc(t.contract || "")} contract${t.units > 1 ? "s" : ""}</b> · risk $${t.riskUSD}` : `${Number(t.units).toFixed(t.units < 10 ? 2 : 0)} ${esc(S.markets[t.market]?.unit || "units")}${manual ? ` ≈ ${(t.units / (s.lots[t.market] || 1)).toFixed(2)} lots (1 lot = ${s.lots[t.market]})` : ""}`}</p>` : ""}
       ${(t.ruleBreaks || []).length ? `<p class="err">Rule break logged: ${t.ruleBreaks.map(esc).join(", ")}</p>` : ""}
       ${beAdvised ? `<div class="blocks">🔒 Move your stop to <b>${fx(t.plan.beStop)}</b> now.</div>` : ""}
+      ${t.trailSuggest != null ? `<div class="blocks trail">↗️ New 15m swing — move your stop to <b>${fx(t.trailSuggest)}</b>. <button class="btn small primary" data-traildone="${esc(t.id)}">Done</button></div>` : ""}
       <div class="row">
         ${manual && !t.beMoved && e.beR > 0 ? `<button class="btn small ${beAdvised ? "primary" : ""}" data-be="${esc(t.id)}">I moved my stop to break-even</button>` : ""}
         <button class="btn small danger" data-close="${esc(t.id)}">Close trade</button>
@@ -510,7 +633,7 @@
     if (CO.loading || (!force && CO.ex && Date.now() - CO.at < 30e3)) return;
     CO.loading = true;
     api("POST", { action: "teachList" }).then((r) => { CO.ex = r.examples || []; CO.at = Date.now(); }).catch(() => { CO.ex = CO.ex || []; })
-      .finally(() => { CO.loading = false; if (tab === "coach") coachSwap(); });
+      .finally(() => { CO.loading = false; if (tab === "coach") coachSwap(); else if (tab === "now") propSwap(); });
   }
   window.Edge.examplesChanged = () => { CO.at = 0; }; // a new practice trade was saved → reload on the next visit
   function coachSwap() {
@@ -560,7 +683,13 @@
       ${quiz}
       <div class="pb-book">${P.STEPS.map((st, i) => `<details data-keep="pb-${st.id}"><summary><i>${i + 1}</i><span><b>${st.icon} ${esc(st.title)}</b><small>${esc(st.short)}${st.req ? "" : " · bonus"}</small></span></summary><p>${esc(st.text)}</p></details>`).join("")}</div>
       <div class="pb-manage"><b>In the trade</b>${P.MANAGE.map((m) => `<span>${esc(m)}</span>`).join("")}</div></section>` : "";
-    return `${hero}${practice}${progress}${trades}${book}`;
+    // readiness: is your practice good enough to risk real money? (and, with your prop account set up, your odds of passing it)
+    const Rd = window.EdgeProp && CO.ex ? window.EdgeProp.readiness(CO.ex) : null, od = S.prop && S.prop.cfg && S.prop.cfg.enabled && S.prop.cfg.phase !== "funded" ? passOdds() : null;
+    const ready = Rd ? `<section class="card readiness" data-tour="ready"><div class="card-head"><h2>🚦 Ready for the evaluation?</h2><span class="pill ${Rd.ready ? "good" : Rd.score >= 65 ? "warn" : ""}">${Rd.score}/100</span></div>
+      <div class="odds"><div><b>${Rd.n}</b><small>practice trades</small></div><div><b class="${Rd.expectancy > 0.3 ? "good" : Rd.expectancy < 0 ? "bad" : ""}">${Rd.expectancy == null ? "—" : rs(Rd.expectancy)}</b><small>average a trade</small></div><div><b>${Rd.keptPct == null ? "—" : `${Rd.keptPct}%`}</b><small>playbook kept</small></div></div>
+      ${Rd.ready ? `<div class="insight good"><span>✅</span><div><b>Your practice shows an edge, with the rules kept.</b><p>Go live small — the risk autopilot keeps you inside the firm's rules.</p></div></div>` : `<ul class="why">${Rd.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`}
+      ${od ? `<p class="muted" style="margin:8px 0 0">${od.usedOwn ? "With your results" : "With your playbook's tested results (+0.66R a trade)"}, on your prop account: <b>${Math.round(od.pass5 * 100)}%</b> chance to pass in 5 trading days, <b>${Math.round(od.passN * 100)}%</b> in 20, <b>${Math.round(od.fail * 100)}%</b> to fail.</p>` : ""}</section>` : "";
+    return `${hero}${ready}${practice}${progress}${trades}${book}`;
   }
   function bindCoach() {
     const v = $("#coachBody"); if (!v) return;
@@ -690,16 +819,20 @@
   function takeDialog(id) {
     const x = S.setups.find((y) => y.id === id);
     const manual = S.broker.kind === "manual";
-    const e = xpOf(x), risk = riskNow(), q = qtyFor(x.size, risk);
-    const beTxt = e.beR > 0 ? `At +${e.beR}R ${S.broker.kind === "manual" ? "Edge tells you to move the stop to break-even" : "the stop moves to break-even"}.` : "No break-even in this plan.";
+    const e = xpOf(x), risk = riskNow(), radar = x.strategy === "playbook";
+    const q = radar ? Math.floor(risk / (Math.abs(x.entry - x.sl) * ({ gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500 }[x.market] || 1)) + 1e-9) : qtyFor(x.size, risk);
+    const mic = radar ? (CONTRACTS[x.market] || [[""]])[0][0] : x.size && x.size.contract;
+    const riskTxt = radar && q > 0 ? `$${Math.round(q * Math.abs(x.entry - x.sl) * ({ gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500 }[x.market] || 1))}` : `$${risk}`;
+    const beTxt = radar ? `At +${S.settings.lockAtR || 3}R Edge locks in profit, then trails behind each new 15m swing.` : e.beR > 0 ? `At +${e.beR}R ${S.broker.kind === "manual" ? "Edge tells you to move the stop to break-even" : "the stop moves to break-even"}.` : "No break-even in this plan.";
     const moods = [["calm", "😌 Calm"], ["focused", "🎯 Focused"], ["fomo", "😬 Afraid to miss it"], ["revenge", "😤 Want my money back"], ["bored", "🥱 Bored"]];
     const body = $("#modalBody");
     body.innerHTML = `<h3>${esc(mname(x.market))} ${x.dir.toUpperCase()} · ${x.g.grade}</h3>
       <p>Before you click: how do you feel <b>right now</b>? Be honest — this is your journal.</p>
       <div class="moods">${moods.map(([k, l]) => `<button type="button" data-mood="${k}">${l}</button>`).join("")}</div>
-      ${sendsOrders() ? `<p>Edge sends <b>${x.dir === "long" ? "BUY" : "SELL"} ${q ?? (x.size && x.size.qty)} ${esc(x.size && x.size.contract || "")}</b> ($${risk} risk) at market to your Tradovate account, with the stop at <b>${fx(x.sl)}</b> and the target at <b>${fx(x.entry + (x.dir === "short" ? -1 : 1) * e.tpR * Math.abs(x.entry - x.sl))}</b>. ${beTxt}</p>`
+      ${sendsOrders() ? `<p>Edge sends <b>${x.dir === "long" ? "BUY" : "SELL"} ${q ?? (x.size && x.size.qty)} ${esc(mic || "")}</b> (${riskTxt} risk) ${radar ? `as a limit at <b>${fx(x.entry)}</b>` : "at market"} to your Tradovate account, with the stop at <b>${fx(x.sl)}</b> and the target at <b>${fx(radar ? x.tp : x.entry + (x.dir === "short" ? -1 : 1) * e.tpR * Math.abs(x.entry - x.sl))}</b>. ${beTxt}</p>`
+        : manual && radar ? `<p class="muted">${q ? `<b>${q} ${esc(mic || "")}</b> for ${riskTxt} risk. ` : ""}Place a limit at <b>${fx(x.entry)}</b> with stop <b>${fx(x.sl)}</b> and target <b>${fx(x.tp)}</b>. Edge tracks it and tells you when it fills. ${beTxt}</p>`
         : manual ? `<label class="f">Your fill price (leave empty if ${fx(x.entry)})<input id="fill" inputmode="decimal" placeholder="${fx(x.entry)}"></label>
-        <p class="muted">${q != null ? `<b>${q} ${esc(x.size.contract)}</b> for $${risk} risk. ` : ""}Place it in TradingView with stop <b>${fx(x.sl)}</b> and take-profit at ${e.tpR}R. ${beTxt}</p>`
+        <p class="muted">${q != null ? `<b>${q} ${esc(mic || "")}</b> for ${riskTxt} risk. ` : ""}${radar ? `Place a limit at <b>${fx(x.entry)}</b> with stop <b>${fx(x.sl)}</b> and target <b>${fx(x.tp)}</b>.` : `Place it in TradingView with stop <b>${fx(x.sl)}</b> and take-profit at ${e.tpR}R.`} ${beTxt}</p>`
         : `<p class="muted">Edge places a market order with your stop at <b>${fx(x.sl)}</b> and take-profit at ${e.tpR}R, sized for $${risk} risk. ${beTxt}</p>`}
       <p class="muted">I accept the stop. I won't move it further away. I won't move the target.</p>
       <div class="row"><button class="btn good" type="button" id="confirmTake" disabled>Confirm</button><button class="btn" value="cancel">Cancel</button></div>`;
@@ -709,7 +842,7 @@
     }));
     $("#confirmTake").addEventListener("click", async () => {
       $("#confirmTake").disabled = true;
-      const r = await act({ action: "take", setupId: id, emotion: mood, entry: manual ? $("#fill").value : undefined, riskUSD: risk }, "Trade on. Hands off — the rules manage it now.");
+      const r = await act({ action: "take", setupId: id, emotion: mood, entry: manual && !radar ? $("#fill").value : undefined, riskUSD: risk }, "Trade on. Hands off — the rules manage it now.");
       $("#modal").close();
       if (r) { tab = "now"; render(); }
     });
@@ -782,6 +915,23 @@
   }
 
   // ---------- JOURNAL
+  // the same scorecard as practice, on your real trades: the steps you ticked in the planner, the session, the R, how you managed it
+  const nyMinOf = (t) => { const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date(t)); return Number(p.find((x) => x.type === "hour").value) * 60 + Number(p.find((x) => x.type === "minute").value); };
+  function liveScore(t) {
+    const P = PB(); if (!P || !t.openedAt) return [];
+    const ck = t.checks || [], out = [];
+    for (const st of P.STEPS) if (st.req && !["rr", "session"].includes(st.id)) out.push({ id: st.id, title: st.title, ok: ck.includes(st.id), text: ck.includes(st.id) ? "" : `Not ticked in the planner — ${st.short.toLowerCase()}.` });
+    const rr = t.tpR || (t.initialSL != null && t.tp != null ? Math.abs(t.tp - t.entry) / Math.abs(t.entry - t.initialSL) : null);
+    out.push({ id: "rr", title: "3R – 10R", ok: rr != null && rr >= S.settings.minR - 0.05 && rr <= S.settings.maxR + 0.05, text: rr == null ? "No target recorded." : `Planned ${rr.toFixed(1)}R.` });
+    const m = nyMinOf(t.openedAt);
+    out.push({ id: "session", title: "Session & limits", ok: m >= 120 && m < 690, text: m >= 120 && m < 690 ? "" : "Taken outside London / New York." });
+    const lock = S.settings.lockAtR || 3, breaks = t.ruleBreaks || [];
+    const gaveBack = (t.maxR || 0) >= lock && (t.resultR || 0) < 0.5;
+    out.push({ id: "manage", title: "Management", ok: !breaks.length && !gaveBack, text: breaks.length ? `Rule break: ${breaks.join(", ")}.` : gaveBack ? `It reached +${lock}R and came back — lock in profit at +${lock}R.` : "" });
+    return out;
+  }
+  const tradeDay = (t) => { const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", hourCycle: "h23" }).formatToParts(new Date(t)); const g = (k) => Number(p.find((x) => x.type === k).value); let d = Date.UTC(g("year"), g("month") - 1, g("day")) / 864e5; if (g("hour") >= 18) d++; return d; };
+
   function viewJournal() {
     const st = S.stats;
     const grp = (x, l) => `<div class="stat"><small>${l} (${x.n})</small><b class="${cls(x.totalR)}">${rs(x.totalR)}</b><small>${x.winRate == null ? "" : `${x.winRate}% wins`}</small></div>`;
@@ -790,7 +940,9 @@
         <b class="r ${cls(t.resultR)}">${rs(t.resultR)}</b>
         <small class="muted">${day(t.closedAt)} · ${esc(t.exitReason)}${(t.ruleBreaks || []).length ? " · ⚠ rule break" : ""}</small>
         <small class="muted">${t.maxR != null ? `best ${rs(t.maxR)}` : ""}</small>
-        ${t.note ? `<small style="grid-column:1/-1">${esc(t.note)}</small>` : ""}</div>`;
+        ${t.note ? `<small style="grid-column:1/-1">${esc(t.note)}</small>` : ""}
+        ${(() => { const sc = t.practice ? [] : liveScore(t); if (!sc.length) return ""; const ok = sc.filter((c) => c.ok).length;
+          return `<div class="sc-list" style="grid-column:1/-1;margin-top:4px"><span class="${ok === sc.length ? "ok" : ""}">${ok}/${sc.length} kept</span>${sc.filter((c) => !c.ok).map((c) => `<span class="no" title="${esc(c.text)}">! ${esc(c.title)}</span>`).join("")}${S.markets[t.market] ? `<button type="button" class="link" data-snap="${esc(t.id)}">View on chart ›</button>` : ""}</div>`; })()}</div>`;
     const rows = S.journal.map(jrow).join("");
     return `${insightsCard()}${S.practice.length >= 5 ? insightsCard(S.practice, "🧠 From your practice trades") : ""}<section class="card" data-tour="results"><h2>Results</h2><div class="grid2">
         <div class="stat"><small>Total</small><b class="${cls(st.totalR)}">${rs(st.totalR)}</b><small>${st.n} trades</small></div>
@@ -900,15 +1052,18 @@
       </section>`;
     const tvCard = `<section class="card"><h2>TradingView setup</h2>
         <p class="muted" style="margin-top:0">TradingView doesn't let apps install scripts, so it's one copy-paste per script. Your secret is already inside.</p>
-        <div class="grid2">
+        <div class="stat radar-pine"><small>⭐ Your playbook radar — all 8 markets</small><b style="font-size:14px">5-minute chart, one per market: <code>MNQ1!</code> · <code>MES1!</code> · <code>MYM1!</code> · <code>MGC1!</code> · <code>SIL1!</code> · <code>MCL1!</code> · <code>MHG1!</code> · <code>MNG1!</code></b>
+          <p class="muted" style="margin:6px 0">Watches the daily / 4H trend, fresh 15m zones and the 5m change of character on TradingView's servers — your phone buzzes with the limit, stop and target even when Edge and your chart are closed. Every 5 minutes it also tells Edge where price is, so Edge trails your stop behind new 15m swings. Needs a paid TradingView plan (webhooks): one alert per market.</p>
+          <button class="btn small primary" data-copypine="edge_playbook_radar">Copy radar script</button></div>
+        <details style="margin-top:10px"><summary class="muted">Older scripts</summary><div class="grid2" style="margin-top:8px">
           <div class="stat"><small>London breakout — gold, crude, silver</small><b style="font-size:14px">5-minute charts: <code>MGC1!</code> · <code>MCL1!</code> · <code>SIL1!</code></b><button class="btn small primary" data-copypine="edge_london_breakout" style="margin-top:6px">Copy London script</button></div>
           <div class="stat"><small>Natural gas zones</small><b style="font-size:14px">1-hour chart, normal candles: <code>QG1!</code> or <code>MNG1!</code></b><button class="btn small primary" data-copypine="edge_natgas_zones" style="margin-top:6px">Copy gas zones script</button></div>
           <div class="stat"><small>Supply &amp; demand (the original)</small><b style="font-size:14px">5-minute charts: gold, crude, gas</b><button class="btn small" data-copypine="edge_supply_demand" style="margin-top:6px">Copy S&amp;D script</button></div>
-        </div>
+        </div></details>
         <ol class="steps">
           <li>Tap a <b>Copy</b> button above, then on a computer open TradingView on the chart it says.</li>
           <li>Bottom panel → <b>Pine Editor</b> → <b>delete everything already there</b> (Ctrl+A / ⌘A, then Delete), paste → <b>Save</b> → <b>Add to chart</b>.</li>
-          <li><b>Alert</b> (clock icon) → Condition: the Edge script → <b>alert() function calls only</b> → Notifications → tick <b>Webhook URL</b> and paste the address below → Create.</li>
+          <li><b>Alert</b> (clock icon) → Condition: the Edge script → <b>Any alert() function call</b> (or "alert() function calls only") → Notifications → tick <b>Webhook URL</b> and paste the address below → Create.</li>
           <li>One alert per chart. The first candle shows up in Edge's log.</li>
         </ol>
         <div class="row" style="margin-top:12px"><button class="btn small" id="copyHook">Copy webhook URL</button></div>
@@ -934,8 +1089,9 @@
         <p class="muted">Webhook URL for your TradingView alert: <code>${esc(hook)}</code></p>
         <div class="row"><button class="btn small" data-testalert>Send a test alert</button></div>
       </section>
-      <details class="card adv" data-keep="adv"><summary><h2>Advanced</h2><span class="muted">TradingView alerts, exits, hours, AI coach</span></summary>
       ${tvCard}
+      <section class="card slim"><div class="row between"><div><b>🏁 Prop account</b><p class="muted" style="margin:4px 0 0">${S.prop && S.prop.cfg && S.prop.cfg.enabled ? `${esc((FIRMS()[S.prop.cfg.firm] || {}).name || "Custom")} · ${S.prop.cfg.phase === "funded" ? "funded" : "evaluation"} — the risk autopilot sizes every trade.` : "Not set up — your firm's rules, the risk autopilot and your pass odds."}</p></div><button class="btn small" data-propset>${S.prop && S.prop.cfg && S.prop.cfg.enabled ? "Edit" : "Set up"}</button></div></section>
+      <details class="card adv" data-keep="adv"><summary><h2>Advanced</h2><span class="muted">exits, hours, AI coach</span></summary>
       <section class="card"><h2>Exits</h2><div class="grid2">
         ${n("beAtR", "Supply & demand: stop to break-even at (R)", "0.1")}${n("tpAtR", "Supply & demand: take profit at (R)", "0.1")}${n("beOffsetR", "Break-even buffer (R)", "0.01")}
         <label class="f">Target moved further away<select data-set="enforceTP"><option value="true" ${s.enforceTP ? "selected" : ""}>Put it back (greed check)</option><option value="false" ${s.enforceTP ? "" : "selected"}>Allow</option></select></label>
@@ -984,6 +1140,12 @@
   function bind() {
     const v = $("#view");
     bindPlan(); bindCoach();
+    v.querySelectorAll("[data-snap]").forEach((b) => b.addEventListener("click", (e) => {
+      e.stopPropagation(); const t = S.journal.find((x) => x.id === b.dataset.snap); if (!t || !window.EdgeSim) return toast("Simulator still loading — try again.");
+      window.EdgeSim.open(t.market, { day: tradeDay(t.openedAt), at: Math.max(0, nyMinOf(t.openedAt) - 90), src: "free" });
+    }));
+    v.querySelectorAll("[data-propset]").forEach((b) => b.addEventListener("click", propDialog));
+    v.querySelectorAll("[data-traildone]").forEach((b) => b.addEventListener("click", () => act({ action: "trailDone", tradeId: b.dataset.traildone }, "Stop trailed. Profit locked — hands off.")));
     v.querySelectorAll("[data-cancelord]").forEach((b) => b.addEventListener("click", () => act({ action: "cancelOrder", id: b.dataset.cancelord }, "Order cancelled — cancel it on your platform too if you placed it yourself.")));
     v.querySelectorAll("[data-take]").forEach((b) => b.addEventListener("click", () => takeDialog(b.dataset.take)));
     v.querySelectorAll("[data-cmood]").forEach((b) => b.addEventListener("click", () => b.parentElement.querySelectorAll("button").forEach((y) => y.classList.toggle("on", y === b))));

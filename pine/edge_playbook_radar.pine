@@ -406,7 +406,7 @@ endPlan(Hunt h, string txt) =>
     h.lt := na
     h.state
 
-skip(Hunt h, string why) =>
+skipSetup(Hunt h, string why) =>
     if showDraw and showSkips
         label.new(bar_index, h.dir == 1 ? low : high, "skip: " + why, style = h.dir == 1 ? label.style_label_up : label.style_label_down,
              color = color.new(color.gray, 30), textcolor = color.white, size = size.tiny, force_overlay = true)
@@ -444,15 +444,15 @@ tryArm(Hunt h) =>
         bool dirOk = bias == h.dir or h.fromHtf
         bool sideOk = isL ? entry < close : entry > close
         if risk <= 0 or not sideOk
-            skip(h, "no clean gap")
+            skipSetup(h, "no clean gap")
         else if na(tp)
-            skip(h, "no 15m liquidity to target")
+            skipSetup(h, "no 15m liquidity to target")
         else if rr < minR
-            skip(h, str.tostring(rr, "0.0") + "R < " + str.tostring(minR) + "R")
+            skipSetup(h, str.tostring(rr, "0.0") + "R < " + str.tostring(minR) + "R")
         else if not dirOk
-            skip(h, "against the trend, not at a 4H/Daily zone")
+            skipSetup(h, "against the trend, not at a 4H/Daily zone")
         else if not inSess
-            skip(h, "outside the session")
+            skipSetup(h, "outside the session")
         else
             h.entry := entry
             h.sl := sl
@@ -625,7 +625,7 @@ if barstate.isconfirmed
 
     // heartbeat for the Edge app (lets it manage stops and show where price is)
     if sendBars
-        [n1, t1] = nearestZone(dDems, na, "")
+        [n1, t1] = nearestZone(dDems, float(na), "")
         [n2, t2] = nearestZone(dSups, n1, t1)
         [n3, t3] = nearestZone(hDems, n2, t2)
         [n4, nearTxt] = nearestZone(hSups, n3, t3)

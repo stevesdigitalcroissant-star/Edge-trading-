@@ -84,6 +84,7 @@ async function handleHook(store, broker, body, now = Date.now()) {
     if (mark.price == null) return { status: 400, json: { error: "bar without price" } };
     await store.set(`price:${market}`, mark);
     const res = await syncTrades(store, broker, { now, market, mark, force: true });
+    await gamePlan(store, now).catch(() => {});
     return { status: 200, json: { ok: true, ...res } };
   }
 
@@ -308,6 +309,43 @@ async function newsReminders(store, ctx) {
     const names = e.markets.map((m) => (MARKETS[m] ? MARKETS[m].name : m)).join(", ");
     await notify(store, `📰 ${e.title} at ${clock(e.time)} (in ${Math.round(lead / 60e3)} min). No new ${names} trades from ${clock(e.time - s.newsBeforeMin * 60e3)} to ${clock(e.time + s.newsAfterMin * 60e3)}.`, "news");
   }
+}
+
+// ---------- your 5-minute game plan: a brief when London (02:00 New York) and New York (08:00) open, a recap after (11:30)
+// Sent once each from the TradingView heartbeat — so it arrives even when the app is closed.
+const GP_SLOTS = [["london", 120, "🇬🇧 London is open"], ["ny", 480, "🇺🇸 New York is open"], ["recap", 690, "🏁 Session over"]];
+async function gamePlan(store, now = Date.now()) {
+  const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", weekday: "short", hourCycle: "h23" }).formatToParts(new Date(now));
+  const g = (k) => (p.find((x) => x.type === k) || {}).value, m = Number(g("hour")) * 60 + Number(g("minute"));
+  if (["Sat", "Sun"].includes(g("weekday"))) return null;
+  const slot = GP_SLOTS.find(([, at]) => m >= at && m < at + 30); if (!slot) return null;
+  const key = `gp:${Prop.tradingDay(now)}:${slot[0]}`;
+  if (await store.get(key)) return null;
+  await store.set(key, now);
+  const ctx = await context(store, now), s = ctx.settings, guard = R.guardrails(ctx), pn = await propNow(store, ctx, now).catch(() => null);
+  const $ = (x) => `$${Math.round(x).toLocaleString("en-US")}`, lines = [];
+  if (slot[0] === "recap") {
+    const today = Prop.tradingDay(now), done = ctx.journal.filter((t) => t.closedAt && Prop.tradingDay(t.closedAt) === today);
+    const r = done.reduce((a, t) => a + (t.resultR || 0), 0);
+    lines.push(done.length ? `${done.length} trade${done.length > 1 ? "s" : ""} today · ${r >= 0 ? "+" : ""}${R.round(r, 2)}R` : "No trades today — no A+ setup is a fine day.");
+    if (pn) lines.push(`Account ${$(pn.acct.balance)} · ${$(pn.acct.room)} room${pn.acct.toTarget != null ? ` · ${pn.acct.toTarget > 0 ? `${$(pn.acct.toTarget)} to target` : "target reached"}` : ""}.`);
+    if (ctx.open.length) lines.push(`${ctx.open.length} trade${ctx.open.length > 1 ? "s" : ""} still open — the stop and target are set; hands off.`);
+    lines.push("Log how it went in Edge, then step away from the charts.");
+  } else {
+    const left = Math.max(0, s.maxTradesPerDay - guard.tradesToday);
+    if (!guard.ok) lines.push(`⛔ No trading: ${guard.reasons[0]}`);
+    else lines.push(`${left} trade${left === 1 ? "" : "s"} left today${pn ? ` · risk ${pn.auto.usd > 0 ? $(pn.auto.usd) : "nothing — " + pn.auto.why[0]}` : ""}.`);
+    if (pn && pn.acct.toTarget != null) lines.push(`${pn.acct.toTarget > 0 ? `${$(pn.acct.toTarget)} to the target` : "Target reached"} · ${$(pn.acct.room)} before the drawdown.`);
+    const near = [];
+    for (const mk of Object.keys(MARKETS)) { const mark = await store.get(`price:${mk}`); if (mark && mark.near && now - mark.time < 3 * 3600e3) near.push(`${MARKETS[mk].name}: ${mark.near}${mark.trendD ? ` (daily ${mark.trendD > 0 ? "up" : "down"})` : ""}`); }
+    lines.push(near.length ? `Near a zone: ${near.slice(0, 4).join(" · ")}.` : "No market at a higher-timeframe zone yet — wait for price to come to you.");
+    const news = ctx.events.filter((e) => e.block && e.time > now && e.time - now < 5 * 3600e3).slice(0, 2);
+    if (news.length) lines.push(`📰 ${news.map((e) => `${e.title} ${new Date(e.time).toLocaleTimeString("en-US", { timeZone: s.tz || "America/New_York", hour: "2-digit", minute: "2-digit" })}`).join(" · ")} — no trades ${s.newsBeforeMin} min either side.`);
+  }
+  const text = `${slot[2]}. ${lines.join(" ")}`;
+  await store.set("gameplan", { slot: slot[0], at: now, text, lines, title: slot[2] });
+  await notify(store, text, "info");
+  return text;
 }
 
 // ---------- trade manager
@@ -601,7 +639,7 @@ async function state(store, broker, now = Date.now()) {
     share: R.aPlusShare([...ctx.journal, ...ctx.open]), guard: R.guardrails(ctx),
     news: { ok: ctx.newsOk, error: ctx.newsError, events: ctx.events.filter((e) => e.time > now - 2 * 3600e3) },
     prop: await propNow(store, ctx, now).catch(() => null) || ((await store.get("prop")) ? { cfg: await store.get("prop"), acct: null, auto: null } : null),
-    prices, log: await store.lrange("log", 40), orders: Object.values((await store.hgetall("orders")) || {}).sort((a, b) => b.placedAt - a.placedAt),
+    gameplan: await store.get("gameplan"), prices, log: await store.lrange("log", 40), orders: Object.values((await store.hgetall("orders")) || {}).sort((a, b) => b.placedAt - a.placedAt),
     broker: { kind: broker.kind, label: broker.label, account },
     fundamentals: await store.get("fundamentals"),
     closeOut: R.closeOut(now, ctx.settings),
@@ -1032,4 +1070,4 @@ async function action(store, broker, body, now = Date.now()) {
   throw new Error(`Unknown action: ${a}`);
 }
 
-module.exports = { guide, createSetup, createPlan, handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, context, gradeNow, stats };
+module.exports = { gamePlan, guide, createSetup, createPlan, handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, context, gradeNow, stats };
