@@ -50,7 +50,7 @@
     if (!pushCapable) return isIOS && !standalone
       ? { on: false, ios: true, text: "On iPhone / iPad: tap Share → Add to Home Screen, open Edge from the new icon, then come back here." }
       : { on: false, text: "This browser can't receive notifications. Use Chrome, Edge, Firefox or Safari." };
-    if (Notification.permission === "denied") return { on: false, text: "Notifications are blocked for Edge. Allow them in the device settings, then try again." };
+    if (Notification.permission === "denied") return { on: false, text: isIOS ? "Notifications are blocked for Edge. iPhone Settings → Notifications → Edge → Allow Notifications, then come back." : "Notifications are blocked for Edge. Allow them in the browser's site settings, then try again." };
     return { on: false, text: "Off for this device" };
   }
   async function enablePush() {
@@ -395,7 +395,7 @@
       <div><small>Loss limit</small><b>−${s.maxDailyLossR}R</b><em>stop for the day</em></div>
     </div>`;
     const ps = pushStatus();
-    const pushNudge = ps.on ? "" : `<section class="card slim" data-tour="push"><div class="row between"><b>🔔 Alerts on this device</b>${pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on</button>` : ""}</div><p class="muted" style="margin:6px 0 0">${esc(ps.text)}</p></section>`;
+    const pushNudge = ps.on ? "" : `<section class="card slim push-nudge" data-tour="push"><div class="row between"><div><b>🔔 Notifications on this ${isIOS ? "iPhone" : "device"}</b><p class="muted" style="margin:4px 0 0">${ps.ios ? esc(ps.text) : pushCapable && Notification.permission !== "denied" ? "Setups, fills, \"lock in profit now\" — straight to your lock screen. Tap Turn on, then Allow." : esc(ps.text)}</p></div>${pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on</button>` : ""}</div></section>`;
     const ce = S.closeOut || {}, n = S.open.length;
     const ceBanner = n && (ce.warn || ce.due) ? `<div class="banner bad">⏰ ${ce.due ? `Close-out time (${esc(s.flatBy)}) — get out now.` : `${ce.minutesLeft} min to the close-out (${esc(s.flatBy)}).`}
         <p>You're in ${n} trade${n > 1 ? "s" : ""}. Your prop firm closes you if you don't.</p>
@@ -500,7 +500,7 @@
   }
 
   function logCard() {
-    return `<section class="card" data-tour="log"><h2>Alerts</h2><div class="log">${S.log.slice(0, 12).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet. Alerts from TradingView land here (and on your phone if Telegram is set up).</p>`}</div></section>`;
+    return `<section class="card" data-tour="log"><h2>Alerts</h2><div class="log">${S.log.slice(0, 12).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet. Alerts land here — and on your phone once notifications are on.</p>`}</div></section>`;
   }
 
   // ---------- COACH: train in the simulator · see how well you keep your playbook · learn it by heart
@@ -879,7 +879,7 @@
         <div class="grid2">
           <div class="stat"><small>TradingView webhook</small><b style="font-size:15px">${ok(S.hookReady)}</b></div>
           <div class="stat"><small>Broker</small><b style="font-size:15px">${esc(S.broker.label)}</b>${S.broker.account && !S.broker.account.error ? `<small>${S.broker.account.name ? `${esc(S.broker.account.name)} · ` : ""}${S.broker.account.balance != null ? `${esc(S.broker.account.currency)} ${Number(S.broker.account.balance).toFixed(2)}` : ""}</small>` : S.broker.account && S.broker.account.error ? `<small class="err">${esc(S.broker.account.error)}</small>` : ""}</div>
-          <div class="stat"><small>Phone alerts (Telegram)</small><b style="font-size:15px">${ok(S.telegram)}</b></div>
+          <div class="stat"><small>Phone notifications</small><b style="font-size:15px">${S.push.devices.length ? `<span class="pill good">${S.push.devices.length} device${S.push.devices.length > 1 ? "s" : ""}</span>` : `<span class="pill warn">off</span>`}</b></div>
           <div class="stat"><small>Storage</small><b style="font-size:15px">${S.storage === "memory" ? `<span class="pill bad">not saved</span>` : esc(S.storage)}</b></div>
         </div>
         ${S.broker.kind === "manual" ? `<div class="connect"><b>🔌 Connect Tradovate — Edge places your trades for you</b>
@@ -995,7 +995,7 @@
     }));
     const chk = $("#copyHook"); if (chk) chk.addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.origin + "/api/hook"); toast("Webhook URL copied."); } catch { toast(location.origin + "/api/hook", 8000); } });
     const lt = $("#logTrade"); if (lt) lt.addEventListener("click", logTradeDialog);
-    v.querySelectorAll("[data-testalert]").forEach((b) => b.addEventListener("click", async () => { const r = await act({ action: "testAlert" }); if (r) toast(r.telegram ? "Sent — check your devices." : "Logged. No device has notifications on yet."); }));
+    v.querySelectorAll("[data-testalert]").forEach((b) => b.addEventListener("click", async () => { const r = await act({ action: "testAlert" }); if (r) toast(r.sent ? "Sent — check your phone." : "No device has notifications on yet — tap Turn on first."); }));
     const so = $("#signOut"); if (so) so.addEventListener("click", () => { try { localStorage.removeItem("edge.token"); } catch {} token = ""; authView = "signin"; showLogin(); });
     const cp = $("#cpSave"); if (cp) cp.addEventListener("click", async () => {
       if ($("#cpNew").value !== $("#cpNew2").value) return toast("The two new passwords don't match.");

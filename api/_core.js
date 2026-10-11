@@ -921,7 +921,7 @@ async function action(store, broker, body, now = Date.now()) {
   if (a === "autoBias") return fundamentals.load(store, { force: true, now });
   if (a === "testAlert") {
     const ok = await notify(store, "👋 Edge is connected. Only A+ from here.", "info");
-    return { ok, telegram: ok };
+    return { ok, sent: ok };
   }
   if (a === "pushSubscribe") { await subscribe(store, body.subscription, body.label); return { ok: true }; }
   if (a === "pushUnsubscribe") { await unsubscribe(store, body.endpoint); return { ok: true }; }

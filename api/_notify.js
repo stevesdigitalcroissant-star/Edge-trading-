@@ -49,7 +49,7 @@ async function push(store, { title, body, url, sticky, tag }) {
   if (!ids.length) return 0;
   const k = await vapid(store);
   const payload = JSON.stringify({ title, body, url, sticky, tag });
-  const opts = { TTL: 3600, urgency: sticky ? "high" : "normal", vapidDetails: { subject: process.env.VAPID_SUBJECT || "mailto:edge@example.com", publicKey: k.publicKey, privateKey: k.privateKey } };
+  const opts = { TTL: 3600, urgency: sticky ? "high" : "normal", vapidDetails: { subject: process.env.VAPID_SUBJECT || process.env.APP_URL || "https://edge-trading-steel.vercel.app", publicKey: k.publicKey, privateKey: k.privateKey } };
   let sent = 0;
   await Promise.all(ids.map(async (id) => {
     try { await webpush.sendNotification(subs[id], payload, opts); sent++; }
