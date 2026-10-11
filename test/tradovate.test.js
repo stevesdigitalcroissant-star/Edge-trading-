@@ -60,6 +60,14 @@ test("plan a trade → bracket on Tradovate → fill → stop moved at +3R → t
   assert.ok(Math.abs(st.open[0].currentSL - 2404.8) < 1e-6);
   assert.ok(!st.log.some((l) => /moved back/.test(l.text))); // the untouched target isn't flagged
 
+  // a new 15m swing low above the stop → Edge trails the stop behind it on Tradovate (2 ticks below)
+  now += 5 * 60e3;
+  await core.handleHook(store, broker, { secret: "s3cret", type: "bar", symbol: "MGC1!", price: 2416, high: 2416.5, low: 2413, swing15Low: 2410 }, now);
+  const mods = calls.filter((c) => c.path === "/order/modifyorder");
+  assert.ok(Math.abs(mods[mods.length - 1].body.stopPrice - 2409.8) < 1e-6);
+  st = await core.state(store, broker, now);
+  assert.ok(Math.abs(st.open[0].currentSL - 2409.8) < 1e-6);
+
   // the target fills on Tradovate → journal
   orders[ids.tpId] = "Filled"; fillPx[ids.tpId] = 2420; now += 60e3;
   st = await core.state(store, broker, now + 5000);

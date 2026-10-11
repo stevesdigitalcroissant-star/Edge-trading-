@@ -2,7 +2,7 @@
 // Works in the browser (window.EdgeInsights) and in Node (require) so it can be tested.
 (function (root) {
   const MIN = 5; // never speak about a group with fewer trades than this
-  const MARKET = { gold: "Gold", crude: "Crude oil", natgas: "Natural gas", silver: "Silver", es: "S&P 500" };
+  const MARKET = { gold: "Gold", crude: "Crude oil", natgas: "Natural gas", silver: "Silver", es: "S&P 500", nq: "Nasdaq 100", ym: "Dow Jones", copper: "Copper" };
   const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const r2 = (x) => Math.round(x * 100) / 100;
   const rs = (x) => `${x > 0 ? "+" : ""}${r2(x).toFixed(2)}R`;

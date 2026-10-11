@@ -16,6 +16,27 @@ const id = () => crypto.randomBytes(6).toString("hex");
 // brokers Edge sends orders to for you (Tradovate direct, or Tradovate through TradersPost); "manual" = you click yourself
 const ROUTED = (b) => !!b && (b.kind === "tradovate" || b.kind === "traderspost");
 const routedTo = (t, b) => ROUTED(b) && t.source === b.kind;
+const Prop = require("../prop.js");
+// ---------- your prop account + the tilt guard: the same maths the app shows, enforced here before any order goes out
+async function propNow(store, ctx, now) {
+  const cfg = await store.get("prop");
+  if (!cfg || !cfg.enabled) return null;
+  const acct = Prop.account(ctx.journal, cfg, now);
+  const today = Prop.tradingDay(now), todays = ctx.journal.filter((t) => t.closedAt && Prop.tradingDay(t.closedAt) === today).sort((a, b) => b.closedAt - a.closedAt);
+  const lastLoss = todays.find((t) => (t.resultR || 0) < -0.1);
+  const auto = Prop.autopilot(acct, cfg, { base: cfg.baseRisk || 250, lastLossRisk: lastLoss ? lastLoss.riskUSD : null, minR: ctx.settings.minR });
+  return { cfg, acct, auto };
+}
+function tilt(ctx, now, riskUSD) {
+  const nyMin = (() => { const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date(now)); return Number(p.find((x) => x.type === "hour").value) * 60 + Number(p.find((x) => x.type === "minute").value); })();
+  const s = ctx.settings;
+  if (s.sessionGuard !== false && !(nyMin >= 120 && nyMin < 690)) return { block: "Outside your sessions (London / New York, 02:00–11:30 New York). That's not your edge — wait for tomorrow's session." };
+  const recent = [...ctx.journal, ...ctx.open].filter((t) => t.openedAt && now - t.openedAt < 30 * 60e3);
+  if (recent.length >= 2) return { block: "Two trades in the last 30 minutes. Slow down — step away for a few minutes, the next setup will come." };
+  const today = Prop.tradingDay(now), lastLoss = ctx.journal.filter((t) => t.closedAt && Prop.tradingDay(t.closedAt) === today && (t.resultR || 0) < -0.1).sort((a, b) => b.closedAt - a.closedAt)[0];
+  if (lastLoss && lastLoss.riskUSD && riskUSD > lastLoss.riskUSD * 1.01) return { cap: lastLoss.riskUSD, why: `Sized down to $${lastLoss.riskUSD} — never bigger after a loss.` };
+  return {};
+}
 const PRACTICE_STEPS = ["4H trend", "fresh zone", "liquidity taken", "15m break", "5m close"];
 const BAD_MOODS = { fomo: "FOMO", revenge: "revenge", bored: "boredom" };
 
@@ -58,7 +79,8 @@ async function handleHook(store, broker, body, now = Date.now()) {
   if (!market) return { status: 200, json: { ignored: `Not a market Edge trades: ${msg.symbol}` } };
 
   if (msg.type === "bar") {
-    const mark = { price: num(msg.price), high: num(msg.high), low: num(msg.low), time: now, symbol: msg.symbol, bos15: msg.bos15 || "" };
+    const mark = { price: num(msg.price), high: num(msg.high), low: num(msg.low), time: now, symbol: msg.symbol, bos15: msg.bos15 || "",
+      swing15Low: num(msg.swing15Low), swing15High: num(msg.swing15High), trendD: num(msg.trendD), trend4h: num(msg.trend4h), near: String(msg.near || "").slice(0, 80) };
     if (mark.price == null) return { status: 400, json: { error: "bar without price" } };
     await store.set(`price:${market}`, mark);
     const res = await syncTrades(store, broker, { now, market, mark, force: true });
@@ -87,6 +109,28 @@ function withStyle(sp, s, market) {
   return { ...sp, tpR: st.tpR || sp.tpR, beR: st.beR ?? sp.beR, stopFrac: st.stopFrac || 1, mine: true };
 }
 const styleSl = (sp, dir, entry, hi, lo) => (sp.stopFrac && sp.stopFrac < 1 && hi > lo ? entry - R.sign(dir) * sp.stopFrac * (hi - lo) : null);
+
+// A setup from the radar script: graded against your playbook, then on your phone with the exact order
+async function radarSetup(store, market, msg, now, s) {
+  const b = (x) => x === true || x === "true";
+  const setup = { id: id(), market, source: "radar", strategy: "playbook", symbol: msg.symbol, tv: msg.tv, dir: msg.dir === "short" ? "short" : "long",
+    entry: num(msg.entry), sl: num(msg.sl), tp: num(msg.tp), rr: num(msg.rr), zoneTop: num(msg.zoneTop), zoneBot: num(msg.zoneBot), trendD: num(msg.trendD), trend4h: num(msg.trend4h),
+    withTrend: b(msg.withTrend), fromHtfZone: b(msg.fromHtfZone), fresh: msg.fresh !== false && msg.fresh !== "false", liq: b(msg.liq), session: String(msg.session || ""), near: String(msg.near || "").slice(0, 80),
+    at: now, expires: now + (s.radarValidMin || 180) * 60e3, status: "open" };
+  const k = R.sign(setup.dir);
+  if (setup.entry == null || setup.sl == null || setup.tp == null || k * (setup.entry - setup.sl) <= 0 || k * (setup.tp - setup.entry) <= 0) return { error: "setup needs entry, sl and tp on the right sides" };
+  if (setup.rr == null) setup.rr = R.round(Math.abs(setup.tp - setup.entry) / Math.abs(setup.entry - setup.sl));
+  await store.hset("setups", setup.id, setup);
+  await pruneSetups(store, now);
+  const ctx = await context(store, now);
+  const g = gradeNow(setup, ctx);
+  setup.grade = g.grade; await store.hset("setups", setup.id, setup);
+  const name = MARKETS[market].name, side = setup.dir === "long" ? "BUY" : "SELL";
+  await notify(store, g.take.ok
+    ? `📣 ${g.grade} ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R)${setup.liq ? " · liquidity taken" : ""}. Open Edge to confirm.`
+    : `⛔ ${g.grade} ${name} ${side} @ ${fx(setup.entry)} — skip it: ${g.take.why[0]}`, g.take.ok ? "setup" : "skip");
+  return { setup, grade: g.grade, takeable: g.take.ok, why: g.take.why || [] };
+}
 
 // The orders to place BEFORE the move, for a tested strategy:
 //   london: the Asian range is set → a buy stop at its high and a sell stop at its low (whichever fills first
@@ -125,6 +169,7 @@ async function createPlan(store, market, msg, now) {
 // A setup from the TradingView alert or read off the chart: store it, grade it, tell the phone.
 async function createSetup(store, market, msg, now, { source = "alert", broker = null } = {}) {
   const s = mergeSettings(await store.get("settings"));
+  if (msg.strategy === "playbook") return radarSetup(store, market, msg, now, s);
   const sp = msg.strategy ? withStyle(strategyPlan(String(msg.strategy), market), s, market) : null;
   if (msg.strategy && !sp) return { error: `No ${msg.strategy} strategy for ${market}` };
   const setup = {
@@ -398,6 +443,18 @@ async function manage(store, broker, t, mark, ctx, out, bos15) {
   const k = R.sign(t.dir);
   const ticker = t.ticker || t.symbol;
 
+  // after the +3R lock: trail the stop behind each new 15m swing (the radar script reports them with every 5m candle)
+  if (t.lockR != null && t.beMoved && s.trail15 !== false) {
+    const sw = k > 0 ? mark.swing15Low : mark.swing15High, spec = require("./_config").futuresSpec(t.symbol || t.ticker || "");
+    const lvl = sw != null ? rp(sw - k * 2 * (spec ? spec.tick : 0)) : null, cur = t.currentSL ?? t.initialSL;
+    if (lvl != null && k * (lvl - cur) > 0 && k * (mark.price - lvl) > 0 && t.trailAt !== lvl) {
+      t.trailAt = lvl;
+      if (routed && broker.moveStop && t.tv && t.tv.stopId) {
+        try { await broker.moveStop(t, lvl); t.currentSL = lvl; await notify(store, `↗️ ${name}: new 15m swing — stop trailed to ${fx(lvl)} on Tradovate (${R.round(R.rAt(t, lvl))}R locked).`, "action"); }
+        catch (e) { await notify(store, `❗ ${name}: couldn't trail the stop (${e.message}). Move it to ${fx(lvl)} yourself.`, "action"); }
+      } else { t.trailSuggest = lvl; await notify(store, `↗️ ${name}: new 15m swing — move your stop to ${fx(lvl)} (${R.round(R.rAt(t, lvl))}R locked), then tap Done in Edge.`, "action"); }
+    }
+  }
   for (const a of ev.actions) {
     if (a.ruleBreak && !(t.ruleBreaks || []).includes(a.code || a.type)) t.ruleBreaks = [...(t.ruleBreaks || []), a.code || a.type];
     if (a.type === "warn") { await once(store, t, a.code, `⚠️ ${name}: ${a.text}`); continue; }
@@ -484,7 +541,10 @@ async function manage(store, broker, t, mark, ctx, out, bos15) {
 
 async function recordClose(store, t, exit, closedAt, pnl, s, note = "") {
   const resultR = exit != null && t.initialSL != null ? R.round(R.rAt(t, exit)) : null;
-  const j = { ...t, exit, closedAt, pnl, resultR, exitReason: exit != null ? R.exitReason(t, exit, s) + note : "unknown" };
+  const spec = require("./_config").futuresSpec(t.symbol || t.ticker || "");
+  const pc = await store.get("prop").catch(() => null), fee = (pc && pc.feePerContract != null ? Number(pc.feePerContract) : 1.5) * (t.units || 0);
+  const usd = pnl != null ? Number(pnl) : spec && t.units && exit != null ? R.round(R.sign(t.dir) * (exit - t.entry) * spec.pv * t.units - fee) : null;
+  const j = { ...t, exit, closedAt, pnl, resultR, usd, feeUSD: pnl == null && spec ? fee : 0, exitReason: exit != null ? R.exitReason(t, exit, s) + note : "unknown" };
   delete j.notified;
   await store.hset("journal", t.id, j);
   await store.hdel("trades", t.id);
@@ -540,6 +600,7 @@ async function state(store, broker, now = Date.now()) {
     practice: ctx.practice.slice(0, 200), practiceStats: stats(ctx.practice), coach: { ready: !!process.env.ANTHROPIC_API_KEY, session: await store.get("coach") },
     share: R.aPlusShare([...ctx.journal, ...ctx.open]), guard: R.guardrails(ctx),
     news: { ok: ctx.newsOk, error: ctx.newsError, events: ctx.events.filter((e) => e.time > now - 2 * 3600e3) },
+    prop: await propNow(store, ctx, now).catch(() => null) || ((await store.get("prop")) ? { cfg: await store.get("prop"), acct: null, auto: null } : null),
     prices, log: await store.lrange("log", 40), orders: Object.values((await store.hgetall("orders")) || {}).sort((a, b) => b.placedAt - a.placedAt),
     broker: { kind: broker.kind, label: broker.label, account },
     fundamentals: await store.get("fundamentals"),
@@ -552,6 +613,15 @@ async function state(store, broker, now = Date.now()) {
 async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: myRisk }, now = Date.now()) {
   const setup = await store.hget("setups", setupId);
   if (!setup) throw new Error("Setup not found");
+  if (setup.strategy === "playbook") { // the radar's setup is a limit at the start of the gap: it goes out like a trade you planned yourself
+    const ctx0 = await context(store, now), g0 = gradeNow(setup, ctx0);
+    if (!g0.take.ok) throw new Error(g0.take.why.join(" "));
+    const spec = require("./_config").futuresSpec(setup.symbol || "");
+    const micro = spec ? ({ GC: "MGC", CL: "MCL", SI: "SIL", NG: "MNG", QG: "MNG", ES: "MES", NQ: "MNQ", YM: "MYM", HG: "MHG" })[spec.root] || spec.root : null;
+    const r = await planTrade(store, broker, { market: setup.market, contract: micro, dir: setup.dir, entry: setup.entry, sl: setup.sl, tp: setup.tp, riskUSD: myRisk, emotion, checks: require("../playbook.js").required, type: "limit", send: true, note: `radar setup ${setup.grade || ""}` }, now);
+    await store.hset("setups", setupId, { ...setup, status: "taken" });
+    return r;
+  }
   if (BAD_MOODS[emotion]) {
     await store.set("cooldown", now + 15 * 60e3);
     await notify(store, `🧘 Skipped a trade because of ${BAD_MOODS[emotion]}. 15-minute break started. That's discipline.`, "skip");
@@ -575,7 +645,14 @@ async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: 
     if (k * (entry - setup.sl) <= 0) throw new Error("That entry is on the wrong side of the stop.");
     const risk = Math.abs(entry - setup.sl);
     if (k * (entry - setup.entry) / Math.abs(setup.entry - setup.sl) > s.maxChaseR) throw new Error(`Price ran more than ${s.maxChaseR}R past the entry. No chasing — wait for the next setup.`);
-    const size = R.orderSize(setup, s, entry, num(myRisk));
+    let want = num(myRisk);
+    const tg = tilt(ctx, now, want || 0);
+    if (tg.block) throw new Error(tg.block);
+    if (tg.cap) want = Math.min(want || tg.cap, tg.cap);
+    const pn = await propNow(store, ctx, now);
+    if (pn) { if (pn.auto.usd <= 0) throw new Error(pn.auto.why[0]); want = Math.min(want || pn.auto.usd, pn.auto.usd); }
+    const size = R.orderSize(setup, s, entry, want);
+    if (pn && pn.cfg.maxMicros && size.qty > pn.cfg.maxMicros) size.qty = pn.cfg.maxMicros;
     if (size.kind === "futures" && size.qty < 1) throw new Error(`One ${size.contract} contract would risk $${size.riskPerContract}, more than your $${size.riskUSD} limit. Skip this one${size.contract === "GC" || size.contract === "CL" || size.contract === "NG" || size.contract === "QG" ? " — or trade the micro contract" : ""}.`);
     const riskUSD = size.totalRisk;
     const tp = rp(entry + k * xp.tpR * risk);
@@ -641,7 +718,14 @@ async function planTrade(store, broker, body, now) {
   if (!guard.ok) throw new Error(guard.reasons.join(" "));
   const root = String(body.contract || "").toUpperCase().replace(/[^A-Z]/g, "") || { gold: "MGC", crude: "MCL", natgas: "MNG", silver: "SIL", es: "MES" }[market];
   const symbol = `${root}1!`;
-  const size = R.orderSize({ symbol, sl }, s, entry, num(body.riskUSD));
+  let riskUSD = num(body.riskUSD);
+  const tg = tilt(ctx, now, riskUSD || 0);
+  if (tg.block) throw new Error(tg.block);
+  if (tg.cap) riskUSD = Math.min(riskUSD || tg.cap, tg.cap);
+  const pn = await propNow(store, ctx, now);
+  if (pn) { if (pn.auto.usd <= 0) throw new Error(pn.auto.why[0]); riskUSD = Math.min(riskUSD || pn.auto.usd, pn.auto.usd); }
+  const size = R.orderSize({ symbol, sl }, s, entry, riskUSD);
+  if (pn && pn.cfg.maxMicros && size.qty > pn.cfg.maxMicros) size.qty = pn.cfg.maxMicros;
   if (size.kind !== "futures") throw new Error(`${root} isn't a futures contract Edge knows.`);
   if (size.qty < 1) throw new Error(`One ${size.contract} would risk $${size.riskPerContract} with this stop — more than your $${size.riskUSD}. Use the micro contract or skip it.`);
   const routed = ROUTED(broker) && !!body.send;
@@ -667,6 +751,19 @@ async function action(store, broker, body, now = Date.now()) {
   const a = body.action;
   if (a === "take") return take(store, broker, body, now);
   if (a === "planTrade") return planTrade(store, broker, body, now);
+  if (a === "propSave") { // your prop account: firm, plan, rules (all editable), where it stands now
+    const c = body.cfg || {}, n = (x) => (x == null || x === "" ? null : Number.isFinite(Number(x)) ? Number(x) : null);
+    const cur = (await store.get("prop")) || {};
+    const next = { ...cur, enabled: c.enabled !== false, firm: String(c.firm || cur.firm || "custom").slice(0, 30), plan: String(c.plan || cur.plan || "").slice(0, 40), phase: c.phase === "funded" ? "funded" : "eval",
+      size: n(c.size) ?? 50000, target: n(c.target), dd: n(c.dd) ?? 2000, ddType: ["eod", "intraday", "static"].includes(c.ddType) ? c.ddType : "eod", ddLockAt: n(c.ddLockAt), dailyLoss: n(c.dailyLoss),
+      consistencyPct: n(c.consistencyPct), minDays: n(c.minDays) || 0, maxMicros: n(c.maxMicros), baseRisk: n(c.baseRisk) ?? cur.baseRisk ?? 250, feePerContract: n(c.feePerContract) ?? 1.5,
+      setupsPerDay: n(c.setupsPerDay) ?? cur.setupsPerDay ?? 1, payout: c.payout && typeof c.payout === "object" ? Object.fromEntries(Object.entries(c.payout).map(([k, v]) => [k, k === "split" ? String(v || "").slice(0, 12) : n(v)])) : cur.payout || {} };
+    if (c.anchor || !cur.anchor) next.anchor = { balance: n(c.anchor && c.anchor.balance) ?? next.size, hwm: n(c.anchor && c.anchor.hwm) ?? n(c.anchor && c.anchor.balance) ?? next.size, days: n(c.anchor && c.anchor.days) || 0, at: now };
+    if (!(next.dd > 0)) throw new Error("Enter the drawdown amount.");
+    await store.set("prop", next);
+    return { ok: true, prop: next };
+  }
+  if (a === "propOff") { const cur = (await store.get("prop")) || {}; await store.set("prop", { ...cur, enabled: false }); return { ok: true }; }
   if (a === "cancelOrder") {
     const o = await store.hget("orders", String(body.id || ""));
     if (!o) throw new Error("That order isn't waiting any more.");
@@ -756,6 +853,13 @@ async function action(store, broker, body, now = Date.now()) {
     if (!t || !t.pending) throw new Error("Only an unconfirmed trade can be removed");
     await store.hdel("trades", t.id);
     if (t.setupId) { const x = await store.hget("setups", t.setupId); if (x) await store.hset("setups", x.id, { ...x, status: "skipped", skipReason: "not filled" }); }
+    return { ok: true };
+  }
+  if (a === "trailDone") { // you moved the stop to the trailing level Edge gave you
+    const t = await store.hget("trades", body.tradeId);
+    if (!t || t.trailSuggest == null) throw new Error("No trailing stop waiting for this trade.");
+    t.currentSL = t.trailSuggest; delete t.trailSuggest;
+    await store.hset("trades", t.id, t);
     return { ok: true };
   }
   if (a === "beDone") {

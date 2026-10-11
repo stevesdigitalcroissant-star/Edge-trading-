@@ -56,6 +56,7 @@ function strategyChecks(setup, now) {
 
 function gradeSetup(setup, ctx) {
   const { settings: s, bias, news, now } = ctx;
+  if (setup.strategy === "playbook") return gradePlaybook(setup, ctx);
   if (setup.strategy) return gradeStrategy(setup, ctx);
   const dir = setup.dir;
   const b = bias && bias[setup.market];
@@ -96,6 +97,23 @@ function gradeSetup(setup, ctx) {
 
 // A tested strategy: every check must pass (only gold's trend check can miss → A). Your weekly bias is shown, not graded
 // — the tests didn't use it.
+// A setup from the radar (pine/edge_playbook_radar.pine): your playbook, step by step
+function gradePlaybook(setup, ctx) {
+  const s = ctx.settings, rr = Number(setup.rr), nyMin = require("./_time").minutesOfDay(setup.at || ctx.now, "America/New_York");
+  const checks = [
+    { id: "trend", label: "With the daily trend — or counter-trend from a 4H / daily zone", pass: setup.withTrend === true || setup.fromHtfZone === true, note: setup.withTrend ? "with the trend" : setup.fromHtfZone ? "from a higher-timeframe zone" : "against the trend, not at a big zone" },
+    { id: "zone", label: "Fresh 15m zone (base before the explosive move)", pass: setup.fresh !== false },
+    { id: "entry", label: "5m change of character · limit at the start of the gap", pass: true },
+    { id: "stop", label: "Stop behind the swing of the move", pass: true },
+    { id: "rr", label: `${s.minR}R to ${s.maxR}R to the opposing liquidity`, pass: rr >= s.minR - 0.01 && rr <= s.maxR + 0.01, note: Number.isFinite(rr) ? `${round(rr, 1)}R` : "" },
+    { id: "session", label: "London or New York session", pass: nyMin >= 120 && nyMin < 690 },
+    { id: "liq", label: "Liquidity taken (bonus)", pass: setup.liq === true, bonus: true },
+  ];
+  const hard = checks.filter((c) => !c.pass && !c.bonus).length;
+  const grade = hard ? (hard === 1 ? "B" : "C") : setup.liq ? "A+" : "A";
+  return { grade, checks, blocks: hardBlocks(setup, ctx), info: setup.near ? `Big picture: ${setup.near}` : "" };
+}
+
 function gradeStrategy(setup, ctx) {
   const { bias, now } = ctx;
   const checks = strategyChecks(setup, now);
@@ -174,7 +192,7 @@ function canTake({ graded, setup, guard, history, settings: s, open }) {
   for (const b of graded.blocks) why.push(b.text);
   // a tested strategy's order was planned before the move (the London stop orders, the zone limit):
   // the cool-down after a loss doesn't apply to it, and natural gas zone trades don't use up the daily count.
-  const plan = setup.strategy ? (STRATEGIES[setup.strategy] || {}) : null;
+  const plan = setup.strategy && STRATEGIES[setup.strategy] ? STRATEGIES[setup.strategy] : null;
   (guard.reasons || []).forEach((r, i) => {
     const code = (guard.codes || [])[i];
     if (plan && code === "lossCool") return;

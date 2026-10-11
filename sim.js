@@ -8,6 +8,10 @@
     crude: { name: "Crude oil", sym: "MCL", pv: 100, strategy: "london", tf: "5m", win: [180, 480], tpR: 3, beR: 0, dec: 2 },
     silver: { name: "Silver", sym: "SIL", pv: 1000, strategy: "london", tf: "5m", win: [120, 480], tpR: 2, beR: 0, dec: 3, minRangeAtr: 1.5 },
     natgas: { name: "Natural gas", sym: "QG", pv: 2500, strategy: "ngzone", tf: "60m", wins: [[360, 540], [660, 720]], tpR: 3, beR: 0, dec: 3 },
+    nq: { name: "Nasdaq 100", sym: "MNQ", pv: 2, strategy: "london", noLondon: true, tf: "5m", win: [120, 960], tpR: 3, beR: 0, dec: 2 },
+    es: { name: "S&P 500", sym: "MES", pv: 5, strategy: "london", noLondon: true, tf: "5m", win: [120, 960], tpR: 3, beR: 0, dec: 2 },
+    ym: { name: "Dow Jones", sym: "MYM", pv: 0.5, strategy: "london", noLondon: true, tf: "5m", win: [120, 960], tpR: 3, beR: 0, dec: 0 },
+    copper: { name: "Copper", sym: "MHG", pv: 2500, strategy: "london", noLondon: true, tf: "5m", win: [120, 960], tpR: 3, beR: 0, dec: 4 },
   };
   const FLAT = 16 * 60 + 40;
   // Your supply & demand style (strategy15.js, the rules that held up in the 2019-2026 tests — adjust here):
@@ -330,7 +334,7 @@
     el.id = "sim"; el.className = `sim${panelHidden() ? " nopanel" : ""}`;
     el.innerHTML = `<div class="sim-top">
         <button class="sim-x" data-s="close" aria-label="Close">✕</button>
-        <div class="sim-mk">${Object.entries(MK).map(([k, v]) => `<button data-s="mk" data-a="${k}" class="${k === market ? "on" : ""}">${{ gold: "Gold", crude: "Crude", silver: "Silver", natgas: "Gas" }[k]}</button>`).join("")}</div>
+        <div class="sim-mk">${Object.entries(MK).map(([k, v]) => `<button data-s="mk" data-a="${k}" class="${k === market ? "on" : ""}">${{ gold: "Gold", crude: "Crude", silver: "Silver", natgas: "Gas", nq: "NQ", es: "ES", ym: "YM", copper: "Copper" }[k]}</button>`).join("")}</div>
         <button class="sim-date" data-s="pick" id="simDate" title="Pick the day to train on">📅</button>
         <button class="sim-x" data-s="fs" title="Full screen (F)">⛶</button>
         <button class="sim-x sim-ptog" data-s="panel" title="Show / hide the side panel">${ICON_PANEL}</button>
@@ -414,7 +418,7 @@
       localization: { locale: "en-US", timeFormatter: (t) => V.clock === "ny" ? `${new Date(t * 1000).toLocaleString([], { timeZone: NYZ, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} NY` : `${new Date(t * 1000).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · NY ${hm(nyInfo(t * 1000).min)}` },
       crosshair: { mode: LW.CrosshairMode.Normal },
     });
-    const CS = chartSet(), pf = { priceFormat: { type: "price", precision: S.P.dec, minMove: S.P.dec === 2 ? 0.01 : 0.001 } }, UP = CS.up, DN = CS.dn;
+    const CS = chartSet(), pf = { priceFormat: { type: "price", precision: S.P.dec, minMove: tick() } }, UP = CS.up, DN = CS.dn;
     const bg = BGS[CS.bg] || null;
     chart.applyOptions({ layout: bg ? { background: { type: "solid", color: bg.c }, textColor: bg.t } : {}, grid: { vertLines: { visible: CS.grid, ...(bg ? { color: bg.g } : {}) }, horzLines: { visible: CS.grid, ...(bg ? { color: bg.g } : {}) } },
       timeScale: { rightOffset: CS.margin }, rightPriceScale: { mode: CS.log ? LW.PriceScaleMode.Logarithmic : LW.PriceScaleMode.Normal } });
@@ -617,7 +621,7 @@
       + `<p class="tv-mnote">Tip: just type a timeframe on the keyboard — 15, 2h, 4h, D — then Enter. The replay moves one ${base === 5 ? "5-minute" : "1-hour"} candle at a time; bigger candles build up as you go.</p>`; }
     if (kind === "strat") html = `<div class="tv-mh">Strategy to practise</div>` + [
       ...(MK[S.market].strategy === "london" && window.EdgeStrategy2 ? [["sd", "Your zones (supply & demand)", "Your playbook: zones, 4H trend, scorecard on every trade"]] : []),
-      ...(MK[S.market].strategy === "london" ? [["london", "London breakout", "The tested plan: the Asian box breaks in London"]] : [["ngzone", "Gas zones", "The tested natural gas zone plan"]]),
+      ...(MK[S.market].noLondon ? [] : MK[S.market].strategy === "london" ? [["london", "London breakout", "The tested plan: the Asian box breaks in London"]] : [["ngzone", "Gas zones", "The tested natural gas zone plan"]]),
       ["free", "No strategy", "Just the chart — no zones, no hints, no trading windows"]].map(([k, l, d]) => `<button data-s="vstrat" data-a="${k}">${check(S.P.strategy === k)}<span>${l}<small class="tv-msub">${d}</small></span></button>`).join("");
     if (kind === "type") html = `<div class="tv-mh">Chart type</div>` + TYPES.map(([k, l, ic]) => `<button data-s="vtype" data-a="${k}">${check(V.type === k)}<span class="ic">${ic}</span>${l}</button>`).join("");
     if (kind === "ind") html = `<div class="tv-mh">Indicators</div>` + EMAS.map((n) => `<button data-s="vema" data-a="${n}">${check(V.ema.includes(n))}<span class="sw" style="background:${EMA_C[n]}"></span>EMA ${n}</button>`).join("")
@@ -664,7 +668,7 @@
 
   // ---------- TradingView-style drawing: Long / Short position tools, lines, rectangles, trend lines,
   // press-and-hold menu (Create limit order…, Clone, Reverse, Remove) and an order ticket
-  const TICK = { gold: 0.1, crude: 0.01, silver: 0.005, natgas: 0.005 };
+  const TICK = { gold: 0.1, crude: 0.01, silver: 0.005, natgas: 0.005, es: 0.25, nq: 0.25, ym: 1, copper: 0.0005 };
   const tick = () => TICK[S.market] || (S.P.dec === 2 ? 0.01 : 0.001);
   const onTick = (p) => +(Math.round(p / tick()) * tick()).toFixed(S.P.dec);
   const fmt = (p) => Number(p).toLocaleString("en-US", { minimumFractionDigits: S.P.dec, maximumFractionDigits: S.P.dec });

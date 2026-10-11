@@ -1,7 +1,7 @@
 // GET /api/candles?m=gold — the last ~60 days of 5-minute futures candles (free Yahoo
 // Finance chart data: GC=F gold, CL=F crude, NG=F natural gas) for the replay.
 // Public market data, so no sign-in; cached at Vercel's edge for 30 minutes.
-const SYMBOLS = { gold: "GC=F", crude: "CL=F", natgas: "NG=F", silver: "SI=F", es: "ES=F", nq: "NQ=F" };
+const SYMBOLS = { gold: "GC=F", crude: "CL=F", natgas: "NG=F", silver: "SI=F", es: "ES=F", nq: "NQ=F", ym: "YM=F", copper: "HG=F" };
 
 function parse(j) {
   const r = j && j.chart && j.chart.result && j.chart.result[0];

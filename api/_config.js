@@ -38,6 +38,27 @@ const MARKETS = {
     match: /^M?ES(\d|[FGHJKMNQUVXZ]\d|1!|2!)|SPX|US500|SP500|SPY/i,
     instrument: () => "SPX500_USD",
   },
+  nq: {
+    name: "Nasdaq 100",
+    unit: "points",
+    lot: 20,
+    match: /^M?NQ(\d|[FGHJKMNQUVXZ]\d|1!|2!)|NAS100|NDX|US100|USTEC/i,
+    instrument: () => "NAS100_USD",
+  },
+  ym: {
+    name: "Dow Jones",
+    unit: "points",
+    lot: 5,
+    match: /^M?YM(\d|[FGHJKMNQUVXZ]\d|1!|2!)|US30|DJI|DOW/i,
+    instrument: () => "US30_USD",
+  },
+  copper: {
+    name: "Copper",
+    unit: "lbs",
+    lot: 25000,
+    match: /^M?HG(\d|[FGHJKMNQUVXZ]\d|1!|2!)|COPPER|XCU/i,
+    instrument: () => "XCU_USD",
+  },
 };
 
 // Futures contracts you can trade from TradingView (Tradovate, prop firms).
@@ -53,6 +74,12 @@ const FUTURES = [
   { root: "SIL", market: "silver", name: "Micro Silver (1,000 oz)", pv: 1000, tick: 0.005 },
   { root: "SI", market: "silver", name: "Silver", pv: 5000, tick: 0.005 },
   { root: "MES", market: "es", name: "Micro E-mini S&P 500", pv: 5, tick: 0.25 },
+  { root: "MNQ", market: "nq", name: "Micro E-mini Nasdaq-100", pv: 2, tick: 0.25 },
+  { root: "NQ", market: "nq", name: "E-mini Nasdaq-100", pv: 20, tick: 0.25 },
+  { root: "MYM", market: "ym", name: "Micro E-mini Dow", pv: 0.5, tick: 1 },
+  { root: "YM", market: "ym", name: "E-mini Dow", pv: 5, tick: 1 },
+  { root: "MHG", market: "copper", name: "Micro Copper", pv: 2500, tick: 0.0005 },
+  { root: "HG", market: "copper", name: "Copper", pv: 25000, tick: 0.0005 },
   { root: "ES", market: "es", name: "E-mini S&P 500", pv: 50, tick: 0.25 },
 ];
 // "NYMEX:MCL1!", "MCLX2026", "COMEX_MINI:MGC1!" → the contract spec (null for CFDs like XAUUSD)
@@ -65,7 +92,7 @@ function futuresSpec(symbol) {
 // so "NATGASUSD" never falls through to another pattern, silver before gold and crude.
 function marketOf(symbol) {
   const s = String(symbol || "").replace(/^[A-Z_]+:/i, "");
-  for (const id of ["natgas", "silver", "gold", "crude", "es"]) if (MARKETS[id].match.test(s)) return id;
+  for (const id of ["natgas", "silver", "gold", "crude", "copper", "es", "nq", "ym"]) if (MARKETS[id].match.test(s)) return id;
   return null;
 }
 
@@ -126,8 +153,11 @@ const DEFAULT_SETTINGS = {
     natgas: ["08:00", "14:30"],
     silver: ["02:00", "08:00"],
     es: ["09:30", "15:30"],
+    nq: ["09:30", "15:30"],
+    ym: ["09:30", "15:30"],
+    copper: ["02:00", "12:00"],
   },
-  lots: { gold: 100, crude: 1000, natgas: 10000, silver: 5000, es: 50 },
+  lots: { gold: 100, crude: 1000, natgas: 10000, silver: 5000, es: 50, nq: 20, ym: 5, copper: 25000 },
   flatBy: "16:40", // be out of every trade by this time (your prop firm's close-out, New York time)
   flatWarnMin: 15, // warn this many minutes before
   noNewTradesMin: 30, // no new trades this close to the close-out
@@ -176,6 +206,23 @@ const BIAS_FACTORS = {
     { id: "yields", label: "10-year yield", hint: "Falling → bullish for stocks. Rising fast → bearish." },
     { id: "earnings", label: "Earnings season / big tech", hint: "Beats → bullish. Misses → bearish." },
     { id: "risk", label: "Risk mood (VIX)", hint: "VIX falling → bullish. Spiking → bearish." },
+  ],
+  nq: [
+    { id: "fed", label: "Fed tone & rate expectations", hint: "Cuts / dovish → bullish. Hikes / hawkish → bearish." },
+    { id: "yields", label: "10-year yield", hint: "Falling → bullish for tech. Rising fast → bearish." },
+    { id: "earnings", label: "Big tech earnings", hint: "Beats → bullish. Misses → bearish." },
+    { id: "risk", label: "Risk mood (VIX)", hint: "VIX falling → bullish. Spiking → bearish." },
+  ],
+  ym: [
+    { id: "fed", label: "Fed tone & rate expectations", hint: "Cuts / dovish → bullish. Hikes / hawkish → bearish." },
+    { id: "yields", label: "10-year yield", hint: "Falling → bullish. Rising fast → bearish." },
+    { id: "earnings", label: "Earnings season", hint: "Beats → bullish. Misses → bearish." },
+    { id: "risk", label: "Risk mood (VIX)", hint: "VIX falling → bullish. Spiking → bearish." },
+  ],
+  copper: [
+    { id: "china", label: "China demand (PMI, stimulus)", hint: "Stronger → bullish. Weaker → bearish." },
+    { id: "dxy", label: "US dollar", hint: "Weaker dollar → bullish. Stronger → bearish." },
+    { id: "stocks", label: "Exchange inventories (LME / COMEX)", hint: "Falling → bullish. Rising → bearish." },
   ],
 };
 

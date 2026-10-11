@@ -29,7 +29,7 @@
   const TABS = ["now", "coach", "journal", "rules", "watch", "bias"];
   const ALIAS = { setups: "now", learn: "coach" }; // old links still land somewhere sensible
   // a link like …/#sim-gold opens the simulator straight away (bookmark it on the laptop / iPad)
-  setTimeout(() => { const m = /^#(sim|lab)-(gold|crude|silver|natgas)$/.exec(location.hash); if (m && window.EdgeSim) window.EdgeSim[m[1] === "sim" ? "open" : "openLab"](m[2]); }, 1500);
+  setTimeout(() => { const m = /^#(sim|lab)-(gold|crude|silver|natgas|nq|es|ym|copper)$/.exec(location.hash); if (m && window.EdgeSim) window.EdgeSim[m[1] === "sim" ? "open" : "openLab"](m[2]); }, 1500);
   const fromHash = () => { let h = location.hash.slice(1); h = ALIAS[h] || h; if (TABS.includes(h)) { tab = h; try { localStorage.setItem("edge.tab", tab); } catch {} } };
   fromHash();
   addEventListener("hashchange", () => { fromHash(); if (S) render(); });
@@ -259,7 +259,7 @@
   const PB = () => window.EdgePlaybook;
   const sendsOrders = () => S.broker.kind === "traderspost" || S.broker.kind === "tradovate"; // Edge places the order on Tradovate for you
   // the contracts you can trade (prop firm futures): $ per 1.00 move
-  const CONTRACTS = { gold: [["MGC", 10, "Micro gold"], ["GC", 100, "Gold"]], crude: [["MCL", 100, "Micro crude"], ["CL", 1000, "Crude"]], silver: [["SIL", 1000, "Micro silver"], ["SI", 5000, "Silver"]], natgas: [["MNG", 1000, "Micro gas"], ["QG", 2500, "E-mini gas"]], es: [["MES", 5, "Micro S&P"], ["ES", 50, "E-mini S&P"]] };
+  const CONTRACTS = { gold: [["MGC", 10, "Micro gold"], ["GC", 100, "Gold"]], crude: [["MCL", 100, "Micro crude"], ["CL", 1000, "Crude"]], silver: [["SIL", 1000, "Micro silver"], ["SI", 5000, "Silver"]], natgas: [["MNG", 1000, "Micro gas"], ["QG", 2500, "E-mini gas"]], es: [["MES", 5, "Micro S&P"], ["ES", 50, "E-mini S&P"]], nq: [["MNQ", 2, "Micro Nasdaq"], ["NQ", 20, "E-mini Nasdaq"]], ym: [["MYM", 0.5, "Micro Dow"], ["YM", 5, "E-mini Dow"]], copper: [["MHG", 2500, "Micro copper"], ["HG", 25000, "Copper"]] };
   const PL = { open: false, checks: [], market: "gold", contract: "MGC", dir: "long", entry: "", sl: "", tp: "", mood: "", type: "limit", info: null, busy: false };
   try { Object.assign(PL, JSON.parse(localStorage.getItem("edge.plan") || "{}"), { busy: false, info: null }); } catch {}
   const savePL = () => { try { const { busy, info, ...keep } = PL; localStorage.setItem("edge.plan", JSON.stringify(keep)); } catch {} };
@@ -533,7 +533,7 @@
       <div class="ring"><svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="7"/>
         <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="url(#goldGrad)" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct / 100)}"/></svg>
         <div class="lbl"><b>${last.length ? `${pct}%` : "—"}</b><small>rules kept</small></div></div></section>`;
-    const sims = [["gold", "🥇", "Gold", "MGC"], ["crude", "🛢️", "Crude oil", "MCL"], ["silver", "🥈", "Silver", "SIL"], ["natgas", "🔥", "Natural gas", "QG"]];
+    const sims = [["nq", "💻", "Nasdaq", "MNQ"], ["es", "🇺🇸", "S&P 500", "MES"], ["ym", "🏛️", "Dow", "MYM"], ["gold", "🥇", "Gold", "MGC"], ["silver", "🥈", "Silver", "SIL"], ["crude", "🛢️", "Crude oil", "MCL"], ["copper", "🟠", "Copper", "MHG"], ["natgas", "🔥", "Natural gas", "QG"]];
     const practice = `<section class="card" data-tour="sim"><div class="card-head"><h2>🕹 Practice</h2><span class="muted">real past days · like TradingView</span></div>
       <div class="sim-tiles">${sims.map(([m, ic, n, c]) => `<button type="button" class="sim-tile" data-sim="${m}"><span>${ic}</span><b>${n}</b><small>${c}</small></button>`).join("")}</div>
       <p class="muted" style="margin:10px 0 0;font-size:12.5px">Start on the weekly / daily / 4H, mark the zones, drop to the 15m, then take the trade on the 5m. Every trade gets a scorecard.</p></section>`;
