@@ -8,6 +8,7 @@
   let token = ""; try { token = localStorage.getItem("edge.token") || ""; } catch {}
   let S = null, tab = "now", busy = false;
   try { tab = localStorage.getItem("edge.tab") || "now"; } catch {}
+  if (!["now", "coach", "journal", "rules", "watch", "bias"].includes(tab)) tab = { learn: "coach" }[tab] || "now";
 
   async function api(method, body) {
     const r = await fetch("/api/app", { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: body ? JSON.stringify(body) : undefined });
@@ -25,10 +26,11 @@
   window.Edge = { token: () => token, state: () => S, toast, api: (body) => api("POST", body), refresh: () => refresh(), go: (t) => { tab = t; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#" + tab); refresh(); scrollTo(0, 0); } };
 
   // ---------- notifications on this device (Web Push; iPhone/iPad need Edge on the Home Screen)
-  const TABS = ["now", "learn", "coach", "setups", "bias", "journal", "rules"];
+  const TABS = ["now", "coach", "journal", "rules", "watch", "bias"];
+  const ALIAS = { setups: "now", learn: "coach" }; // old links still land somewhere sensible
   // a link like …/#sim-gold opens the simulator straight away (bookmark it on the laptop / iPad)
   setTimeout(() => { const m = /^#(sim|lab)-(gold|crude|silver|natgas)$/.exec(location.hash); if (m && window.EdgeSim) window.EdgeSim[m[1] === "sim" ? "open" : "openLab"](m[2]); }, 1500);
-  const fromHash = () => { const h = location.hash.slice(1); if (TABS.includes(h)) { tab = h; try { localStorage.setItem("edge.tab", tab); } catch {} } };
+  const fromHash = () => { let h = location.hash.slice(1); h = ALIAS[h] || h; if (TABS.includes(h)) { tab = h; try { localStorage.setItem("edge.tab", tab); } catch {} } };
   fromHash();
   addEventListener("hashchange", () => { fromHash(); if (S) render(); });
   const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -142,7 +144,7 @@
     finally { busy = false; }
   }
 
-  $("#helpBtn").addEventListener("click", () => { if (tab === "coach") return toast("The Coach watches your chart and talks you through it — press Start to begin."); startTour(true); });
+  $("#helpBtn").addEventListener("click", () => { if (tab === "watch") return toast("The live chart coach watches your chart and talks you through it — press Start to begin."); startTour(true); });
   $("#tabs").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-tab]"); if (!b) return;
     tab = b.dataset.tab; try { localStorage.setItem("edge.tab", tab); } catch {}
@@ -162,338 +164,44 @@
   const qtyFor = (z, risk) => (z && z.kind === "futures" && z.riskPerContract > 0 ? Math.floor(risk / z.riskPerContract + 1e-9) : null);
 
   function render() {
-    for (const b of document.querySelectorAll("#tabs button")) b.classList.toggle("on", b.dataset.tab === tab);
-    const live = S.setups.filter((x) => x.status === "open" && x.g.take.ok).length;
+    for (const b of document.querySelectorAll("#tabs button")) b.classList.toggle("on", b.dataset.tab === tab || (tab === "watch" && b.dataset.tab === "now") || (tab === "bias" && b.dataset.tab === "rules"));
+    const live = S.setups.filter((x) => x.status === "open" && x.g.take.ok && !(x.expires && S.now > x.expires)).length;
     $("#setupBadge").hidden = !live; $("#setupBadge").textContent = live;
     const g = S.guard;
     $("#topStatus").className = `pill ${g.ok ? "good" : "bad"}`;
     $("#topStatus").innerHTML = `<span class="dot ${g.ok ? "live" : ""}"></span>${g.ok ? "Ready" : "Locked"}`;
-    const coachTab = tab === "coach";
+    const coachTab = tab === "watch"; // the live chart coach (screen share) keeps running while you switch tabs
     $("#view").hidden = coachTab;
     if (window.EdgeCoach) window.EdgeCoach.show(coachTab);
     if (coachTab) return;
     setTimeout(maybeTour, 0);
-    $("#view").innerHTML = ({ now: viewNow, learn: viewLearn, setups: viewSetups, bias: viewBias, journal: viewJournal, rules: viewRules })[tab]();
+    $("#view").innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias })[tab]();
     bind();
   }
-
-  // ---------- LEARN: interactive — live session clock, step-by-step chart walkthroughs, a quiz, the week, a practice log
-  const LEARN_WEEK = [
-    ["Read & look", "📖", "Play both walkthroughs below and take the quiz. Put the Edge scripts on TradingView (Rules → TradingView setup). Scroll back 10 days on gold: find the box and which side broke each morning."],
-    ["Gold", "🥇", "Bar Replay on 5-minute MGC1!. Replay 20 mornings, one candle at a time. Log each trade below."],
-    ["Crude", "🛢️", "Same on MCL1!: 20 mornings. Crude orders only go live at 03:00 New York."],
-    ["Silver + gas", "⚡", "10 silver mornings (skip tiny boxes). Then 1-hour QG1!: mark old zones (5+ days) and replay 10 sessions of the gas windows."],
-    ["Full days", "🗓️", "Replay 5 full days with every market and the daily rules: 2 London trades max, gas zones on top, stop for the day at −2R."],
-    ["Review", "🔍", "Compare your numbers with the test below. Rules kept on 95%+? Write down your 3 most common mistakes."],
-    ["Live, tiny", "🚀", "Edge on with your prop evaluation (or demo): 1 micro contract, follow the alerts exactly. Log how you felt each time."],
-  ];
-  const TEST = { "london:gold": [43, 0.13], "london:crude": [30, 0.13], "london:silver": [39, 0.1], "ngzone:natgas": [47, 0.65] };
-  const SLOTS = [["london:gold", "Gold", "🥇"], ["london:crude", "Crude", "🛢️"], ["london:silver", "Silver", "🥈"], ["ngzone:natgas", "Gas", "🔥"]];
-  const WALK = {
-    london: { name: "London breakout", sub: "gold · crude oil · silver", steps: [
-      ["The quiet hours", "From 18:00 to 02:00 New York, Asia is quiet. Its high and low make the box."],
-      ["Two orders, set and forget", "Buy stop at the box high, sell stop at the box low — stop and target attached to each."],
-      ["London picks a side", "The first order that fills is your trade. Cancel the other one straight away."],
-      ["Stop and target", "Stop at the other side of the box. Target 2R for gold and silver, 3R for crude."],
-      ["Lock it in", "At +1.5R (gold) or +1R (crude, silver) move the stop to your entry. Edge pings you."],
-      ["Let it pay", "Hands off until target, stop or 16:40 New York. One winner pays for 2–3 losers."],
-    ] },
-    gas: { name: "Natural gas zones", sub: "your idea, tested", steps: [
-      ["Spot the explosion", "On the 1-hour Heikin Ashi chart: a candle about twice as big as the last 20."],
-      ["Draw the zone", "On the candle just before it: from its wick to the start of its body. Valid until a candle closes through it."],
-      ["Let it age", "Only zones at least 5 trading days old. Fresh ones lost money in the test."],
-      ["Wait for your window", "Price comes back (1st or 2nd touch) inside 06:00–09:00 or 11:00–12:00 New York. Your limit fills."],
-      ["Stop and target", "Stop just past the far side of the zone. Target 3R."],
-      ["Lock it, let it pay", "Break-even at +2R, then hands off. 47% of these won: +0.65R a trade on average."],
-    ] },
-  };
-  const QUIZ = [
-    ["Gold's Asian box: high 2412, low 2402. Where does the buy stop go?", ["2402", "2407", "2412"], 2, "On the box high. If London breaks up, you're in."],
-    ["Your gold buy filled at 2412. Where's the stop?", ["2402 — the box low", "2407 — the middle", "2392 — extra room"], 0, "The other side of the box. Middle-of-box stops lost badly in the test."],
-    ["Risk is 10 points. Gold's target is 2R. Where do you take profit?", ["2422", "2432", "2442"], 1, "2412 + 2 × 10 = 2432."],
-    ["The buy filled. What about the sell stop?", ["Leave it, just in case", "Cancel it now", "Move it closer"], 1, "One trade per market per day. Cancel it the moment the other fills."],
-    ["Crude breaks out of its box at 02:30 New York. Do you take it?", ["Yes, straight away", "No — crude orders go live at 03:00"], 1, "Crude's window is 03:00–08:00. Before that, wait."],
-    ["A gas zone is 2 days old and price is back at it in your window.", ["Take it — fresh zone", "Skip — zones must be 5+ days old"], 1, "Young zones lost money in the test. Old ones made +42R."],
-    ["You're up 1.2R on crude and it looks weak.", ["Close it, lock the profit", "Stick to the plan: target or stop"], 1, "Every 'close early' rule did worse in the tests. The plan already protects you."],
-  ];
-  const L = { walk: "london", step: { london: 0, gas: 0 }, q: 0, ans: {}, day: null, play: null, log: { slot: "london:gold", dir: "long", out: "tp", ok: true } };
-  const weekDone = () => { try { return JSON.parse(localStorage.getItem("edge.week") || "[]"); } catch { return []; } };
-
-  // New York time ↔ this device: today's offset, in minutes
-  function nyOffset() {
-    const now = new Date();
-    const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(now);
-    const ny = Number(p.find((x) => x.type === "hour").value) * 60 + Number(p.find((x) => x.type === "minute").value);
-    const loc = now.getHours() * 60 + now.getMinutes();
-    return { off: (((loc - ny) % 1440) + 1440) % 1440, loc };
-  }
-  const hhmm = (m) => { m = ((m % 1440) + 1440) % 1440; return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; };
-  const dur = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : `${m} min`);
-  const LANES = [
-    ["Asian box forms", "var(--c4h)", [[18 * 60, 26 * 60]]],
-    ["Gold & silver orders", "var(--gold)", [[2 * 60, 8 * 60]]],
-    ["Crude orders", "var(--c15)", [[3 * 60, 8 * 60]]],
-    ["Gas zone windows", "var(--good)", [[6 * 60, 9 * 60], [11 * 60, 12 * 60]]],
-  ];
-  function clockHtml() {
-    const { off, loc } = nyOffset();
-    const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone.split("/").pop().replace(/_/g, " "); } catch { return "your time"; } })();
-    const pct = (m) => `${((((m % 1440) + 1440) % 1440) / 1440) * 100}%`;
-    const lanes = LANES.map(([name, col, wins]) => {
-      let segs = "", state = null;
-      for (const [a0, b0] of wins) {
-        const a = a0 + off, b = b0 + off; // local minutes (may pass midnight)
-        for (const [x, y] of [[a, b], [a - 1440, b - 1440], [a + 1440, b + 1440]]) {
-          const s = Math.max(0, x), e = Math.min(1440, y);
-          if (e > s) segs += `<i style="left:${(s / 1440) * 100}%;width:${((e - s) / 1440) * 100}%;background:${col}"></i>`;
-          if (loc >= x && loc < y) state = { open: true, left: y - loc };
-        }
-        if (!state || !state.open) {
-          const until = (((a - loc) % 1440) + 1440) % 1440;
-          if (!state || until < state.until) state = { open: false, until };
-        }
-      }
-      const chip = state.open ? `<b class="lopen">● open · ${dur(state.left)} left</b>` : `<span class="muted">opens in ${dur(state.until)}</span>`;
-      return `<div class="lane"><div class="lname"><span><i style="background:${col}"></i>${name}</span>${chip}</div><div class="ltrack">${segs}<b class="tnow" style="left:${pct(loc)}"></b></div></div>`;
-    }).join("");
-    const ticks = [0, 6, 12, 18].map((h) => `<span style="left:${(h / 24) * 100}%">${String(h).padStart(2, "0")}:00</span>`).join("");
-    return `<div class="lclock">${lanes}<div class="lticks">${ticks}<b class="tnowlbl" style="left:${pct(loc)}">now ${hhmm(loc)}</b></div></div>
-      <p class="muted" style="margin:10px 0 0;font-size:12.5px">In ${esc(tz)} time · New York is ${hhmm(loc - off)} · close-out ${hhmm(16 * 60 + 40 + off)} your time</p>`;
-  }
-
-  // The animated chart: elements of earlier steps stay, the current step's elements animate in
-  function walkSvg(kind, st) {
-    const g = (n, inner) => (n > st ? "" : `<g class="${n === st ? "enter" : ""}">${inner}</g>`);
-    const p = (n, d, stroke = "var(--text)", w = 2.2, extra = "") => (n > st ? "" : `<path d="${d}" pathLength="1" class="${n === st ? "draw" : ""}" fill="none" stroke="${stroke}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round" ${extra}/>`);
-    const tx = (x, y, t, c = "var(--text)", a = "start", w = 700) => `<text x="${x}" y="${y}" fill="${c}" font-size="10" font-weight="${w}" text-anchor="${a}" paint-order="stroke" stroke="var(--panel2)" stroke-width="3.5" stroke-linejoin="round">${t}</text>`;
-    const ln = (x1, y, x2, c, dash = "") => `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="${c}" stroke-width="1.8" ${dash ? `stroke-dasharray="${dash}"` : ""}/>`;
-    const dot = (x, y, c) => `<circle cx="${x}" cy="${y}" r="5" fill="${c}"/><circle cx="${x}" cy="${y}" r="5" fill="none" stroke="${c}" class="ping"/>`;
-    const badge = (x, y, t, c) => `<rect x="${x - 26}" y="${y - 12}" width="52" height="20" rx="10" fill="${c}"/><text x="${x}" y="${y + 2}" fill="#fff" font-size="10.5" font-weight="800" text-anchor="middle">${t}</text>`;
-    if (kind === "london") {
-      return `<svg viewBox="0 0 340 190" class="walksvg">
-        ${g(0, `<rect x="20" y="100" width="130" height="30" rx="3" fill="var(--c4h)" opacity=".16" stroke="var(--c4h)" stroke-opacity=".7"/>${tx(24, 94, "ASIA BOX · 18:00 → 02:00", "var(--c4h)")}`)}
-        ${p(0, "M20,115 L35,106 L50,122 L65,108 L80,126 L95,104 L110,118 L125,110 L140,124 L150,116")}
-        ${g(1, `${ln(150, 100, 330, "var(--good)", "5 4")}${st < 3 ? tx(328, 112, "BUY STOP", "var(--good)", "end") : ""}`)}
-        ${st < 2 ? g(1, `${ln(150, 130, 330, "var(--bad)", "5 4")}${tx(328, 144, "SELL STOP", "var(--bad)", "end")}`) : g(1, `${ln(150, 130, 330, "var(--bad)", "2 6")}`)}
-        ${p(2, "M150,116 L165,120 L180,108 L192,100 L205,92", "var(--text)")}
-        ${g(2, `${dot(192, 100, "var(--good)")}${tx(196, 160, "✕ sell stop cancelled", "var(--bad)")}${tx(160, 86, "FILLED", "var(--good)")}`)}
-        ${st >= 3 && st < 4 ? g(3, `${ln(192, 130, 330, "var(--bad)")}${tx(200, 144, "STOP = box low", "var(--bad)")}`) : ""}
-        ${g(3, `${ln(150, 40, 330, "var(--good)")}${tx(152, 34, "TARGET · 2R (crude 3R)", "var(--good)")}`)}
-        ${p(4, "M205,92 L215,98 L230,74 L242,80 L258,55 L270,62", "var(--text)")}
-        ${g(4, `${ln(150, 55, 330, "var(--warn)", "3 3")}${tx(152, 51, "+1.5R → move the stop", "var(--warn)")}<g class="slide">${ln(192, 100, 330, "var(--bad)")}${tx(212, 116, "stop now at entry", "var(--bad)")}</g>`)}
-        ${p(5, "M270,62 L290,44 L305,48 L318,38", "var(--text)")}
-        ${g(5, badge(300, 20, "+2R ✓", "var(--good)"))}
-      </svg>`;
-    }
-    const c = (x, o, cl, h, l, col, glow = "") => `<line x1="${x + 6}" y1="${h}" x2="${x + 6}" y2="${l}" stroke="${col}" stroke-width="1.5"/><rect x="${x}" y="${Math.min(o, cl)}" width="12" height="${Math.max(2, Math.abs(cl - o))}" rx="2" fill="${col}" ${glow}/>`;
-    return `<svg viewBox="0 0 340 190" class="walksvg">
-      ${g(3, `<rect x="232" y="14" width="100" height="160" rx="6" fill="var(--c15)" opacity=".08"/>${tx(282, 184, "06:00–09:00 NY", "var(--c15)", "middle")}`)}
-      ${g(1, `<rect x="38" y="124" width="292" height="14" rx="2" fill="var(--good)" opacity=".2" stroke="var(--good)" stroke-opacity=".7"/>${tx(42, 154, "ZONE: wick → start of the body", "var(--good)")}`)}
-      ${g(0, `${c(20, 118, 126, 114, 132, "var(--bad)")}${c(38, 124, 130, 122, 138, "var(--bad)")}${c(56, 130, 70, 66, 132, "var(--good)", st === 0 ? `class="glow"` : "")}${st === 0 ? tx(74, 80, "← 2× bigger: explosive", "var(--text)") : ""}`)}
-      ${p(2, "M62,66 L90,60 L110,72 L135,50 L160,64 L185,58 L205,80 L225,100")}
-      ${g(2, `<path d="M70,30 L222,30" stroke="var(--muted)" stroke-width="1.2" marker-end="url(#arr)" marker-start="url(#arr)"/>${tx(146, 24, "5+ trading days", "var(--muted)", "middle")}`)}
-      ${p(3, "M225,100 L245,116 L258,124")}
-      ${g(3, `${dot(258, 124, "var(--good)")}${tx(252, 116, "LIMIT BUY", "var(--good)", "end")}`)}
-      ${g(4, `${ln(240, 142, 334, "var(--bad)")}${tx(330, 156, "STOP", "var(--bad)", "end")}${ln(240, 70, 334, "var(--good)")}${tx(330, 64, "TARGET 3R", "var(--good)", "end")}`)}
-      ${p(5, "M258,124 L270,112 L282,100 L294,104 L306,86 L318,80 L330,68")}
-      ${g(5, `${ln(240, 88, 334, "var(--warn)", "3 3")}${tx(236, 84, "+2R → stop to entry", "var(--warn)", "end")}${badge(300, 40, "+3R ✓", "var(--good)")}`)}
-      <defs><marker id="arr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10z" fill="var(--muted)"/></marker></defs>
-    </svg>`;
-  }
-  function walkHtml() {
-    const k = L.walk, w = WALK[k], st = L.step[k], n = w.steps.length, [title, text] = w.steps[st];
-    return `<div class="seg pills" style="grid-template-columns:1fr 1fr">${Object.entries(WALK).map(([id, x]) => `<button type="button" data-l="walk" data-a="${id}" class="${id === k ? "on" : ""}">${x.name}</button>`).join("")}</div>
-      <div class="walkstage">${walkSvg(k, st)}</div>
-      <div class="walkcap"><span class="stepno">${st + 1}/${n}</span><div><b>${title}</b><p>${text}</p></div></div>
-      <div class="walknav">
-        <button class="btn small" data-l="prev" ${st ? "" : "disabled"}>‹ Back</button>
-        <div class="dots">${w.steps.map((_, i) => `<button type="button" data-l="go" data-a="${i}" class="${i === st ? "on" : i < st ? "done" : ""}" aria-label="step ${i + 1}"></button>`).join("")}</div>
-        ${st < n - 1 ? `<button class="btn small primary" data-l="next">Next ›</button>` : `<button class="btn small primary" data-l="go" data-a="0">↺ Again</button>`}
-      </div>
-      <button class="btn small ghostbtn" data-l="play">${L.play ? "⏸ Pause" : "▶ Play it for me"}</button>`;
-  }
-
-  function quizHtml() {
-    if (L.q >= QUIZ.length) {
-      const score = QUIZ.filter((q, i) => L.ans[i] === q[2]).length;
-      return `<div class="quizdone"><div class="bigscore">${score}<small>/${QUIZ.length}</small></div>
-        <p>${score === QUIZ.length ? "Perfect. You know the rules — now train your hands with Bar Replay." : score >= 5 ? "Nearly there. Replay the walkthrough for the ones you missed." : "Play the walkthroughs again, then retry."}</p>
-        <button class="btn small primary" data-l="qreset">↺ Try again</button></div>`;
-    }
-    const [q, opts, ok, why] = QUIZ[L.q], a = L.ans[L.q];
-    return `<div class="qbar"><i style="width:${(L.q / QUIZ.length) * 100}%"></i></div>
-      <p class="muted" style="margin:8px 0 2px;font-size:12px">Question ${L.q + 1} of ${QUIZ.length}</p>
-      <h3 class="qq">${q}</h3>
-      <div class="qopts">${opts.map((o, i) => `<button type="button" data-l="ans" data-a="${i}" ${a != null ? "disabled" : ""} class="${a == null ? "" : i === ok ? "right" : i === a ? "wrong" : "faded"}">${o}${a != null && i === ok ? " ✓" : a === i && i !== ok ? " ✕" : ""}</button>`).join("")}</div>
-      ${a != null ? `<div class="qwhy ${a === ok ? "good" : "bad"}"><b>${a === ok ? "Right." : "Not quite."}</b> ${why}</div><button class="btn small primary" data-l="qnext" style="margin-top:10px">${L.q < QUIZ.length - 1 ? "Next question ›" : "See my score"}</button>` : ""}`;
-  }
-
-  function weekHtml() {
-    const done = weekDone();
-    if (L.day == null) { L.day = LEARN_WEEK.findIndex((_, i) => !done.includes(i)); if (L.day < 0) L.day = 6; }
-    const [t, ic, d] = LEARN_WEEK[L.day], isDone = done.includes(L.day);
-    return `<div class="daychips">${LEARN_WEEK.map(([tt, icon], i) => `<button type="button" data-l="day" data-a="${i}" class="${i === L.day ? "on" : ""} ${done.includes(i) ? "done" : ""}"><span>${done.includes(i) ? "✓" : icon}</span><small>Day ${i + 1}</small></button>`).join("")}</div>
-      <div class="daycard ${isDone ? "done" : ""}"><div class="row between"><b>Day ${L.day + 1} · ${t}</b><span class="pill ${isDone ? "good" : ""}">${isDone ? "done" : "to do"}</span></div>
-        <p class="muted" style="margin:6px 0 10px">${d}</p>
-        <button class="btn small ${isDone ? "" : "primary"}" data-l="daydone">${isDone ? "Undo" : "✓ Mark day done"}</button></div>`;
-  }
-
-  function logHtml() {
-    const lg = L.log, bt = (S.practice || []).filter((t) => t.source === "backtest");
-    const chip = (key, val, label, on) => `<button type="button" data-l="${key}" data-a="${val}" class="${on ? "on" : ""}">${label}</button>`;
-    const cards = SLOTS.map(([slot, name, ic]) => {
-      const [stg, mk] = slot.split(":"), a = bt.filter((t) => t.strategy === stg && t.market === mk);
-      const n = a.length, won = a.filter((t) => t.resultR > 0.1).length, tot = Math.round(a.reduce((x, t) => x + t.resultR, 0) * 100) / 100;
-      const ok = a.filter((t) => t.grade === "A+").length, [tw, ta] = TEST[slot], wr = n ? Math.round((won / n) * 100) : 0;
-      return `<div class="rcard"><div class="row between"><b>${ic} ${name}</b><b class="${cls(tot)}">${n ? rs(tot) : "—"}</b></div>
-        <div class="rbar" title="your win rate ${wr}% · test ${tw}%"><i style="width:${wr}%"></i><em style="left:${tw}%"></em></div>
-        <small>won <b>${n ? wr + "%" : "—"}</b> <span class="muted">· test ${tw}%</span></small>
-        <small class="muted">${n} trade${n === 1 ? "" : "s"} · rules ${n ? Math.round((ok / n) * 100) + "%" : "—"}</small></div>`;
-    }).join("");
-    return `<div class="chips">${SLOTS.map(([v, l, ic]) => chip("lslot", v, `${ic} ${l}`, lg.slot === v)).join("")}</div>
-      <div class="chips two">${chip("ldir", "long", "▲ Buy", lg.dir === "long")}${chip("ldir", "short", "▼ Sell", lg.dir === "short")}</div>
-      <div class="chips outs">${chip("lout", "tp", "🎯<br>Target", lg.out === "tp")}${chip("lout", "be", "🛡️<br>Break-even", lg.out === "be")}${chip("lout", "sl", "✋<br>Stop", lg.out === "sl")}${chip("lout", "flat", "⏰<br>16:40 out", lg.out === "flat")}</div>
-      ${lg.out === "flat" ? `<label class="f">Your R at 16:40 (e.g. 0.6 or −0.4)<input id="btR" inputmode="decimal"></label>` : ""}
-      <div class="grid2"><label class="f">Day you replayed<input id="btDate" type="date"></label><label class="f">Note<input id="btNote" placeholder="what you saw / felt"></label></div>
-      <button type="button" class="switch ${lg.ok ? "on" : ""}" data-l="lok"><i></i>I followed every rule on this one</button>
-      <button class="btn primary" data-l="save" style="width:100%;margin-top:10px">Save trade</button>
-      <div class="rgrid">${cards}</div>
-      <p class="muted" style="margin:8px 0 0;font-size:12.5px">The marker on each bar is the test's win rate. After 20 trades you can easily be 15 points off — that's luck. This week, watch the rules column.</p>`;
-  }
-
-  function viewLearn() {
-    const done = weekDone(), bt = (S.practice || []).filter((t) => t.source === "backtest");
-    const total = bt.length, okAll = bt.filter((t) => t.grade === "A+").length, C = 2 * Math.PI * 40;
-    const ready = total >= 60 && okAll / Math.max(1, total) >= 0.95;
-    return `<section class="card hero" style="--state:var(--accent)">
-        <div><div class="state">Learn · your first week</div>
-          <div class="headline">Two strategies. Seven days. Then Edge.</div>
-          <p class="sub">${ready ? "✅ Ready: 60+ replayed trades with the rules kept." : `${total}/60 replayed trades · rules kept ${total ? Math.round((okAll / total) * 100) : 0}% (need 95%)`}</p></div>
-        <div class="ring"><svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="7"/>
-          <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="url(#goldGrad)" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - done.length / 7)}"/></svg>
-          <div class="lbl"><b>${done.length}/7</b><small>days</small></div></div></section>
-
-      <section class="card simcard" data-tour="sim"><div class="card-head"><h2>🕹 Practice simulator</h2><span class="muted">real past prices</span></div>
-        <p class="muted" style="margin:0 0 10px">Like TradingView, on a real past day. Play the candles, place your orders, and after each trade tap <b>Review</b> — Edge shows you on the chart what you missed, one point at a time. At the end, your session summary.</p>
-        <div class="chips">${[["gold", "🥇 Gold"], ["crude", "🛢️ Crude"], ["silver", "🥈 Silver"], ["natgas", "🔥 Gas"]].map(([m, l]) => `<button type="button" data-sim="${m}">${l}</button>`).join("")}</div>
-        <p class="muted" style="margin:8px 0 0;font-size:12.5px">📈 Long / 📉 Short then tap the chart, drag the lines, one tap to place. Laptop/iPad: ⛶ full screen · Space play · → next candle · B / S long or short at price · P draw the plan · Enter place · Delete remove.</p>
-      </section>
-
-      <section class="card" data-tour="lab"><div class="card-head"><h2>🧪 Style lab</h2><span class="muted">your stop & target</span></div>
-        <p class="muted" style="margin:0 0 10px">Think the stop is too big? Set your own stop size and target and see how they did on real history next to the tested plan. Edge starts from how you place trades in the simulator. If yours does better, use it for your live alerts.</p>
-        <div class="chips three">${[["gold", "🥇 Gold"], ["crude", "🛢️ Crude"], ["silver", "🥈 Silver"]].map(([m, l]) => `<button type="button" data-lab="${m}">${l}${S.settings.style && S.settings.style[m] ? " ✓" : ""}</button>`).join("")}</div>
-      </section>
-
-      <section class="card"><div class="card-head"><h2>⏱ Right now</h2><span class="muted">your time</span></div><div id="lClock" data-tour="lClock">${clockHtml()}</div></section>
-
-      <section class="card"><div class="card-head"><h2>🎬 See it step by step</h2></div><div id="lWalk" data-tour="lWalk">${walkHtml()}</div></section>
-
-      <section class="card"><div class="card-head"><h2>🧠 Quick quiz</h2><span class="muted">${QUIZ.length} questions</span></div><div id="lQuiz" data-tour="lQuiz">${quizHtml()}</div></section>
-
-      <section class="card"><div class="card-head"><h2>🗓 Your week</h2></div><div id="lWeek" data-tour="lWeek">${weekHtml()}</div></section>
-
-      <section class="card"><div class="card-head"><h2>⏪ How to backtest</h2><span class="muted">swipe →</span></div>
-        <div class="hscroll">${[
-          ["📈", "Open the chart", "5-min MGC1! / MCL1! / SIL1! — or 1-hour QG1! for gas — with the Edge script on it."],
-          ["⏮", "Go back in time", "Click Replay in the top bar and pick a day, around 17:00 New York."],
-          ["➡️", "One candle at a time", "Shift + → steps forward. Never peek ahead."],
-          ["✏️", "Mark the box", "At 02:00 (03:00 crude) note the box high and low — your two orders."],
-          ["🎯", "Run the plan", "Fill → target, stop or 16:40. The stop never moves."],
-          ["📝", "Log it", "20 seconds, right below. Be honest about the rules."],
-        ].map(([ic, t, d], i) => `<div class="hcard"><span class="hnum">${i + 1}</span><div class="hic">${ic}</div><b>${t}</b><p class="muted">${d}</p></div>`).join("")}</div>
-        <p class="muted" style="margin:10px 0 0;font-size:12.5px">Shortcut: each script's <b>Strategy Tester</b> tab shows the results of these rules on your chart in one click. Replay is still the training — it teaches your eyes and hands.</p></section>
-
-      <section class="card"><div class="card-head"><h2>📝 Log a replayed trade</h2></div><div id="lLog" data-tour="lLog">${logHtml()}</div></section>
-
-      <section class="card"><h2>📡 Longer, sharper history</h2>
-        <p class="muted" style="margin:0">Free data only keeps 60 days of 15-minute candles. <b>TradingView Premium</b> replays all its intraday history (years). For Edge's own tests, <b>Databento</b> has official CME futures data back 15+ years, pay as you go, with free credit to start.</p></section>`;
-  }
-
-  // Learn interactions: swap one widget at a time (no full re-render, so animations and typing aren't lost)
-  function learnSwap(id, html) { const el = $("#" + id); if (el) { el.innerHTML = html; bindLearn(); } }
-  function learnAct(k, a) {
-    const W = WALK[L.walk];
-    if (k === "walk") { L.walk = a; stopPlay(); return learnSwap("lWalk", walkHtml()); }
-    if (k === "next") { L.step[L.walk] = Math.min(W.steps.length - 1, L.step[L.walk] + 1); return learnSwap("lWalk", walkHtml()); }
-    if (k === "prev") { L.step[L.walk] = Math.max(0, L.step[L.walk] - 1); stopPlay(); return learnSwap("lWalk", walkHtml()); }
-    if (k === "go") { L.step[L.walk] = Number(a); stopPlay(); return learnSwap("lWalk", walkHtml()); }
-    if (k === "play") {
-      if (L.play) { stopPlay(); return learnSwap("lWalk", walkHtml()); }
-      if (L.step[L.walk] >= W.steps.length - 1) L.step[L.walk] = 0;
-      L.play = setInterval(() => {
-        if (tab !== "learn" || !$("#lWalk")) return stopPlay();
-        if (L.step[L.walk] >= WALK[L.walk].steps.length - 1) { stopPlay(); return learnSwap("lWalk", walkHtml()); }
-        L.step[L.walk]++; learnSwap("lWalk", walkHtml());
-      }, 2600);
-      return learnSwap("lWalk", walkHtml());
-    }
-    if (k === "ans") { L.ans[L.q] = Number(a); return learnSwap("lQuiz", quizHtml()); }
-    if (k === "qnext") { L.q++; return learnSwap("lQuiz", quizHtml()); }
-    if (k === "qreset") { L.q = 0; L.ans = {}; return learnSwap("lQuiz", quizHtml()); }
-    if (k === "day") { L.day = Number(a); return learnSwap("lWeek", weekHtml()); }
-    if (k === "daydone") {
-      const d = new Set(weekDone()); d.has(L.day) ? d.delete(L.day) : d.add(L.day);
-      try { localStorage.setItem("edge.week", JSON.stringify([...d])); } catch {}
-      if (d.has(L.day)) { const nx = LEARN_WEEK.findIndex((_, i) => !d.has(i)); if (nx >= 0) L.day = nx; toast("Day done. 👏"); }
-      return render();
-    }
-    const keep = () => ({ date: ($("#btDate") || {}).value || "", note: ($("#btNote") || {}).value || "" });
-    const restore = (v) => { if ($("#btDate")) $("#btDate").value = v.date; if ($("#btNote")) $("#btNote").value = v.note; };
-    if (["lslot", "ldir", "lout", "lok"].includes(k)) {
-      const v = keep();
-      if (k === "lslot") L.log.slot = a; if (k === "ldir") L.log.dir = a; if (k === "lout") L.log.out = a; if (k === "lok") L.log.ok = !L.log.ok;
-      learnSwap("lLog", logHtml()); return restore(v);
-    }
-    if (k === "save") {
-      const [strategy, market] = L.log.slot.split(":"), v = keep();
-      return act({ action: "backtestLog", strategy, market, dir: L.log.dir, outcome: L.log.out, r: (($("#btR") || {}).value || "").replace("−", "-"), date: v.date, rulesOk: L.log.ok, note: v.note }, "Saved ✓")
-        .then((r) => { if (r) { L.log.ok = true; render(); } });
-    }
-  }
-  function stopPlay() { if (L.play) { clearInterval(L.play); L.play = null; } }
-  function bindLearn() {
-    document.querySelectorAll("#view [data-l]:not([data-bound])").forEach((b) => {
-      b.dataset.bound = "1";
-      b.addEventListener("click", () => learnAct(b.dataset.l, b.dataset.a));
-    });
-  }
-  setInterval(() => { if (tab === "learn" && $("#lClock") && !document.hidden) $("#lClock").innerHTML = clockHtml(); }, 30000);
-
 
   // ---------- "What am I looking at?" — a guided tour, one thing at a time (auto the first time on each screen; ? in the top bar any time)
   const TOURS = {
     now: [
-      ["confirm", "Edge spotted your trade", "Your order filled, so Edge recorded the trade. Check the 4 numbers match your platform, pick how you feel, tap <b>All correct</b>."],
-      ["hero", "What to do right now", "Edge's one-line answer. <b>Ready</b> = nothing to do, wait. <b>Setup ready</b> = a trade is waiting in Setups. <b>In a trade</b> = hands off, Edge manages it. <b>Locked</b> = you hit a limit, done for today."],
-      ["ring", "A+ share", "Out of your last 20 trades, how many followed the plan. Keep it at 100% — that's the whole game."],
-      ["kpis", "Your day in 3 numbers", "<b>Trades</b>: taken today out of your max (2). <b>Today</b>: your result in <b>R</b> — 1R is what you risk on one trade, so +2R means you made twice your risk. <b>Loss limit</b>: at −2R Edge locks trading until tomorrow."],
-      ["push", "Alerts on this phone", "Turn this on so Edge can buzz you when orders need placing, a trade fills, or it's time to move your stop."],
-      ["plans", "Orders to place", "When a window opens, Edge lists the exact orders: buy/sell price, contracts for your risk, stop, target. Place them and walk away."],
-      ["open", "Your open trades", "Every live trade with its plan. The bar shows where price is between your stop (−1R) and target. Edge tells you when to act."],
-      ["news", "News that moves price", "Big reports (inflation, jobs, Fed, oil and gas). No new trades 30 min before and after — prices jump around."],
-      ["log", "Alerts history", "Everything Edge told you, newest first. Handy if you missed a notification."],
+      ["confirm", "Edge spotted your trade", "Your order filled, so Edge recorded the trade. Check the numbers match your platform, pick how you feel, tap <b>All correct</b>."],
+      ["hero", "What to do right now", "One line. <b>Session open</b> = look for your setup. <b>Setup ready</b> = confirm it below. <b>In a trade</b> = hands off. <b>Locked</b> = a limit was hit — done for today."],
+      ["setups", "Edge found a setup", "From your TradingView alerts. Check it, say how you feel, and confirm — Edge sends the order with its stop and target."],
+      ["open", "Your open trades", "Where price is between your stop and target, and what to do next. Edge pings you at +3R to lock in profit."],
+      ["plan", "Plan a trade", "Your playbook, step by step. Tick each step as you check it on the chart, type your three prices — Edge checks 3R–10R, sizes it for your $ risk and sends or tracks the order."],
+      ["kpis", "Your day in 3 numbers", "Trades taken out of your max, today's result in R (1R = what you risk on one trade), and the loss limit that locks trading for the day."],
+      ["push", "Alerts on this device", "Turn this on so Edge can buzz you when an order fills, a setup appears, or it's time to lock in profit."],
     ],
-    setups: [
-      ["setup", "A setup = a trade idea", "Edge's scripts found a trade that matches a tested strategy. It's only valid for a few minutes — no chasing."],
-      ["levels", "The 4 prices", "<b>Entry</b> where you get in · <b>Stop</b> where you're wrong (−1R) · <b>BE</b> where you move the stop to entry so you can't lose · <b>TP</b> where you take profit."],
-      ["checklist", "Why it's A+ (or not)", "Tap to see every rule Edge checked. A+ and A can be taken. B or C: skip."],
-      ["ticket", "How many contracts", "Type the dollars you want to risk. Edge works out whole contracts and never goes above your risk."],
-    ],
-    learn: [
-      ["sim", "Practice like it's real", "Pick a market: a real past day opens in a TradingView-style chart. Step through candles, place orders, and get a review after every trade."],
-      ["lab", "Your own stop and target", "Too-big stop? Try a smaller one here and see how it did on real history next to the tested plan. If yours wins, use it for live alerts."],
-      ["lClock", "Your trading clock", "Which windows are open right now, in your own time. Green = go time."],
-      ["lWalk", "Watch a trade", "Each strategy drawn step by step. Tap Next, or ▶ Play."],
-      ["lQuiz", "Check yourself", "7 quick questions. If you get them all, you know the rules."],
-      ["lWeek", "Your week", "One task a day for 7 days. Tick them off."],
-      ["lLog", "Practice log", "Every replayed trade, 20 seconds each. Edge compares your results with the tests."],
+    coach: [
+      ["train", "How well you keep your playbook", "Out of the steps in your playbook, how many you kept in your last 20 practice trades."],
+      ["sim", "Practice", "A real past day in a TradingView-style chart. Mark your zones, take your trade — every trade gets a scorecard: what you did well and what you missed."],
+      ["progress", "Step by step", "Each step of your playbook, green when you keep it. Edge tells you what you're good at and what to work on next."],
+      ["reviews", "Your practice trades", "Tap one to see its scorecard and the advice for anything you missed."],
+      ["playbook", "Your playbook", "Your strategy in 8 steps. Tap a step for the details — or take the quiz."],
     ],
     journal: [
       ["insights", "What Edge learned about you", "Your best and worst times, markets and moods — from your own trades. It gets sharper the more you trade."],
       ["results", "Your results", "All real trades together. Win rate, total in R, and how many broke a rule."],
       ["journal", "Every trade", "Tap one to add a note or fix the exit price."],
     ],
-    bias: [["bias", "Weekly homework (optional)", "Once a week, what the big picture says for each market: up, down or neutral. Tap 'Fill from free data' — Edge does most of it. The tested strategies don't need it; it's shown as a note on setups."]],
   };
   function startTour(force = false) {
     const steps = (TOURS[tab] || []).filter(([sel]) => document.querySelector(`[data-tour="${sel}"]`));
@@ -534,41 +242,158 @@
     return `<section class="card" data-tour="insights"><div class="card-head"><h2>${title}</h2>${I.ready ? `<span class="muted">${I.n} trades</span>` : ""}</div>${body}${small && I.ready && I.items.length > 2 ? `<a href="#journal" class="muted" style="font-size:13px">See all ${I.items.length} →</a>` : ""}</section>`;
   }
 
-  // ---------- NOW
+  // ---------- TODAY: what to do now · plan a trade with your playbook · setups Edge found · your open trades
+  const PB = () => window.EdgePlaybook;
+  // the contracts you can trade (prop firm futures): $ per 1.00 move
+  const CONTRACTS = { gold: [["MGC", 10, "Micro gold"], ["GC", 100, "Gold"]], crude: [["MCL", 100, "Micro crude"], ["CL", 1000, "Crude"]], silver: [["SIL", 1000, "Micro silver"], ["SI", 5000, "Silver"]], natgas: [["MNG", 1000, "Micro gas"], ["QG", 2500, "E-mini gas"]], es: [["MES", 5, "Micro S&P"], ["ES", 50, "E-mini S&P"]] };
+  const PL = { open: false, checks: [], market: "gold", contract: "MGC", dir: "long", entry: "", sl: "", tp: "", mood: "", type: "limit", info: null, busy: false };
+  try { Object.assign(PL, JSON.parse(localStorage.getItem("edge.plan") || "{}"), { busy: false, info: null }); } catch {}
+  const savePL = () => { try { const { busy, info, ...keep } = PL; localStorage.setItem("edge.plan", JSON.stringify(keep)); } catch {} };
+  // London and New York sessions in your own time
+  function sessionNow() {
+    const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date());
+    const m = Number(p.find((x) => x.type === "hour").value) * 60 + Number(p.find((x) => x.type === "minute").value);
+    const L = m >= 120 && m < 480, N = m >= 480 && m < 720;
+    const next = m < 120 ? 120 - m : m < 720 ? 0 : 1440 - m + 120;
+    return { open: L || N, name: L ? (m >= 480 ? "London + New York" : "London") : N ? "New York" : "", inMin: next };
+  }
+  function planCalc() {
+    const k = PL.dir === "short" ? -1 : 1, e = Number(PL.entry), sl = Number(PL.sl), tp = Number(PL.tp);
+    const c = (CONTRACTS[PL.market] || []).find((x) => x[0] === PL.contract) || (CONTRACTS[PL.market] || [])[0];
+    const pv = c ? c[1] : 1, risk = riskNow(), s = S.settings;
+    const ok3 = [e, sl, tp].every((x) => Number.isFinite(x) && x > 0);
+    const r = ok3 ? Math.abs(e - sl) : 0, rr = ok3 && r ? (k * (tp - e)) / r : null;
+    const perC = r * pv, qty = perC > 0 ? Math.floor(risk / perC + 1e-9) : 0;
+    const need = PB() ? PB().required.filter((x) => !PL.checks.includes(x)) : [];
+    let why = "";
+    if (need.length) why = `Tick every step first — ${need.length} to go.`;
+    else if (!ok3) why = "Fill in the entry, the stop and the target.";
+    else if (k * (e - sl) <= 0) why = `For a ${PL.dir === "long" ? "buy" : "sell"} the stop goes ${PL.dir === "long" ? "below" : "above"} the entry.`;
+    else if (rr <= 0) why = `For a ${PL.dir === "long" ? "buy" : "sell"} the target goes ${PL.dir === "long" ? "above" : "below"} the entry.`;
+    else if (rr < s.minR - 0.005) why = `${rr.toFixed(1)}R — under your ${s.minR}R minimum. No trade.`;
+    else if (rr > s.maxR + 0.005) why = `${rr.toFixed(1)}R — past your ${s.maxR}R maximum. Aim for the nearest liquidity.`;
+    else if (qty < 1) why = `One ${c[0]} risks $${Math.round(perC)} with this stop — more than your $${risk}.`;
+    else if (!PL.mood) why = "How do you feel right now?";
+    else if (["fomo", "revenge", "bored"].includes(PL.mood)) why = "Not in this state. Walk away — the next setup will come.";
+    else if (!S.guard.ok) why = S.guard.reasons[0];
+    return { e, sl, tp, rr, qty, perC, risk, c, why, ready: !why, potential: rr > 0 ? qty * perC * rr : 0 };
+  }
+  function planCard() {
+    const P = PB(); if (!P) return "";
+    const s = S.settings;
+    if (!PL.open) return `<section class="card plan" data-tour="plan" id="planCard"><div class="plan-intro"><div><h2>🧭 Plan a trade</h2><p class="muted">Edge walks you through your strategy, step by step — and only lets the trade through when every step is there.</p></div><button class="btn primary" data-pl="open">Start</button></div></section>`;
+    const done = P.required.filter((x) => PL.checks.includes(x)).length, all = P.required.length;
+    const c = planCalc(), routed = S.broker.kind === "traderspost";
+    const rrCls = c.rr == null ? "" : c.rr < s.minR - 0.005 || c.rr > s.maxR + 0.005 ? "bad" : "good";
+    const step = (st, n) => { const on = PL.checks.includes(st.id), info = PL.info === st.id;
+      return `<div class="pb-step ${on ? "on" : ""}"><button type="button" class="pb-tick" data-pl="tick" data-a="${st.id}"><i>${on ? "✓" : n}</i><span><b>${esc(st.title)}</b><small>${esc(st.short)}</small></span>${st.req ? "" : `<em>bonus</em>`}</button><button type="button" class="pb-info ${info ? "on" : ""}" data-pl="info" data-a="${st.id}" aria-label="What this means">i</button>${info ? `<p class="pb-text">${esc(st.text)}</p>` : ""}</div>`; };
+    const mk = Object.keys(CONTRACTS).filter((m) => S.markets[m]);
+    const inp = (f, label) => `<label class="f"><small>${label}</small><input data-plf="${f}" inputmode="decimal" value="${esc(PL[f])}" placeholder="0.00"></label>`;
+    const moods = [["calm", "😌 Calm"], ["focused", "🎯 Focused"], ["fomo", "😬 FOMO"], ["revenge", "😤 Revenge"], ["bored", "🥱 Bored"]];
+    return `<section class="card plan open" data-tour="plan" id="planCard">
+      <div class="card-head"><h2>🧭 Plan a trade</h2><button class="btn small" data-pl="close">Close</button></div>
+      <div class="pb-prog"><span style="width:${(done / all) * 100}%"></span></div><p class="muted pb-count">${done === all ? "✅ Every step is there — now the numbers." : `${done} of ${all} steps · tap each one when you've checked it on the chart`}</p>
+      <div class="pb-steps">${P.STEPS.map((st, i) => step(st, i + 1)).join("")}</div>
+      <div class="pl-nums ${done === all ? "" : "dim"}">
+        <div class="chips">${mk.map((m) => `<button type="button" data-pl="mk" data-a="${m}" class="${PL.market === m ? "on" : ""}">${esc(S.markets[m].name)}</button>`).join("")}</div>
+        <div class="row" style="gap:8px;margin:8px 0">
+          <div class="seg two"><button type="button" data-pl="dir" data-a="long" class="${PL.dir === "long" ? "on p1" : ""}">▲ Long</button><button type="button" data-pl="dir" data-a="short" class="${PL.dir === "short" ? "on m1" : ""}">▼ Short</button></div>
+          <select data-plf="contract">${(CONTRACTS[PL.market] || []).map(([r, , n]) => `<option value="${r}" ${PL.contract === r ? "selected" : ""}>${r} · ${n}</option>`).join("")}</select></div>
+        <div class="grid3">${inp("entry", "Limit at the FVG start")}${inp("sl", "Stop behind the swing")}${inp("tp", "Target (liquidity)")}</div>
+        <div class="pl-calc" id="plCalc">${calcHtml(c, rrCls)}</div>
+        <div class="chips moods">${moods.map(([k, l]) => `<button type="button" data-pl="mood" data-a="${k}" class="${PL.mood === k ? "on" : ""}">${l}</button>`).join("")}</div>
+        <p class="pl-why ${c.ready ? "good" : ""}" id="plWhy">${c.ready ? `✅ Ready. ${routed ? "Edge sends it to Tradovate with the stop and target attached." : "Place it on your platform, then tap below so Edge tracks it."}` : esc(c.why)}</p>
+        <div class="row">${routed ? `<button class="btn good" data-pl="go" data-a="send" ${c.ready && !PL.busy ? "" : "disabled"}>Send ${PL.type} order to Tradovate</button>` : ""}
+          <button class="btn ${routed ? "" : "good"}" data-pl="go" data-a="track" ${c.ready && !PL.busy ? "" : "disabled"}>${routed ? "I placed it myself" : "I've placed it — track it"}</button>
+          <button type="button" class="link" data-pl="type">${PL.type === "limit" ? "Already in? Market instead" : "Back to a limit order"}</button></div>
+        <p class="muted" style="margin:8px 0 0;font-size:12.5px">After the fill: ${P.MANAGE.map(esc).join(" ")}</p>
+      </div></section>`;
+  }
+  function calcHtml(c, rrCls) {
+    return `<div><small>Reward : risk</small><b class="${rrCls}">${c.rr == null || !Number.isFinite(c.rr) ? "—" : `${c.rr.toFixed(1)}R`}</b></div>
+      <div><small>Contracts</small><b>${c.qty > 0 ? `${c.qty} ${c.c ? c.c[0] : ""}` : "—"}</b></div>
+      <div><small>Risk</small><b>${c.qty > 0 ? `$${Math.round(c.qty * c.perC)}` : `$${c.risk}`}</b></div>
+      <div><small>If it hits</small><b class="good">${c.potential > 0 ? `+$${Math.round(c.potential).toLocaleString("en-US")}` : "—"}</b></div>`;
+  }
+  // update the numbers without redrawing the inputs (typing isn't interrupted)
+  function planSync() {
+    const c = planCalc(), s = S.settings, rrCls = c.rr == null ? "" : c.rr < s.minR - 0.005 || c.rr > s.maxR + 0.005 ? "bad" : "good", routed = S.broker.kind === "traderspost";
+    const el = $("#plCalc"); if (el) el.innerHTML = calcHtml(c, rrCls);
+    const w = $("#plWhy"); if (w) { w.className = `pl-why ${c.ready ? "good" : ""}`; w.textContent = c.ready ? `✅ Ready. ${routed ? "Edge sends it to Tradovate with the stop and target attached." : "Place it on your platform, then tap below so Edge tracks it."}` : c.why; }
+    document.querySelectorAll('[data-pl="go"]').forEach((b) => (b.disabled = !c.ready || PL.busy));
+  }
+  function planSwap() { const el = $("#planCard"); if (!el) return; el.outerHTML = planCard(); bindPlan(); }
+  async function planAct(k, a) {
+    if (k === "open") { PL.open = true; PL.info = null; }
+    else if (k === "close") PL.open = false;
+    else if (k === "tick") PL.checks = PL.checks.includes(a) ? PL.checks.filter((x) => x !== a) : [...PL.checks, a];
+    else if (k === "info") PL.info = PL.info === a ? null : a;
+    else if (k === "mk") { PL.market = a; PL.contract = (CONTRACTS[a] || [[""]])[0][0]; }
+    else if (k === "dir") PL.dir = a;
+    else if (k === "mood") PL.mood = a;
+    else if (k === "type") PL.type = PL.type === "limit" ? "market" : "limit";
+    else if (k === "go") {
+      PL.busy = true; planSync();
+      const r = await act({ action: "planTrade", market: PL.market, contract: PL.contract, dir: PL.dir, entry: PL.entry, sl: PL.sl, tp: PL.tp, riskUSD: riskNow(), emotion: PL.mood, checks: PL.checks, type: PL.type, send: a === "send" },
+        a === "send" ? "Sent to Tradovate. Hands off — Edge tells you when it fills." : "Tracking it. Edge tells you when it fills and when to lock in profit.");
+      PL.busy = false;
+      if (r) { Object.assign(PL, { open: false, checks: [], entry: "", sl: "", tp: "", mood: "", type: "limit" }); savePL(); return; }
+      return planSync();
+    }
+    savePL(); planSwap();
+  }
+  function bindPlan() {
+    const card = $("#planCard"); if (!card) return;
+    card.querySelectorAll("[data-pl]").forEach((b) => b.addEventListener("click", () => planAct(b.dataset.pl, b.dataset.a)));
+    card.querySelectorAll("[data-plf]").forEach((inp) => inp.addEventListener(inp.tagName === "SELECT" ? "change" : "input", () => { PL[inp.dataset.plf] = inp.value.replace(",", "."); savePL(); planSync(); }));
+  }
+  function ordersCard() {
+    const os = S.orders || [];
+    if (!os.length) return "";
+    return `<section class="card"><div class="card-head"><h2>⏳ Waiting to fill</h2><span class="muted">${os.length} limit order${os.length > 1 ? "s" : ""}</span></div>
+      ${os.map((o) => { const t = o.trade; return `<div class="ord-row"><div><b>${esc(mname(o.market))} ${o.dir === "long" ? "BUY" : "SELL"} ${t.units} ${esc(t.contract || "")}</b><small class="muted">limit ${fx(o.entry)} · stop ${fx(o.sl)} · target ${fx(o.tp)} · ${t.tpR}R${o.routed ? " · on Tradovate" : ""}</small></div><button class="btn small" data-cancelord="${esc(o.id)}">Cancel</button></div>`; }).join("")}
+      <p class="muted" style="margin:6px 0 0;font-size:12.5px">If price runs to the target without filling you, Edge cancels it — no chasing.</p></section>`;
+  }
+
   function viewNow() {
     const g = S.guard, s = S.settings;
-    const live = S.setups.filter((x) => x.status === "open" && x.g.take.ok).length;
-    const inTrade = S.open.length;
+    const live = S.setups.filter((x) => x.status === "open" && x.g.take.ok && !(x.expires && S.now > x.expires));
+    const inTrade = S.open.length, ses = sessionNow();
     const [stateTxt, stateColor, headline, sub] = !g.ok
       ? ["Locked", "var(--bad)", "Not trading right now.", g.reasons.map(esc).join("<br>")]
-      : live ? ["Setup ready", "var(--accent)", `${live} A+ setup${live > 1 ? "s" : ""} waiting for you.`, `<a href="#setups" style="color:var(--accent);font-weight:600">Open it →</a> it's only valid for ${s.setupExpiryMin} minutes.`]
-      : inTrade ? ["In a trade", "var(--info)", "Hands off. The rules manage it.", S.open.map((t) => { const e = xpOf(t); return `${esc(mname(t.market))}: ${e.beR > 0 ? `break-even at +${e.beR}R · ` : ""}exit at +${e.tpR}R`; }).join("<br>")]
-      : ["Ready", "var(--good)", "Waiting for an A+ setup.", "No setup, no trade. Patience is the position."];
-    const share = S.share.share, C = 2 * Math.PI * 40, okShare = true;
+      : live.length ? ["Setup ready", "var(--accent)", `${live.length} setup${live.length > 1 ? "s" : ""} waiting for your OK.`, `Check it below — it's only valid for ${s.setupExpiryMin} minutes.`]
+      : inTrade ? ["In a trade", "var(--info)", "Hands off. The plan manages it.", S.open.map((t) => `${esc(mname(t.market))}: ${t.lockR != null ? `lock in +${t.lockR}R at +${t.beR}R, then trail · ` : ""}target ${t.tpR ? `${t.tpR}R` : fx(t.tp)}`).join("<br>")]
+      : (S.orders || []).length ? ["Order waiting", "var(--info)", "Your limit is in. Let price come to you.", "No chasing — if it runs to the target without you, it's cancelled."]
+      : ses.open ? ["Session open", "var(--good)", `${ses.name} session — look for your setup.`, "Big picture → 15m zone → 5m / 1m change of character. No setup, no trade."]
+      : ["Ready", "var(--good)", "Market's quiet for you.", `London opens in ${Math.floor(ses.inMin / 60)}h ${String(ses.inMin % 60).padStart(2, "0")}m. Practise in Coach meanwhile.`];
+    const share = S.share.share, C = 2 * Math.PI * 40;
     const hero = `<section class="card hero" data-tour="hero" style="--state:${stateColor}">
       <div><div class="state"><span class="dot ${g.ok ? "live" : ""}"></span>${stateTxt}</div>
         <div class="headline">${headline}</div><p class="sub">${sub}</p></div>
-      <div class="ring" data-tour="ring" title="A+ share of your last ${S.share.taken || 0} trades">
+      <div class="ring" data-tour="ring" title="Planned trades out of your last ${S.share.taken || 0}">
         <svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="7"/>
-          <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="${okShare ? "url(#goldGrad)" : "var(--bad)"}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - share / 100)}"/></svg>
-        <div class="lbl"><b>${share}%</b><small>A+ share</small></div></div>
+          <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="url(#goldGrad)" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - share / 100)}"/></svg>
+        <div class="lbl"><b>${share}%</b><small>by the plan</small></div></div>
     </section>`;
     const stats = `<div class="kpis" data-tour="kpis">
       <div><small>Trades</small><b>${g.tradesToday}<small class="muted"> / ${s.maxTradesPerDay}</small></b><em>taken today</em></div>
       <div><small>Today</small><b class="${cls(g.rToday)}">${rs(g.rToday)}</b><em>profit / loss</em></div>
       <div><small>Loss limit</small><b>−${s.maxDailyLossR}R</b><em>stop for the day</em></div>
     </div>`;
-    const open = S.open.length ? S.open.map(tradeCard).join("")
-      : `<div class="empty"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-8"/><path d="M15 8h5v5"/></svg><b>No open trades</b><span>When you take an A+ setup, it shows up here with its plan.</span></div>`;
     const ps = pushStatus();
-    const pushNudge = ps.on ? "" : `<section class="card" data-tour="push"><div class="row between"><b>🔔 Get alerts on this device</b>${pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on</button>` : ""}</div><p class="muted" style="margin:6px 0 0">${esc(ps.text)}</p></section>`;
+    const pushNudge = ps.on ? "" : `<section class="card slim" data-tour="push"><div class="row between"><b>🔔 Alerts on this device</b>${pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on</button>` : ""}</div><p class="muted" style="margin:6px 0 0">${esc(ps.text)}</p></section>`;
     const ce = S.closeOut || {}, n = S.open.length;
     const ceBanner = n && (ce.warn || ce.due) ? `<div class="banner bad">⏰ ${ce.due ? `Close-out time (${esc(s.flatBy)}) — get out now.` : `${ce.minutesLeft} min to the close-out (${esc(s.flatBy)}).`}
         <p>You're in ${n} trade${n > 1 ? "s" : ""}. Your prop firm closes you if you don't.</p>
         <button class="btn danger closeall" data-closeall style="margin-top:8px">⛔ Close everything</button></div>` : "";
-    const head = `<div class="card-head"><h2>Open trades</h2>${n ? `<button class="btn small closeall" data-closeall>Close everything</button>` : ""}</div>`;
     const pend = S.open.filter((t) => t.pending).map(confirmCard).join("");
-    return `${ceBanner}${pend}${hero}${stats}${pushNudge}${plansCard()}<section class="card" data-tour="open">${head}${open}</section>${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${newsCard(6)}${logCard()}`;
+    const setups = live.length ? `<section class="card" data-tour="setups"><div class="card-head"><h2>📣 Edge found a setup</h2><span class="muted">confirm to send it</span></div><div class="setup-list">${live.map(setupCard).join("")}</div></section>` : "";
+    const openCard = n ? `<section class="card" data-tour="open"><div class="card-head"><h2>Open trades</h2><button class="btn small closeall" data-closeall>Close everything</button></div>${S.open.map(tradeCard).join("")}</section>` : "";
+    const nextNews = S.news.events.filter((e) => e.block && e.time > S.now - s.newsAfterMin * 60e3).slice(0, 3);
+    const news = nextNews.length ? `<section class="card slim" data-tour="news"><div class="card-head"><h2>📰 Big news</h2><span class="muted">no trades ${s.newsBeforeMin} min either side</span></div><div class="news">${nextNews.map((e) => { const liveN = S.now >= e.time - s.newsBeforeMin * 60e3 && S.now <= e.time + s.newsAfterMin * 60e3; return `<div class="ev ${liveN ? "live" : ""}"><span class="num">${day(e.time).split(",")[0]} ${time(e.time)}</span><span>${esc(e.title)}<br><small class="muted">${e.markets.map(mname).join(" · ")}</small></span><span class="pill ${liveN ? "bad" : "warn"}">${liveN ? "NO TRADES" : e.impact}</span></div>`; }).join("")}</div></section>` : "";
+    const watch = `<section class="card slim"><div class="row between"><div><b>🎥 Live chart coach</b><p class="muted" style="margin:4px 0 0">Share your TradingView window — Edge talks you through it.</p></div><a class="btn small" href="#watch">Open</a></div></section>`;
+    const alerts = `<details class="card slim" data-tour="log"><summary><b>Alerts</b> <span class="muted">${S.log.length ? `· last ${time(S.log[0].at)}` : ""}</span></summary><div class="log" style="margin-top:8px">${S.log.slice(0, 15).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></details>`;
+    return `${ceBanner}${pend}${hero}${setups}${openCard}${ordersCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${watch}${alerts}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -662,6 +487,76 @@
 
   function logCard() {
     return `<section class="card" data-tour="log"><h2>Alerts</h2><div class="log">${S.log.slice(0, 12).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet. Alerts from TradingView land here (and on your phone if Telegram is set up).</p>`}</div></section>`;
+  }
+
+  // ---------- COACH: train in the simulator · see how well you keep your playbook · learn it by heart
+  const SC_NAMES = { htf: "Big picture", trend: "Trend", zone: "15m zone", entry: "Entry at the FVG", stop: "Stop behind the swing", rr: "3R – 10R", session: "Session & limits", manage: "Management" };
+  const CO = { ex: null, at: 0, loading: false, open: null, q: 0, ans: {}, quiz: false };
+  function loadExamples(force = false) {
+    if (CO.loading || (!force && CO.ex && Date.now() - CO.at < 30e3)) return;
+    CO.loading = true;
+    api("POST", { action: "teachList" }).then((r) => { CO.ex = r.examples || []; CO.at = Date.now(); }).catch(() => { CO.ex = CO.ex || []; })
+      .finally(() => { CO.loading = false; if (tab === "coach") coachSwap(); });
+  }
+  window.Edge.examplesChanged = () => { CO.at = 0; }; // a new practice trade was saved → reload on the next visit
+  function coachSwap() { const el = $("#coachBody"); if (el) { el.innerHTML = coachBody(); bindCoach(); } }
+  function viewCoach() { loadExamples(); return `<div id="coachBody">${coachBody()}</div>`; }
+  function coachBody() {
+    const P = PB(), ex = (CO.ex || []).filter((x) => x.score && x.score.length), last = ex.slice(0, 20);
+    const kept = last.reduce((a, x) => a + x.score.filter((c) => c.ok).length, 0), total = last.reduce((a, x) => a + x.score.length, 0);
+    const pct = total ? Math.round((kept / total) * 100) : 0, textbook = last.filter((x) => x.score.every((c) => c.ok)).length, C = 2 * Math.PI * 40;
+    const sumR = last.reduce((a, x) => a + (x.R || 0), 0);
+    const hero = `<section class="card hero" data-tour="train" style="--state:var(--accent)">
+      <div><div class="state">Coach · train, review, improve</div>
+        <div class="headline">${!CO.ex ? "Loading your practice…" : last.length ? `${pct}% of your playbook kept` : "Train on real past days."}</div>
+        <p class="sub">${last.length ? `Last ${last.length} practice trade${last.length > 1 ? "s" : ""} · ${textbook} textbook · ${sumR >= 0 ? "+" : ""}${sumR.toFixed(1)}R` : "Pick a market below. Mark your zones, take your trade — Edge scores it against your playbook and shows you what you did well and what you missed."}</p></div>
+      <div class="ring"><svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="7"/>
+        <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="url(#goldGrad)" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct / 100)}"/></svg>
+        <div class="lbl"><b>${last.length ? `${pct}%` : "—"}</b><small>rules kept</small></div></div></section>`;
+    const sims = [["gold", "🥇", "Gold", "MGC"], ["crude", "🛢️", "Crude oil", "MCL"], ["silver", "🥈", "Silver", "SIL"], ["natgas", "🔥", "Natural gas", "QG"]];
+    const practice = `<section class="card" data-tour="sim"><div class="card-head"><h2>🕹 Practice</h2><span class="muted">real past days · like TradingView</span></div>
+      <div class="sim-tiles">${sims.map(([m, ic, n, c]) => `<button type="button" class="sim-tile" data-sim="${m}"><span>${ic}</span><b>${n}</b><small>${c}</small></button>`).join("")}</div>
+      <p class="muted" style="margin:10px 0 0;font-size:12.5px">Start on the weekly / daily / 4H, mark the zones, drop to the 15m, then take the trade on the 5m. Every trade gets a scorecard.</p></section>`;
+    // how well each step is kept, over the last 20 trades
+    const by = {}; for (const x of last) for (const c of x.score) { const b = (by[c.id] = by[c.id] || { ok: 0, n: 0 }); b.n++; if (c.ok) b.ok++; }
+    const rows = Object.keys(SC_NAMES).filter((k) => by[k]).map((k) => ({ k, p: Math.round((by[k].ok / by[k].n) * 100), n: by[k].n }));
+    const weak = rows.filter((r) => r.p < 80).sort((a, b) => a.p - b.p).slice(0, 2), strong = rows.filter((r) => r.p >= 80).sort((a, b) => b.p - a.p).slice(0, 2);
+    const progress = rows.length ? `<section class="card" data-tour="progress"><div class="card-head"><h2>📊 Your playbook, step by step</h2><span class="muted">last ${last.length}</span></div>
+      <div class="sc-bars">${rows.map((r) => `<div class="sc-bar ${r.p >= 80 ? "good" : r.p >= 50 ? "mid" : "bad"}"><span>${SC_NAMES[r.k]}</span><div><i style="width:${r.p}%"></i></div><b>${r.p}%</b></div>`).join("")}</div>
+      ${strong.length ? `<div class="insight good"><span>💪</span><div><b>You're good at: ${strong.map((r) => SC_NAMES[r.k]).join(" and ")}</b><p>Keep doing exactly that.</p></div></div>` : ""}
+      ${weak.length ? `<div class="insight bad"><span>🎯</span><div><b>Work on: ${weak.map((r) => SC_NAMES[r.k]).join(" and ")}</b><p>${esc(weak.map((r) => (last.flatMap((x) => x.score).find((c) => c.id === r.k && !c.ok) || {}).text || "").filter(Boolean)[0] || "")}</p></div></div>` : `<div class="insight good"><span>🏆</span><div><b>Every step above 80%</b><p>You know your playbook. Keep the reps going — then it's live, small.</p></div></div>`}</section>` : "";
+    const recent = ex.slice(0, 8);
+    const trades = recent.length ? `<section class="card" data-tour="reviews"><div class="card-head"><h2>🔍 Your practice trades</h2><span class="muted">tap one</span></div>
+      ${recent.map((x) => { const ok = x.score.filter((c) => c.ok).length, all = x.score.length, open = CO.open === x.id;
+        return `<div class="ex ${open ? "open" : ""}"><button type="button" class="ex-row" data-ex="${esc(x.id)}"><span class="ex-sc ${ok === all ? "good" : ok >= all - 2 ? "mid" : "bad"}">${ok}/${all}</span><span><b>${esc(mname(x.market))} ${x.dir === "long" ? "▲ long" : "▼ short"}</b><small class="muted">${esc(x.simDay || "")} · ${esc(x.how || "")}</small></span><b class="${cls(x.R)}">${rs(x.R)}</b></button>
+          ${open ? `<div class="ex-body"><div class="sc-list">${x.score.map((c) => `<span class="${c.ok ? "ok" : "no"}">${c.ok ? "✓" : "!"} ${esc(c.title)}</span>`).join("")}</div>${x.score.filter((c) => !c.ok).map((c) => `<p><b>${esc(c.title)}</b><br><span class="muted">${esc(c.text)}</span></p>`).join("") || `<p class="good">✅ Textbook. Everything in your playbook was there.</p>`}${x.note ? `<p class="muted">📝 ${esc(x.note)}</p>` : ""}</div>` : ""}</div>`; }).join("")}
+      <div class="row" style="margin-top:8px"><button class="btn small" data-teachdl>⬇ Download for Claude</button><span class="muted" style="font-size:12.5px">${(CO.ex || []).length} saved — send me the file to sharpen your rules.</span></div></section>` : "";
+    const quiz = P && CO.quiz ? (() => {
+      const q = P.QUIZ[CO.q]; if (!q) { const right = Object.entries(CO.ans).filter(([i, a]) => P.QUIZ[i][2] === a).length; return `<div class="quiz-done"><b>${right}/${P.QUIZ.length}</b><p>${right === P.QUIZ.length ? "Perfect — you know your playbook." : "Go over the ones you missed, then try again."}</p><button class="btn small" data-qz="reset">Again</button></div>`; }
+      const a = CO.ans[CO.q];
+      return `<div class="quiz"><small class="muted">Question ${CO.q + 1} of ${P.QUIZ.length}</small><b>${esc(q[0])}</b>${q[1].map((o, i) => `<button type="button" class="qopt ${a == null ? "" : i === q[2] ? "right" : i === a ? "wrong" : ""}" data-qz="ans" data-a="${i}" ${a == null ? "" : "disabled"}>${esc(o)}</button>`).join("")}${a != null ? `<p class="${a === q[2] ? "good" : "bad"}">${a === q[2] ? "✅ " : "✋ "}${esc(q[3])}</p><button class="btn small primary" data-qz="next">Next ›</button>` : ""}</div>`;
+    })() : "";
+    const book = P ? `<section class="card" data-tour="playbook"><div class="card-head"><h2>📘 Your playbook</h2><button class="btn small" data-qz="${CO.quiz ? "hide" : "start"}">${CO.quiz ? "Hide quiz" : "🧠 Quiz me"}</button></div>
+      ${quiz}
+      <div class="pb-book">${P.STEPS.map((st, i) => `<details><summary><i>${i + 1}</i><span><b>${st.icon} ${esc(st.title)}</b><small>${esc(st.short)}${st.req ? "" : " · bonus"}</small></span></summary><p>${esc(st.text)}</p></details>`).join("")}</div>
+      <div class="pb-manage"><b>In the trade</b>${P.MANAGE.map((m) => `<span>${esc(m)}</span>`).join("")}</div></section>` : "";
+    return `${hero}${practice}${progress}${trades}${book}`;
+  }
+  function bindCoach() {
+    const v = $("#coachBody"); if (!v) return;
+    v.querySelectorAll("[data-sim]").forEach((b) => b.addEventListener("click", () => window.EdgeSim ? window.EdgeSim.open(b.dataset.sim) : toast("Simulator still loading — try again.")));
+    v.querySelectorAll("[data-ex]").forEach((b) => b.addEventListener("click", () => { CO.open = CO.open === b.dataset.ex ? null : b.dataset.ex; coachSwap(); }));
+    v.querySelectorAll("[data-qz]").forEach((b) => b.addEventListener("click", () => {
+      const k = b.dataset.qz;
+      if (k === "start") { CO.quiz = true; CO.q = 0; CO.ans = {}; } else if (k === "hide") CO.quiz = false;
+      else if (k === "ans") CO.ans[CO.q] = Number(b.dataset.a); else if (k === "next") CO.q++; else if (k === "reset") { CO.q = 0; CO.ans = {}; }
+      coachSwap();
+    }));
+    v.querySelectorAll("[data-teachdl]").forEach((b) => b.addEventListener("click", () => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(CO.ex || [], null, 1)], { type: "application/json" }));
+      a.download = `edge-examples-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    }));
   }
 
   // ---------- SETUPS
@@ -885,7 +780,7 @@
         ${grp(st.aPlus, "A+ trades")}${grp(st.other, "A / B")}${grp(st.unplanned, "Unplanned")}
         <div class="stat"><small>Trades with a rule break</small><b class="${st.ruleBreaks ? "neg" : ""}">${st.ruleBreaks}</b></div>
       </div></section>
-      ${S.practice.length ? `<section class="card"><h2>Practice (FX Replay) — not counted above</h2><div class="grid2">
+      ${S.practice.length ? `<section class="card"><h2>Practice — not counted above</h2><div class="grid2">
         <div class="stat"><small>Practice total</small><b class="${cls(S.practiceStats.totalR)}">${rs(S.practiceStats.totalR)}</b><small>${S.practiceStats.n} trades</small></div>
         <div class="stat"><small>Win rate</small><b>${S.practiceStats.winRate == null ? "—" : S.practiceStats.winRate + "%"}</b><small>avg ${rs(S.practiceStats.avgR)}</small></div>
         ${grp(S.practiceStats.aPlus, "A+ practice")}${grp(S.practiceStats.unplanned, "Unplanned practice")}</div>
@@ -931,7 +826,7 @@
     const ps = pushStatus();
     const kinds = [["setup", "A+ setups ready to take"], ["action", "Act now: move stop to break-even, take profit, Coach alerts"], ["warn", "Rule checks: stop moved, no stop, structure broke against you"], ["news", "News coming (before the no-trade window)"], ["closed", "Trade closed + result"], ["locked", "Done for the day (limits hit)"], ["skip", "Setups that aren't A+ (to see what you skipped)"], ["info", "Other"]];
     const notifCard = `<section class="card"><h2>Notifications</h2>
-        <div class="row between"><span class="pill ${ps.on ? "good" : "warn"}">${esc(ps.text)}</span>
+        <div class="row between"><span class="pill ${ps.on ? "good" : "warn"}" style="white-space:normal;max-width:100%">${esc(ps.text)}</span>
           ${ps.on ? `<span class="row"><button class="btn small" data-testalert>Send a test</button><button class="btn small danger" data-pushoff>Turn off here</button></span>` : pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on for this device</button>` : ""}</div>
         ${ps.ios ? `<ol class="steps muted" style="margin-top:10px"><li>In Safari, tap <b>Share</b> (the square with the arrow).</li><li>Tap <b>Add to Home Screen</b> → Add.</li><li>Open <b>Edge</b> from your Home Screen, sign in, and tap <b>Turn on</b>.</li></ol>` : ""}
         <p class="muted">Devices receiving alerts: ${S.push.devices.length ? S.push.devices.map((d) => esc(d.label || "device")).join(", ") : "none yet"}. Turn it on on each phone, iPad or computer you want alerts on.</p>
@@ -953,7 +848,14 @@
         <div class="row" style="margin-top:12px"><button class="btn small" id="copyHook">Copy webhook URL</button></div>
         <p class="muted" style="margin:8px 0 0;font-size:12.5px">Webhook URL: <code>${esc(location.origin)}/api/hook</code>${S.hookReady ? "" : ` · <span class="err">EDGE_HOOK_SECRET isn't set in Vercel yet</span>`}</p>
       </section>`;
-    return `${notifCard}${tvCard}<section class="card"><h2>Connections</h2>
+    const stratCard = `<section class="card"><h2>📘 Your strategy</h2>
+        <p class="muted" style="margin-top:0">The numbers Edge holds you to when you plan a trade on Today — and scores your practice against.</p>
+        <div class="grid2">${n("minR", "Never take less than (R)", "0.5")}${n("maxR", "Target at most (R)", "0.5")}
+          ${n("lockAtR", "Lock in profit when the trade reaches (R)", "0.5")}${n("lockToR", "…by moving the stop to (R)", "0.5")}
+          <label class="f">Risk per trade ($)<input id="riskUsd" type="number" step="10" value="${riskNow()}"></label>
+          ${n("maxTradesPerDay", "Max trades per day")}${n("maxDailyLossR", "Stop for the day after losing (R)", "0.5")}${n("cooldownMin", "Break after a loss (min)", "5")}</div>
+        <div class="row" style="margin-top:12px"><button class="btn primary" data-saverules>Save</button></div></section>`;
+    return `${stratCard}${notifCard}<section class="card"><h2>Connections</h2>
         <div class="grid2">
           <div class="stat"><small>TradingView webhook</small><b style="font-size:15px">${ok(S.hookReady)}</b></div>
           <div class="stat"><small>Broker</small><b style="font-size:15px">${esc(S.broker.label)}</b>${S.broker.account && !S.broker.account.error ? `<small>${esc(S.broker.account.currency)} ${Number(S.broker.account.balance).toFixed(2)}</small>` : S.broker.account && S.broker.account.error ? `<small class="err">${esc(S.broker.account.error)}</small>` : ""}</div>
@@ -963,6 +865,8 @@
         <p class="muted">Webhook URL for your TradingView alert: <code>${esc(hook)}</code></p>
         <div class="row"><button class="btn small" data-testalert>Send a test alert</button></div>
       </section>
+      <details class="card adv"><summary><h2>Advanced</h2><span class="muted">TradingView alerts, exits, hours, AI coach</span></summary>
+      ${tvCard}
       <section class="card"><h2>Exits</h2><div class="grid2">
         ${n("beAtR", "Supply & demand: stop to break-even at (R)", "0.1")}${n("tpAtR", "Supply & demand: take profit at (R)", "0.1")}${n("beOffsetR", "Break-even buffer (R)", "0.01")}
         <label class="f">Target moved further away<select data-set="enforceTP"><option value="true" ${s.enforceTP ? "selected" : ""}>Put it back (greed check)</option><option value="false" ${s.enforceTP ? "" : "selected"}>Allow</option></select></label>
@@ -970,9 +874,8 @@
         <label class="f">Big news & stop not at BE<select data-set="newsOpenTrade">${["warn", "close"].map((v) => `<option ${s.newsOpenTrade === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
       </div></section>
       <section class="card"><h2>Risk & discipline</h2><div class="grid2">
-        ${n("riskPct", "Risk per trade (%)", "0.1")}${n("accountSize", "Account size (manual mode)", "100")}
-        ${n("maxTradesPerDay", "Max trades per day")}${n("maxDailyLossR", "Stop for the day after losing (R)", "0.5")}
-        ${n("cooldownMin", "Cool-down after a loss (min)", "5")}${n("maxOpen", "Max open trades")}
+        ${n("riskPct", "Risk per trade (% — used when no $ amount is set)", "0.1")}${n("accountSize", "Account size (manual mode)", "100")}
+        ${n("maxOpen", "Max open trades")}
         ${n("setupExpiryMin", "Setup valid for (min)", "1")}
         ${n("maxChaseR", "Refuse entry if price ran past it by (R)", "0.1")}
         ${n("newsBeforeMin", "No trades before news (min)", "5")}${n("newsAfterMin", "No trades after news (min)", "5")}
@@ -989,8 +892,10 @@
       </div></section>
       <section class="card"><h2>Trading hours</h2><div class="grid2">${sess}
         <label class="f">Time zone<input data-set="tz" value="${esc(s.tz)}"></label></div>
-        <div class="row" style="margin-top:12px"><button class="btn primary" id="saveRules">Save rules</button></div>
+        <div class="row" style="margin-top:12px"><button class="btn primary" data-saverules>Save</button></div>
         <p class="muted">Changing rules is allowed — but never in the middle of a trade, and never right after a loss.</p></section>
+      <section class="card"><h2>Weekly bias (optional)</h2><p class="muted" style="margin-top:0">COT, dollar, yields, inventories — a note on each market for the week.</p><a class="btn small" href="#bias">Open weekly bias</a></section>
+      </details>
       <section class="card"><h2>Account</h2>
         <div class="acct"><div class="avatar">${esc((S.account && S.account.email || "?")[0].toUpperCase())}</div>
           <div><b>${esc(S.account ? S.account.email : "")}</b><small class="muted">Member since ${S.account ? new Date(S.account.created).toLocaleDateString([], { month: "long", year: "numeric" }) : ""}</small></div></div>
@@ -1009,6 +914,8 @@
   // ---------- events
   function bind() {
     const v = $("#view");
+    bindPlan(); bindCoach();
+    v.querySelectorAll("[data-cancelord]").forEach((b) => b.addEventListener("click", () => act({ action: "cancelOrder", id: b.dataset.cancelord }, "Order cancelled — cancel it on your platform too if you placed it yourself.")));
     v.querySelectorAll("[data-take]").forEach((b) => b.addEventListener("click", () => takeDialog(b.dataset.take)));
     v.querySelectorAll("[data-cmood]").forEach((b) => b.addEventListener("click", () => b.parentElement.querySelectorAll("button").forEach((y) => y.classList.toggle("on", y === b))));
     v.querySelectorAll("[data-confirm]").forEach((b) => b.addEventListener("click", async () => {
@@ -1036,7 +943,6 @@
       const seg = b.parentElement; seg.dataset.v = b.dataset.val;
       seg.querySelectorAll("button").forEach((y) => y.classList.toggle("on", y === b));
     }));
-    if (tab === "learn") bindLearn(); else stopPlay();
     v.querySelectorAll("[data-sim]").forEach((b) => b.addEventListener("click", () => window.EdgeSim ? window.EdgeSim.open(b.dataset.sim) : toast("Simulator still loading — try again.")));
     v.querySelectorAll("[data-lab]").forEach((b) => b.addEventListener("click", () => window.EdgeSim ? window.EdgeSim.openLab(b.dataset.lab) : toast("Still loading — try again.")));
     v.querySelectorAll("[data-savebias]").forEach((b) => b.addEventListener("click", () => {
@@ -1079,7 +985,8 @@
         $("#modal").showModal();
       } catch (e) { toast(e.message); }
     });
-    const sr = $("#saveRules"); if (sr) sr.addEventListener("click", () => {
+    v.querySelectorAll("[data-saverules]").forEach((sr) => sr.addEventListener("click", () => {
+      const ru = $("#riskUsd"); if (ru && Number(ru.value) > 0) try { localStorage.setItem("edge.riskUSD", String(Number(ru.value))); } catch {}
       const patch = { sessions: {} };
       v.querySelectorAll("[data-set]").forEach((el) => {
         const k = el.dataset.set;
@@ -1087,12 +994,12 @@
       });
       v.querySelectorAll("[data-sess]").forEach((el) => (patch.sessions[el.dataset.sess] = el.value.split("-").map((x) => x.trim())));
       patch.notify = {}; v.querySelectorAll("[data-notify]").forEach((el) => (patch.notify[el.dataset.notify] = el.checked));
-      act({ action: "settings", patch }, "Rules saved.");
-    });
+      act({ action: "settings", patch }, "Saved.");
+    }));
   }
 
   if (token) refresh(); else showLogin();
   // no auto-refresh on Bias / Rules: it would wipe what you are typing
-  setInterval(() => { if (token && !document.hidden && !$("#modal").open && !["bias", "rules", "coach", "learn"].includes(tab)) refresh(); }, 15000);
+  setInterval(() => { if (token && !document.hidden && !$("#modal").open && !["bias", "rules", "coach", "watch"].includes(tab) && !(document.activeElement && document.activeElement.closest && document.activeElement.closest("#view input, #view textarea, #view select"))) refresh(); }, 15000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && token) refresh(); });
 })();

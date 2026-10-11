@@ -103,6 +103,12 @@ const DEFAULT_SETTINGS = {
   beAtR: 0, // move the stop to break-even at +R (0 = never — the 2019-2026 tests did better without it)
   beOffsetR: 0.05, // break-even + a hair, so the spread doesn't turn a BE into a small loss
   tpAtR: 3.2, // full exit
+  // your strategy (playbook.js): trades you plan in Edge must pay at least minR and at most maxR; at +lockAtR the stop
+  // moves to lock in +lockToR, then you trail it behind each new 15m swing
+  minR: 3,
+  maxR: 10,
+  lockAtR: 3,
+  lockToR: 1,
   enforceTP: true, // put the take-profit back to 3.2R if it gets moved further away (greed check)
   maxTradesPerDay: 2,
   maxDailyLossR: 2, // stop for the day after losing 2R

@@ -224,7 +224,7 @@ function plan(t, s) {
   return {
     risk, tpR, beR,
     beTrigger: beR > 0 ? t.entry + k * beR * risk : null,
-    beStop: t.entry + k * s.beOffsetR * risk,
+    beStop: t.entry + k * (t.lockR != null && Number.isFinite(Number(t.lockR)) ? Number(t.lockR) : s.beOffsetR) * risk, // planned trades lock in profit, the rest go to break-even
     tp: t.entry + k * tpR * risk,
   };
 }
@@ -253,7 +253,7 @@ function evaluateTrade(t, mark, s) {
   if (!slSet) actions.push({ type: "warn", code: "nostop", text: "Your stop loss is gone! A trade without a stop is a gamble." });
   else if (k * (t.initialSL - t.currentSL) > eps) actions.push({ type: "warn", code: "widened", text: "You moved your stop further away. That's the rule you're here to stop breaking.", ruleBreak: true });
 
-  if (!beDone && p.beR > 0 && maxR >= p.beR) actions.push({ type: "moveSL", price: p.beStop, text: `+${p.beR}R reached → stop to break-even. This trade can't lose now.` });
+  if (!beDone && p.beR > 0 && maxR >= p.beR) actions.push({ type: "moveSL", price: p.beStop, lock: t.lockR != null, text: t.lockR != null ? `+${p.beR}R reached → lock in +${t.lockR}R, then trail the stop behind each new 15m swing.` : `+${p.beR}R reached → stop to break-even. This trade can't lose now.` });
 
   if (t.tp == null) actions.push({ type: "setTP", price: p.tp, text: `Take-profit set at ${p.tpR}R — your plan.` });
   else if (s.enforceTP && k * (t.tp - p.tp) > eps) actions.push({ type: "setTP", price: p.tp, text: `Take-profit moved back to ${p.tpR}R. Waiting for more is how profits got given back.`, ruleBreak: true });

@@ -314,6 +314,23 @@ async function syncTrades(store, broker, { now = Date.now(), market = null, mark
     return out;
   }
 
+  // your planned limit orders: filled when price trades through the entry; cancelled if price runs to the target without you
+  for (const o of Object.values((await store.hgetall("orders")) || {})) {
+    const m = market === o.market && mark ? mark : await store.get(`price:${o.market}`);
+    if (!m || now - m.time > 15 * 60e3 || m.time < o.placedAt) continue;
+    const k = R.sign(o.dir), lo = m.low ?? m.price, hi = m.high ?? m.price, name = MARKETS[o.market].name;
+    if (k > 0 ? lo <= o.entry : hi >= o.entry) {
+      await store.hdel("orders", o.id);
+      const t = { ...o.trade, openedAt: now, filledAt: now };
+      await store.hset("trades", t.id, t);
+      await notify(store, `✅ ${name}: your ${o.dir === "long" ? "buy" : "sell"} limit filled at ${fx(o.entry)}. Stop ${fx(o.sl)} · target ${fx(o.tp)}. Hands off until +${s.lockAtR}R.`, "action");
+    } else if (k > 0 ? hi >= o.tp : lo <= o.tp) {
+      await store.hdel("orders", o.id);
+      if (o.routed && broker.kind === "traderspost") await broker.exit(o.trade.ticker).catch(() => {});
+      await notify(store, `🏃 ${name}: price ran to your target without filling the limit — order ${o.routed ? "cancelled on Tradovate" : "cancelled (cancel it on your platform too)"}. No chasing.`, "action");
+    }
+  }
+
   // manual mode: prices come from the TradingView heartbeat
   for (const t of ctx.open.filter((x) => x.source === "manual" || x.source === "traderspost")) {
     const m = market === t.market && mark ? mark : await store.get(`price:${t.market}`);
@@ -357,6 +374,10 @@ async function manage(store, broker, t, mark, ctx, out, bos15) {
     if (a.ruleBreak && !(t.ruleBreaks || []).includes(a.code || a.type)) t.ruleBreaks = [...(t.ruleBreaks || []), a.code || a.type];
     if (a.type === "warn") { await once(store, t, a.code, `⚠️ ${name}: ${a.text}`); continue; }
     if (a.type === "moveSL") {
+      if (a.lock && (routed || manual)) { // your playbook: lock in profit at +3R, then trail behind the 15m swings (you move it on the platform)
+        await once(store, t, "be", `🔒 ${name}: ${a.text} Move your stop to ${fx(a.price)} now, then tap "Done" in Edge.`, "action");
+        continue;
+      }
       if (routed) {
         if (t.notified && t.notified.be) continue;
         try {
@@ -480,7 +501,7 @@ async function state(store, broker, now = Date.now()) {
     practice: ctx.practice.slice(0, 200), practiceStats: stats(ctx.practice), coach: { ready: !!process.env.ANTHROPIC_API_KEY, session: await store.get("coach") },
     share: R.aPlusShare([...ctx.journal, ...ctx.open]), guard: R.guardrails(ctx),
     news: { ok: ctx.newsOk, error: ctx.newsError, events: ctx.events.filter((e) => e.time > now - 2 * 3600e3) },
-    prices, log: await store.lrange("log", 40),
+    prices, log: await store.lrange("log", 40), orders: Object.values((await store.hgetall("orders")) || {}).sort((a, b) => b.placedAt - a.placedAt),
     broker: { kind: broker.kind, label: broker.label, account },
     fundamentals: await store.get("fundamentals"),
     closeOut: R.closeOut(now, ctx.settings),
@@ -551,9 +572,69 @@ async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: 
   return { trade: t };
 }
 
+// A trade you planned step by step in Edge (Today → Plan a trade): every step of your playbook ticked, 3R–10R,
+// sized for your dollar risk. Sent to Tradovate as a limit (or market) order with its stop and target when
+// TradersPost is connected and you confirm — otherwise Edge tracks the order you place yourself.
+async function planTrade(store, broker, body, now) {
+  const PB = require("../playbook.js");
+  const s = mergeSettings(await store.get("settings"));
+  const market = body.market;
+  if (!MARKETS[market]) throw new Error("Pick a market.");
+  const dir = body.dir === "short" ? "short" : "long", k = R.sign(dir);
+  const entry = num(body.entry), sl = num(body.sl), tp = num(body.tp);
+  if (entry == null || sl == null || tp == null) throw new Error("Fill in the entry, the stop and the target.");
+  if (k * (entry - sl) <= 0) throw new Error(`For a ${dir === "long" ? "buy" : "sell"}, the stop goes ${dir === "long" ? "below" : "above"} the entry.`);
+  if (k * (tp - entry) <= 0) throw new Error(`For a ${dir === "long" ? "buy" : "sell"}, the target goes ${dir === "long" ? "above" : "below"} the entry.`);
+  const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
+  if (rr < s.minR - 0.005) throw new Error(`That's ${rr.toFixed(1)}R. Your rule: never under ${s.minR}R — skip it or find a better entry.`);
+  if (rr > s.maxR + 0.005) throw new Error(`${rr.toFixed(1)}R is past your ${s.maxR}R maximum — aim for the nearest opposing liquidity.`);
+  const checks = Array.isArray(body.checks) ? body.checks.map(String) : [];
+  const missing = PB.required.filter((x) => !checks.includes(x));
+  if (missing.length) throw new Error(`Not ticked yet: ${missing.map((x) => PB.byId[x].title.toLowerCase()).join(", ")}. If it's not there, there's no trade.`);
+  if (BAD_MOODS[body.emotion]) {
+    await store.set("cooldown", now + 15 * 60e3);
+    await notify(store, `🧘 Skipped a trade because of ${BAD_MOODS[body.emotion]}. 15-minute break started. That's discipline.`, "skip");
+    throw new Error(`Trading on ${BAD_MOODS[body.emotion]} is how accounts get hurt. 15-minute break — walk away from the screen.`);
+  }
+  const ctx = await context(store, now);
+  const waiting = Object.values((await store.hgetall("orders")) || {});
+  const guard = R.guardrails({ ...ctx, open: [...ctx.open, ...waiting.map((o) => o.trade)] });
+  if (!guard.ok) throw new Error(guard.reasons.join(" "));
+  const root = String(body.contract || "").toUpperCase().replace(/[^A-Z]/g, "") || { gold: "MGC", crude: "MCL", natgas: "MNG", silver: "SIL", es: "MES" }[market];
+  const symbol = `${root}1!`;
+  const size = R.orderSize({ symbol, sl }, s, entry, num(body.riskUSD));
+  if (size.kind !== "futures") throw new Error(`${root} isn't a futures contract Edge knows.`);
+  if (size.qty < 1) throw new Error(`One ${size.contract} would risk $${size.riskPerContract} with this stop — more than your $${size.riskUSD}. Use the micro contract or skip it.`);
+  const routed = broker.kind === "traderspost" && !!body.send;
+  const type = body.type === "market" ? "market" : "limit";
+  const lockR = rr > s.lockAtR + 0.25 ? s.lockToR : null;
+  const trade = { id: `plan:${id()}`, market, dir, grade: "A+", source: routed ? "traderspost" : "manual", symbol, ticker: symbol, entry, initialSL: sl, currentSL: sl, tp,
+    strategy: "playbook", tpR: R.round(rr), beR: lockR != null ? s.lockAtR : 0, lockR, units: size.qty, unitLabel: size.unit, contract: size.contract, riskUSD: size.totalRisk,
+    emotion: ["calm", "focused"].includes(body.emotion) ? body.emotion : "calm", checks, note: String(body.note || "").slice(0, 500), maxR: 0, ruleBreaks: [], notified: {}, openedAt: now };
+  if (routed) await broker.order({ ticker: symbol, dir, qty: size.qty, sl, tp, price: entry, ref: trade.id, type });
+  const side = `${dir === "long" ? "BUY" : "SELL"} ${size.qty} ${size.contract}`;
+  if (type === "market") {
+    await store.hset("trades", trade.id, trade);
+    await notify(store, `▶️ ${routed ? "Order sent" : "Tracking"}: ${side} @ ${fx(entry)} · SL ${fx(sl)} · TP ${fx(tp)} (${rr.toFixed(1)}R).`, "action");
+    return { trade };
+  }
+  const order = { id: trade.id, market, dir, entry, sl, tp, routed, placedAt: now, trade };
+  await store.hset("orders", order.id, order);
+  await notify(store, `📝 ${routed ? "Limit sent to Tradovate" : "Limit order planned"}: ${side} @ ${fx(entry)} · SL ${fx(sl)} · TP ${fx(tp)} (${rr.toFixed(1)}R). Edge tells you when it fills.`, "action");
+  return { order };
+}
+
 async function action(store, broker, body, now = Date.now()) {
   const a = body.action;
   if (a === "take") return take(store, broker, body, now);
+  if (a === "planTrade") return planTrade(store, broker, body, now);
+  if (a === "cancelOrder") {
+    const o = await store.hget("orders", String(body.id || ""));
+    if (!o) throw new Error("That order isn't waiting any more.");
+    if (o.routed && broker.kind === "traderspost") await broker.exit(o.trade.ticker).catch(() => {});
+    await store.hdel("orders", o.id);
+    return { ok: true };
+  }
   if (a === "skip") {
     const s = await store.hget("setups", body.setupId);
     if (s) await store.hset("setups", s.id, { ...s, status: "skipped", skipReason: body.reason || "" });
@@ -573,7 +654,7 @@ async function action(store, broker, body, now = Date.now()) {
   if (a === "settings") {
     const cur = mergeSettings(await store.get("settings"));
     const p = body.patch || {};
-    const nums = ["riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR", "coachIdleSec", "coachTradeSec", "coachDailyChecks", "flatWarnMin", "noNewTradesMin"];
+    const nums = ["minR", "maxR", "lockAtR", "lockToR", "riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR", "coachIdleSec", "coachTradeSec", "coachDailyChecks", "flatWarnMin", "noNewTradesMin"];
     for (const k of nums) if (p[k] != null && Number.isFinite(Number(p[k]))) cur[k] = Number(p[k]);
     if (cur.riskPct > 3) throw new Error("Risk per trade above 3% isn't allowed here. That's the greed talking.");
     if (cur.beAtR < 0 || (cur.beAtR > 0 && cur.tpAtR <= cur.beAtR)) throw new Error("Take-profit must be beyond the break-even trigger (or set break-even to 0 = off).");
@@ -743,6 +824,8 @@ async function action(store, broker, body, now = Date.now()) {
     const j = {
       id: `teach:${id()}`, at: now, market: clean(ex.market, 12), dir: ex.dir === "short" ? "short" : "long", ...nums(ex, ["tIn", "tOut", "e", "sl", "tp", "R", "usd", "viewTf"]),
       how: clean(ex.how, 40), draws, note: clean(ex.note, 1000), simDay: clean(ex.simDay, 12),
+      // the simulator's scorecard against your playbook: which steps you kept and which you missed
+      score: (Array.isArray(ex.score) ? ex.score : []).slice(0, 12).map((c) => ({ id: clean(c.id, 12), ok: !!c.ok, title: clean(c.title, 80), text: clean(c.text, 240) })),
     };
     if (j.e == null || j.sl == null || !j.market) throw new Error("Missing the trade's entry or stop.");
     await store.hset("teach", j.id, j);

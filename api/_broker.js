@@ -129,8 +129,8 @@ function traderspost() {
     label: "TradersPost → your Tradovate account",
     send,
     // market order with the stop and the target attached (they live on the broker's servers)
-    order: ({ ticker, dir, qty, sl, tp, price, ref }) => send({
-      ticker, action: side(dir), orderType: "market", quantityType: "fixed_quantity", quantity: qty, signalPrice: price,
+    order: ({ ticker, dir, qty, sl, tp, price, ref, type = "market" }) => send({
+      ticker, action: side(dir), orderType: type, ...(type === "limit" ? { limitPrice: price } : {}), quantityType: "fixed_quantity", quantity: qty, signalPrice: price,
       stopLoss: { type: "stop", stopPrice: sl }, takeProfit: { limitPrice: tp }, time: new Date().toISOString(), extras: { source: "edge", ref },
     }),
     breakeven: (ticker) => send({ ticker, action: "breakeven", orderType: "stop", time: new Date().toISOString() }),

@@ -13,9 +13,9 @@
   // Your supply & demand style (strategy15.js, the rules that held up in the 2019-2026 tests — adjust here):
   // trend from the 15m chart, any touch of a 15m zone, a 5m break of structure within 8 hours, limit order at the
   // 5m zone, stop past the 15m zone, target at the nearest liquidity, no break-even.
-  const SD_RULES = { daily: "off", trendTF: "15m", maxTouches: 9, waitMin: 480 };
+  const SD_RULES = { daily: "off", trendTF: "4h", maxTouches: 9, waitMin: 480 }; // your rules: the 4H trend decides (daily over 4H over 15m)
   const SD_PLAN = { strategy: "sd", win: [120, 960], wins: [[120, 960]], tpR: 3.2, beR: 0 };
-  const stratPref = (m) => { try { return localStorage.getItem(`edge.sim.strat.${m}`) || "london"; } catch { return "london"; } };
+  const stratPref = (m) => { try { return localStorage.getItem(`edge.sim.strat.${m}`) || "sd"; } catch { return "sd"; } }; // your zones by default
   const planOf = (m) => (MK[m].strategy === "london" && stratPref(m) === "sd" && window.EdgeStrategy2 ? { ...MK[m], ...SD_PLAN } : MK[m]);
   const cache = {};
   const $ = (s, el = document) => el.querySelector(s);
@@ -167,6 +167,62 @@
     sdStop: "The stop goes just past the far side of the 15m zone — not inside it.",
     sdChase: "Don't chase. The order is a limit at the 5m zone the break came from.",
   };
+  // ---------- your playbook (playbook.js) as checks on one practice trade
+  const LOCK_AT = 3;
+  function scorecard(S, tr) {
+    const P = S.P, fx = (x) => x.toFixed(P.dec), checks = [], k = tr.dir, long = k > 0;
+    const i = S.bars.findIndex((b) => b.t === tr.tIn), bar = S.bars[i] || S.bars[S.i], atr = bar.atr || 0;
+    const st = S.sd.states[i] || S.sd.states[S.i] || {};
+    const draws = (tr.teach && tr.teach.draws) || [];
+    const you = { type: "marker", t: tr.tIn, p: tr.e, color: "var(--warn)", label: "your entry" };
+    const push = (id, ok, okTitle, badTitle, text, ann = []) => checks.push({ id, ok, title: ok ? okTitle : badTitle, text, ann });
+    // 1 · big picture: zones marked on the 4H, daily or weekly
+    const htf = draws.filter((d) => d.tf >= 240 && (d.type === "r" || d.type === "h"));
+    push("htf", htf.length > 0, `Big picture marked (${htf.length} zone${htf.length > 1 ? "s" : ""}/level${htf.length > 1 ? "s" : ""} on 4H · D · W)`, "No 4H / daily / weekly zones on your chart", "Before every trade: switch to the weekly, daily and 4H and mark the supply and demand zones. They tell you where a move is likely to stop.");
+    // 2 · trend: with the 4H — or counter-trend from your own 4H+ zone
+    const inHtfZone = htf.some((d) => d.type === "r" && d.p1 != null && tr.e >= Math.min(d.p1, d.p2) - Math.abs(d.p1 - d.p2) * 0.5 && tr.e <= Math.max(d.p1, d.p2) + Math.abs(d.p1 - d.p2) * 0.5);
+    const trend = st.trend || 0;
+    push("trend", trend === k || (trend !== k && inHtfZone), trend === k ? `With the 4H trend (${trend > 0 ? "up" : "down"})` : "Counter-trend — but from your 4H zone ✔", trend ? `Against the 4H trend (${trend > 0 ? "up" : "down"}), not from a 4H zone` : "No clear 4H trend yet",
+      trend ? `The 4H trend was ${trend > 0 ? "UP" : "DOWN"} by its last break of structure. With the trend — or counter-trend only from a 4H (or higher) zone you marked.` : "The 4H hadn't broken structure either way yet. Wait for it.", [you]);
+    // 3 · a 15m zone at the entry (yours, or Edge's)
+    const mine15 = draws.find((d) => d.type === "r" && d.tf >= 15 && d.tf < 240 && tr.e >= Math.min(d.p1, d.p2) - atr * 0.5 && tr.e <= Math.max(d.p1, d.p2) + atr * 0.5);
+    const zs = (long ? st.dem : st.sup) || [];
+    const near = zs.map((z) => ({ z, d: tr.e > z.top ? tr.e - z.top : tr.e < z.bot ? z.bot - tr.e : 0 })).sort((a, b) => a.d - b.d)[0];
+    const edgeZone = near && near.d <= Math.max(near.z.top - near.z.bot, atr);
+    const zAnn = near ? [{ type: "box", t1: S.bars[Math.max(0, near.z.from)].t, t2: tr.tIn, p1: near.z.top, p2: near.z.bot, color: "var(--good)", label: `15m ${long ? "demand" : "supply"} (Edge)` }] : [];
+    push("zone", !!(mine15 || edgeZone), mine15 ? "At your 15m zone" : "At a 15m zone", `No 15m ${long ? "demand" : "supply"} zone where you entered`, `Mark the 15m ${long ? "demand" : "supply"}: the base candles right before the explosive move. Then wait for price to come back into it.`, [...zAnn, you]);
+    // 4 · entry at the start of a 5m fair value gap
+    let gap = null;
+    for (let j = i; j >= Math.max(2, i - 30); j--) {
+      const a = S.bars[j - 2], c = S.bars[j];
+      if (long ? c.l > a.h : c.h < a.l) { gap = long ? { near: c.l, far: a.h, t: a.t } : { near: c.h, far: a.l, t: a.t }; break; }
+    }
+    if (gap) {
+      const h = Math.abs(gap.near - gap.far), into = k * (gap.near - tr.e);
+      const ok = into >= -Math.max(h * 0.5, atr * 0.3) && into <= h * 0.4;
+      push("entry", ok, "Limit at the start of the 5m fair value gap", into > h * 0.4 ? "Your entry was deep in the gap — not at its start" : "Your entry wasn't at the 5m fair value gap",
+        `The gap ran ${fx(Math.min(gap.near, gap.far))}–${fx(Math.max(gap.near, gap.far))}. The limit goes at its beginning: ${fx(gap.near)} (you: ${fx(tr.e)}).`, [{ type: "box", t1: gap.t, t2: tr.tIn, p1: gap.near, p2: gap.far, color: "var(--info)", label: "5m fair value gap" }, { type: "hline", p: gap.near, color: "var(--good)", label: `start of the gap ${fx(gap.near)}` }]);
+    } else push("entry", false, "", "No 5m fair value gap before your entry", "Wait for the 5m (or 1m) change of character inside the zone — the move leaves a fair value gap; your limit goes at its start.", [you]);
+    // 5 · stop behind the swing of that move
+    const gi = gap ? S.bars.findIndex((b) => b.t === gap.t) : -1;
+    const from = gi >= 0 ? Math.max(0, gi - 4) : Math.max(0, i - 12), seg = S.bars.slice(from, i + 1), swing = long ? Math.min(...seg.map((b) => b.l)) : Math.max(...seg.map((b) => b.h));
+    const behind = k * (swing - tr.sl0) >= -tick(), extra = k * (swing - tr.sl0);
+    push("stop", behind && extra <= Math.max(atr * 1.5, Math.abs(tr.e - swing) * 0.6), "Stop behind the swing of the move", !behind ? "Your stop was in front of the swing" : "Your stop was much wider than the swing needs",
+      `The swing of the move was ${fx(swing)} — the stop goes just behind it (you: ${fx(tr.sl0)}).${behind ? " A wider stop only shrinks your R." : ""}`, [{ type: "hline", p: swing, color: "var(--bad)", label: `swing ${fx(swing)}` }, { type: "hline", p: tr.sl0, color: "var(--warn)", label: "your stop", dash: true }]);
+    // 6 · 3R to 10R
+    const r0 = Math.abs(tr.e - tr.sl0), tpR = tr.tp0 != null ? (k * (tr.tp0 - tr.e)) / r0 : null;
+    push("rr", tpR != null && tpR >= 2.95 && tpR <= 10.05, `Target ${tpR != null ? tpR.toFixed(1) : ""}R — inside 3R–10R`, tpR == null ? "No target set" : tpR < 2.95 ? `Target only ${tpR.toFixed(1)}R — under your 3R minimum` : `Target ${tpR.toFixed(1)}R — past your 10R maximum`,
+      "Aim for the opposing liquidity: never under 3R, at most 10R.", tpR != null ? [{ type: "hline", p: tr.e + k * 3 * r0, color: "var(--good)", label: "3R" }] : []);
+    // 7 · session and trade count
+    const m = nyInfo(tr.tIn).min, inSess = m >= 120 && m < 720;
+    push("session", inSess && !(tr.nth > 2), "In your session (London / New York)", !inSess ? `Outside your sessions (${hm(m)} New York)` : "More than 2 trades this session", "Trade the London and New York sessions (02:00–12:00 New York), 2 trades a day at most.", [you]);
+    // 8 · management
+    const lockMissed = tr.mfe >= LOCK_AT && tr.beAt == null && tr.R < LOCK_AT - 0.5;
+    const bad = tr.widened ? "You moved your stop further away" : lockMissed ? `It reached +${tr.mfe.toFixed(1)}R and you didn't lock in profit` : tr.tpMoved ? "You pushed the target further" : null;
+    push("manage", !bad, tr.mfe >= LOCK_AT && tr.beAt != null ? `Locked in profit at +${tr.beAt.toFixed(1)}R` : "Managed by the plan", bad || "",
+      lockMissed ? `At +${LOCK_AT}R lock in profit and trail the stop behind each new 15m swing — it gave back the gains.` : "Once you're in: never widen the stop, never push the target. At +3R lock in profit, then trail.", []);
+    return { checks };
+  }
   function review(S, tr) {
     const P = S.P, f = [], R = tr.R, dirTxt = tr.dir > 0 ? "buy" : "sell", fx = (x) => x.toFixed(P.dec);
     const add = (code, title, text, ann, rule = true) => f.push({ code, title, text, ann: ann || [], rule });
@@ -184,22 +240,10 @@
       if (slDist < planDist * 0.85) add("stopTight", "Your stop was inside the box", `Stop at ${fx(tr.sl0)} — inside the Asian range, where price wanders. The plan's stop is the other side: ${fx(other)}.`, [...boxAnn, { type: "hline", p: other, color: "var(--bad)", label: `plan stop ${fx(other)}` }, { type: "hline", p: tr.sl0, color: "var(--warn)", label: "your stop", dash: true }]);
       else if (slDist > planDist * 1.2) add("stopWide", "Your stop was wider than needed", `Stop at ${fx(tr.sl0)}. The plan's stop at ${fx(other)} is enough — a wider one only makes the loss bigger.`, [...boxAnn, { type: "hline", p: other, color: "var(--bad)", label: `plan stop ${fx(other)}` }]);
     } else if (P.strategy === "sd" && S.sd) {
-      // your zones, exactly as they stood when you entered
-      const i = S.bars.findIndex((b) => b.t === tr.tIn), st = S.sd.states[i] || S.sd.states[S.i];
-      const trend = SD_RULES.trendTF === "15m" ? st.m15 : st.trend, mine = (tr.dir > 0 ? st.dem : st.sup) || [];
-      const zAnn = (z, c, label) => ({ type: "box", t1: S.bars[Math.max(0, z.from)].t, t2: tr.tIn, p1: z.top, p2: z.bot, color: c, label });
-      const near = mine.map((z) => ({ z, d: tr.e > z.top ? tr.e - z.top : tr.e < z.bot ? z.bot - tr.e : 0 })).sort((a, b) => a.d - b.d)[0];
-      if (!inWins(P, entryMin)) add("window", "Outside your trading hours", `You entered at ${hm(entryMin)} New York. Zone orders are only placed ${winTxt(P)}.`, [{ type: "marker", t: tr.tIn, p: tr.e, color: "var(--bad)", label: "your entry" }]);
-      if (trend && trend !== tr.dir) add("sdTrend", "Against the 15m trend", `The 15m trend was ${trend > 0 ? "UP" : "DOWN"} — the plan only ${trend > 0 ? "buys demand" : "sells supply"}. You ${tr.dir > 0 ? "bought" : "sold"}.`, [{ type: "marker", t: tr.tIn, p: tr.e, color: "var(--bad)", label: "your entry" }]);
-      if (!near) add("sdZone", `No ${tr.dir > 0 ? "demand" : "supply"} zone on the chart`, `There was no fresh 15m ${tr.dir > 0 ? "demand" : "supply"} zone for this trade. The plan waits for one.`, [{ type: "marker", t: tr.tIn, p: tr.e, color: "var(--warn)", label: "you" }]);
-      else {
-        const z = near.z, h = z.top - z.bot, planSl = tr.dir > 0 ? z.bot : z.top;
-        if (near.d > Math.max(h, (S.bars[i] || S.bars[S.i]).atr)) add("sdChase", "You were far from the zone", `The ${tr.dir > 0 ? "demand" : "supply"} zone was ${fx(z.bot)}–${fx(z.top)}; you got in at ${fx(tr.e)}. Wait for price to come back to it.`, [zAnn(z, "var(--good)", `15m ${tr.dir > 0 ? "demand" : "supply"}`), { type: "marker", t: tr.tIn, p: tr.e, color: "var(--warn)", label: "you" }]);
-        if (tr.dir * (tr.sl0 - planSl) > 0) add("sdStop", "Your stop was inside the zone", `Stop at ${fx(tr.sl0)} — inside the zone, where price often dips before it turns. The plan's stop is just past ${fx(planSl)}.`, [zAnn(z, "var(--good)", `15m ${tr.dir > 0 ? "demand" : "supply"}`), { type: "hline", p: planSl, color: "var(--bad)", label: "plan stop (past the zone)" }, { type: "hline", p: tr.sl0, color: "var(--warn)", label: "your stop", dash: true }]);
-      }
-      // what Edge's rules did around then (a limit order at the 5m zone)
-      const ev = S.sd.events.find((e) => e.type === "order" && e.dir === tr.dir && Math.abs(e.i - i) <= 36);
-      if (ev && Math.abs(ev.entry - tr.e) > Math.abs(ev.entry - ev.sl) * 0.5) add("sdChase", "Edge's order was somewhere else", `The rules placed a ${tr.dir > 0 ? "buy" : "sell"} limit at ${fx(ev.entry)} (stop ${fx(ev.sl)}, target ${fx(ev.tp)}, ${ev.tpR}R). You got in at ${fx(tr.e)}.`, [{ type: "hline", p: ev.entry, color: "var(--good)", label: `Edge's limit ${fx(ev.entry)}` }, { type: "hline", p: ev.sl, color: "var(--bad)", label: "its stop", dash: true }]);
+      // your playbook, step by step: what you did well and what you missed (the scorecard), with the misses on the chart
+      const sc = scorecard(S, tr);
+      tr.score = sc.checks;
+      for (const c of sc.checks) if (!c.ok) add(c.id, c.title, c.text, c.ann, true);
     } else {
       // natural gas zones as they stood when you entered
       const i = S.bars.findIndex((b) => b.t === tr.tIn);
@@ -219,22 +263,30 @@
     }
     // target, break-even, early exits — same for both strategies
     const r0 = Math.abs(tr.e - tr.sl0), tpR = tr.tp0 != null ? (tr.dir * (tr.tp0 - tr.e)) / r0 : null;
-    if (P.strategy === "sd") { if (tpR != null && tpR < 1.5) add("target", `Target only ${tpR.toFixed(1)}R`, "Zone trades aim for the nearest liquidity at least 1.5–2R away. Small targets don't pay for the losers.", []); }
+    if (P.strategy === "sd") { /* the scorecard checks 3R–10R */ }
     else if (tpR != null && Math.abs(tpR - P.tpR) > 0.2) add("target", `Target was ${tpR.toFixed(1)}R — the plan is ${P.tpR}R`, `For ${P.name} the target is ${P.tpR}R: ${fx(tr.e + tr.dir * P.tpR * r0)}.`, [{ type: "hline", p: tr.e + tr.dir * P.tpR * r0, color: "var(--good)", label: `plan target ${P.tpR}R` }]);
     const beLvl = tr.e + tr.dir * P.beR * r0;
-    if (tr.how === "closed by you" && R < P.tpR - 0.1) {
+    const planR = P.strategy === "sd" && tpR != null ? tpR : P.tpR;
+    if (tr.how === "closed by you" && R < planR - 0.1 && !(P.strategy === "sd" && tr.beAt != null)) {
       const after = S.bars.filter((b) => b.t > tr.tOut && b.cme === S.day);
-      const hit = after.find((b) => (tr.dir > 0 ? b.h >= tr.e + tr.dir * P.tpR * r0 : b.l <= tr.e + tr.dir * P.tpR * r0));
+      const hit = after.find((b) => (tr.dir > 0 ? b.h >= tr.e + tr.dir * planR * r0 : b.l <= tr.e + tr.dir * planR * r0));
       const stop = after.find((b) => (tr.dir > 0 ? b.l <= tr.sl0 : b.h >= tr.sl0));
-      if (hit && (!stop || hit.t <= stop.t)) add("early", `You closed at ${R.toFixed(1)}R — it went on to ${P.tpR}R`, `Price reached the target at ${hm(hit.min)} New York. Holding to the plan would have paid ${P.tpR}R.`, [{ type: "hline", p: tr.e + tr.dir * P.tpR * r0, color: "var(--good)", label: "target hit later" }]);
+      if (hit && (!stop || hit.t <= stop.t)) add("early", `You closed at ${R.toFixed(1)}R — it went on to ${planR.toFixed(1)}R`, `Price reached the target at ${hm(hit.min)} New York. Holding to the plan would have paid ${planR.toFixed(1)}R.`, [{ type: "hline", p: tr.e + tr.dir * planR * r0, color: "var(--good)", label: "target hit later" }]);
       else add("early", `You closed early at ${R.toFixed(1)}R`, "This time it didn't reach the target, but closing early is a habit the tests punished. Let the stop and target do the work.", [], false);
     }
     if (P.beR > 0 && tr.mfe >= P.beR && !tr.beAt && R < -0.5) add("beMissed", `It reached +${P.beR}R — break-even would have saved this`, `Price got to ${fx(beLvl)} (+${P.beR}R). Moving the stop to your entry there turns this loss into a scratch.`, [{ type: "hline", p: beLvl, color: "var(--warn)", label: `break-even level +${P.beR}R` }]);
-    if (tr.beAt != null && Math.abs(R) < 0.15 && (P.beR <= 0 || tr.beAt < P.beR - 0.15)) add("beEarly", `You moved your stop to entry at +${tr.beAt.toFixed(1)}R`, P.beR > 0 ? `The plan waits for +${P.beR}R. Moving earlier got you stopped at entry.` : "The plan has no break-even — the 2019-2026 tests did better leaving the stop alone. Moving it got you stopped at entry.", [{ type: "hline", p: beLvl, color: "var(--warn)", label: `break-even level +${P.beR}R` }]);
+    if (P.strategy === "sd" && tr.beAt != null && tr.beAt < LOCK_AT - 0.15 && R < 0.5) add("beEarly", `You moved your stop up at +${tr.beAt.toFixed(1)}R`, `Your plan is hands off until +${LOCK_AT}R, then lock in profit and trail behind the 15m swings. Moving it earlier got you taken out.`, []);
+    else if (P.strategy !== "sd" && tr.beAt != null && Math.abs(R) < 0.15 && (P.beR <= 0 || tr.beAt < P.beR - 0.15)) add("beEarly", `You moved your stop to entry at +${tr.beAt.toFixed(1)}R`, P.beR > 0 ? `The plan waits for +${P.beR}R. Moving earlier got you stopped at entry.` : "The plan has no break-even — the 2019-2026 tests did better leaving the stop alone. Moving it got you stopped at entry.", [{ type: "hline", p: beLvl, color: "var(--warn)", label: `break-even level +${P.beR}R` }]);
     if (tr.widened) add("stopWide", "You moved your stop further away", "Once you're in, the stop only moves toward profit (to entry at the break-even level). Moving it away makes the loss bigger.", [{ type: "hline", p: tr.sl0, color: "var(--bad)", label: "your first stop" }]);
     if (tr.tpMoved) add("target", "You pushed the target further", `The plan's target is ${P.tpR}R. Pushing it out is how winners turn into break-evens.`, []);
     if (tr.otherFilled) add("other", "Your other order filled too", "When one London order fills, cancel the other. Leaving it in flipped or doubled your position.", []);
     if (tr.second) add("second", "Second trade in the same session", "One trade per market per session — the tests never took a second one.", []);
+    if (P.strategy === "sd" && tr.score) { // the scorecard first: everything you did well, then the misses one by one
+      const ok = tr.score.filter((c) => c.ok), all = tr.score.length, misses = f.filter((x) => x.rule).length;
+      f.unshift({ code: "score", rule: false, ann: [], title: !misses ? `Textbook — ${ok.length}/${all} steps of your playbook ✅` : `Scorecard: ${ok.length}/${all} steps kept · ${misses} to fix`,
+        text: tr.score.map((c) => `${c.ok ? "✅" : "⚠️"} ${c.title}`).join("\n") + (!misses ? `\n\n${R > 0.1 ? "That's exactly how it's done. Repeat it." : "You did everything right — this was a normal loss. The winners pay for these."}` : "") });
+      return f;
+    }
     if (!f.length) {
       if (R > 0.1) add("clean", "Clean trade. Nothing to add.", "You followed the plan from entry to exit. That's exactly how it's done.", [], false);
       else add("clean", "You followed the plan — this was a normal loss", `Most London and zone trades lose (they're ${P.strategy === "london" ? "57–70" : P.strategy === "sd" ? "about 55–60" : "about 53"}%), and the winners pay for them. Nothing to fix here.`, P.strategy === "london" && S.plan ? [{ type: "box", t1: S.plan.boxStart, t2: S.plan.boxEnd, p1: S.plan.hi, p2: S.plan.lo, color: "var(--c4h)", label: "Asian box" }] : [], false);
@@ -1245,8 +1297,8 @@
   function teachSave(tr) {
     const api = window.Edge && window.Edge.api; if (!api) return;
     const t = tr.teach || { draws: [] };
-    S.teachP = api({ action: "teachLog", example: { market: S.market, simDay: new Date(S.day * 864e5).toISOString().slice(0, 10), dir: tr.dir > 0 ? "long" : "short", tIn: tr.tIn, tOut: tr.tOut, e: tr.e, sl: tr.sl0, tp: tr.tp0, R: +tr.R.toFixed(2), usd: +tr.usd.toFixed(2), how: tr.how, viewTf: t.viewTf, draws: t.draws } })
-      .then((r) => { S.lastTeach = r.example.id; S.teachN = r.count; document.querySelectorAll(".sim-teach-n").forEach((n) => (n.textContent = `${r.count} example${r.count === 1 ? "" : "s"} saved`)); return r.example.id; }).catch(() => null);
+    S.teachP = api({ action: "teachLog", example: { market: S.market, simDay: new Date(S.day * 864e5).toISOString().slice(0, 10), dir: tr.dir > 0 ? "long" : "short", tIn: tr.tIn, tOut: tr.tOut, e: tr.e, sl: tr.sl0, tp: tr.tp0, R: +tr.R.toFixed(2), usd: +tr.usd.toFixed(2), how: tr.how, viewTf: t.viewTf, draws: t.draws, score: (tr.score || []).map(({ id, ok, title, text }) => ({ id, ok, title, text })) } })
+      .then((r) => { if (window.Edge.examplesChanged) window.Edge.examplesChanged(); S.lastTeach = r.example.id; S.teachN = r.count; document.querySelectorAll(".sim-teach-n").forEach((n) => (n.textContent = `${r.count} example${r.count === 1 ? "" : "s"} saved`)); return r.example.id; }).catch(() => null);
   }
   async function teachDownload() {
     const api = window.Edge && window.Edge.api; if (!api) return;
@@ -1277,13 +1329,16 @@
     const tr = { ...p, x: px, tOut: b.t, how, R: (p.dir * (px - p.e)) / r0, usd: gross - fee, fee };
     book(tr);
     S.pos = null; S.trades.push(tr); if (S.sel === "pos") S.sel = null;
+    tr.nth = S.trades.length;
     tr.findings = review(S, tr);
     tr.rulesOk = !tr.findings.some((x) => x.rule);
     save(tr); teachSave(tr);
     stop();
     const ban = $("#simBanner");
     ban.hidden = false;
+    const sc = tr.score || [], okN = sc.filter((c) => c.ok).length;
     ban.innerHTML = `<b>${tr.R > 0.1 ? "🎯" : tr.R < -0.1 ? "✋" : "🛡️"} Trade closed ${tr.R > 0 ? "+" : ""}${tr.R.toFixed(2)}R · ${tr.usd < 0 ? "−" : "+"}${money(Math.abs(tr.usd))}</b><span class="muted">${esc(how)}</span>
+      ${sc.length ? `<div class="sc-card ${okN === sc.length ? "good" : ""}"><div class="sc-head"><b>${okN === sc.length ? "Textbook trade" : "Your scorecard"}</b><span>${okN}/${sc.length}</span></div><div class="sc-list">${sc.map((c) => `<span class="${c.ok ? "ok" : "no"}">${c.ok ? "✓" : "!"} ${esc(c.title)}</span>`).join("")}</div></div>` : ""}
       <div class="teach"><b>📚 Teach Edge</b> · <span class="muted sim-teach-n">saving your drawings…</span><textarea class="sim-why" rows="2" placeholder="Why this trade? Big picture (W/D/4H zone, trend) → 15m zone → your entry"></textarea><div class="row"><button class="btn small" data-s="why">Save why</button><button class="btn small" data-s="teachdl">⬇ Download my examples</button></div></div>
       <div class="row"><button class="btn small primary" data-s="review" data-a="${S.trades.length - 1}">🔍 Review this trade</button><button class="btn small" data-s="dismiss">Keep going ›</button></div>`;
     paintPnl();
@@ -1458,7 +1513,7 @@
     }
     const toolsHtml = S.tools.map((t, i) => { const r = Math.abs(t.e - t.sl), type = kindOf(t), n = contracts(r); return `<div class="sim-toolrow ${t.dir > 0 ? "long" : "short"}"><span><b>${t.dir > 0 ? "▲ Long" : "▼ Short"}</b> ${fmt(t.e)} <small class="muted">SL ${fmt(t.sl)} · TP ${fmt(t.tp)} · ${(Math.abs(t.tp - t.e) / r).toFixed(1)}R · ${n ? `${n} ${P.sym} for ${money(riskUSD())}` : `1 ${P.sym} risks ${money(r * P.pv)}`}</small></span><button class="btn small primary" data-s="tk" data-a="tool:${i}">${type === "market" ? (t.dir > 0 ? "Buy…" : "Sell…") : `${type === "limit" ? "Limit" : "Stop"} order…`}</button></div>`; }).join("");
     const coach = P.strategy === "sd" && S.sd && S.view.hints !== false ? (() => { const c = window.EdgeStrategy2.panel(S.sd, S.i); return `<div class="sd-coach"><div class="sd-steps">${c.steps.map(([t, ok, d]) => `<div class="${ok ? "ok" : ""}"><i>${ok ? "✓" : "○"}</i><span><b>${esc(t)}</b><small>${esc(d)}</small></span></div>`).join("")}</div><p>${esc(c.doNow)}</p></div>`; })() : "";
-    const hint = S.tools.length || S.orders.length ? coach : `<p class="sim-hint" style="margin:4px 0 8px">Pick <b>Long</b> or <b>Short</b> on the chart's toolbar and tap where you want in${P.strategy === "london" ? " — or <b>✨</b> to draw the plan once the box is set" : ""}. Drag to adjust (it snaps to the ${P.strategy === "london" ? "box edges" : "zone edges"}, your lines and whole R). <b>Press and hold</b> a position → <b>Create order…</b></p>${coach}`;
+    const hint = S.tools.length || S.orders.length ? coach : (P.strategy === "sd" ? `<p class="sim-hint" style="margin:4px 0 8px">Your playbook: switch to <b>W · D · 4H</b> and mark the zones → find the fresh <b>15m</b> zone in the trend → back on the <b>5m</b>, wait for the change of character and put your limit at the start of the gap, stop behind the swing, 3R or more. Edge scores the trade when it closes.</p>${coach}` : `<p class="sim-hint" style="margin:4px 0 8px">Pick <b>Long</b> or <b>Short</b> on the chart's toolbar and tap where you want in${P.strategy === "london" ? " — or <b>✨</b> to draw the plan once the box is set" : ""}. Drag to adjust (it snaps to the ${P.strategy === "london" ? "box edges" : "zone edges"}, your lines and whole R). <b>Press and hold</b> a position → <b>Create order…</b></p>${coach}`);
     el.innerHTML = `${clock}${hint}${toolsHtml}${S.orders.length ? `<div class="sim-orders">${orderRows()}</div>` : ""}<button class="btn small" data-s="tk" style="margin-top:8px">＋ New order (type prices)</button>`;
   }
   const orderRows = () => S.orders.map((o, i) => `<div class="row between"><span>${o.side > 0 ? "▲ BUY" : "▼ SELL"} ${o.type.toUpperCase()} ${o.qty || ""} <b>${fmt(o.price)}</b> <small class="muted">SL ${fmt(o.sl)} · TP ${o.tp != null ? fmt(o.tp) : "—"}</small></span><span class="row"><button class="btn small" data-s="tk" data-a="ord:${i}">Edit</button><button class="btn small" data-s="del" data-a="ord:${i}">Cancel</button></span></div>`).join("");
