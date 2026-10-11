@@ -476,7 +476,7 @@ body.sim-on .tabs { display: none; }
 .tv-tools button:hover { background: var(--panel2); }
 .tv-tools button.on { background: color-mix(in srgb, #2962ff 28%, var(--panel2)); box-shadow: inset 0 0 0 1px #2962ff; }
 .tv-tools i { height: 1px; margin: 2px 4px; background: var(--line2); }
-.tv-hint { position: absolute; left: 54px; top: 10px; z-index: 6; background: #2962ff; color: #fff; font: 600 12.5px var(--font); padding: 7px 11px; border-radius: 8px; pointer-events: none; animation: fadeUp .2s both; }
+.tv-hint { position: absolute; left: 54px; top: 34px; z-index: 6; background: #2962ff; color: #fff; font: 600 12.5px var(--font); padding: 7px 11px; border-radius: 8px; pointer-events: none; animation: fadeUp .2s both; }
 .sim-banner { left: 54px; }
 .tv-sel { position: absolute; display: flex; gap: 2px; padding: 3px; pointer-events: auto; background: var(--panel); border: 1px solid var(--line2); border-radius: 9px; box-shadow: 0 8px 20px -8px rgba(0, 0, 0, .6); white-space: nowrap; animation: fadeUp .15s both; }
 .tv-sel button { border: 0; border-radius: 6px; padding: 6px 9px; font: 600 12.5px var(--font); cursor: pointer; background: none; color: var(--text); }
@@ -579,7 +579,7 @@ label.tv-row, .tv-row:not(:has(.tv-tog)) { grid-template-columns: 82px 1fr auto 
 .sim-tools .hz { fill: transparent; pointer-events: all; touch-action: none; cursor: grab; }
 .sim-tools .h { fill: #fff; stroke: #2962ff; stroke-width: 2; }
 .sim-tools .dtx { paint-order: stroke; stroke: rgba(0, 0, 0, .35); stroke-width: 2px; pointer-events: none; font-family: var(--font); }
-.tv-dbar { left: 56px; top: 8px; display: flex; align-items: center; }
+.tv-dbar { left: 56px; top: 34px; display: flex; align-items: center; }
 .tv-dbar button { position: relative; min-width: 34px; height: 34px; display: grid; place-items: center; padding: 0 8px; font-size: 13px; }
 .tv-dbar button svg { width: 19px; height: 19px; }
 .tv-dbar button i { position: absolute; left: 7px; right: 7px; bottom: 3px; height: 3px; border-radius: 2px; }
@@ -696,3 +696,18 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 .tv-envs { display: grid; gap: 8px; margin: 8px 0 4px; } .tv-envs .btn { padding: 14px; font-size: 15px; font-weight: 700; }
 .sim-sess { display: inline-flex; gap: 4px; padding-left: 6px; margin-left: 2px; border-left: 1px solid var(--line); }
 .sim-sess .btn[data-a="asia"] { box-shadow: inset 0 -2px 0 #ab47bc; } .sim-sess .btn[data-a="london"] { box-shadow: inset 0 -2px 0 #2962ff; } .sim-sess .btn[data-a="ny"] { box-shadow: inset 0 -2px 0 #f0b90b; }
+
+/* TradingView-style chart furniture: favourite timeframes, legend, back-to-latest, type a timeframe */
+.tv-favs { display: inline-flex; align-items: center; gap: 1px; padding-right: 6px; margin-right: 4px; border-right: 1px solid var(--line); }
+.tv-bar .tv-favs button { padding: 6px 8px; color: var(--muted); }
+.tv-bar .tv-favs button.on { color: #2962ff; background: color-mix(in srgb, #2962ff 14%, transparent); }
+.tv-bar .tv-favs .tf-more { padding: 6px 6px; }
+.tv-mrow { display: flex; align-items: center; } .tv-mrow > button:first-child { flex: 1; }
+.tv-menu .tv-mrow .star { width: 40px; justify-content: center; color: var(--muted); font-size: 16px; padding: 10px 0; }
+.tv-menu .tv-mrow .star.on { color: #f0b90b; }
+.sim-legend { position: absolute; left: 56px; top: 8px; z-index: 5; display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; pointer-events: none; font: 600 12px var(--font); color: var(--muted); text-shadow: 0 1px 2px var(--panel); }
+.sim-legend b { color: var(--text); margin-right: 6px; } .sim-legend em { font-style: normal; margin-right: 6px; } .sim-legend span { opacity: .8; }
+.sim-latest { position: absolute; right: 70px; bottom: 36px; z-index: 6; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line2); background: var(--panel); color: var(--text); font-size: 18px; cursor: pointer; box-shadow: 0 6px 18px -8px rgba(0,0,0,.6); }
+.tf-type { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); z-index: 9; display: grid; gap: 4px; justify-items: center; padding: 14px 22px; border-radius: 14px; background: var(--panel); border: 1px solid #2962ff; box-shadow: 0 18px 40px -12px rgba(0,0,0,.7); pointer-events: none; animation: fadeUp .12s both; }
+.tf-type b { font: 800 28px var(--display); } .tf-type small { color: var(--muted); font-size: 12px; }
+.tv-dbar button.on { background: color-mix(in srgb, #f0b90b 22%, var(--panel2)); }

@@ -326,7 +326,7 @@
         <button class="sim-pnl" data-s="acct" title="Your practice account"><small>Balance</small><b id="simBal">—</b><em id="simPnl">0.00R</em></button></div>
       <div class="sim-info" id="simInfo">Loading prices…</div>
       <div class="tv-bar" id="tvBar"></div>
-      <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><svg class="sim-aim" id="simAim"></svg><div id="simTB"></div>${toolbarHtml()}<div class="sim-banner" id="simBanner" hidden></div></div>
+      <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><svg class="sim-aim" id="simAim"></svg><div class="sim-legend" id="simLegend"></div><button class="sim-latest" data-s="latest" id="simLatest" hidden title="Back to the latest candle">»</button><div id="simTB"></div>${toolbarHtml()}<div class="sim-banner" id="simBanner" hidden></div></div>
       <div class="sim-ctl">
         <button class="btn small" data-s="play" id="simPlay">▶ Play</button>
         <button class="btn small" data-s="step">Next candle ›</button>
@@ -426,13 +426,14 @@
     const rel = (e) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
     el.addEventListener("pointerdown", (e) => {
       down = null;
+      if (S && !S.mode && !S.reviewing && e.shiftKey && e.pointerType === "mouse" && !e.target.closest("[data-k],.tv-tools,.tv-sel,.sim-banner,button")) { S.mode = "m"; S.meas = null; modeUi(); } // Shift + drag = measure
       if (!S || !S.mode || S.reviewing || e.button > 0 || e.target.closest("[data-k],.tv-tools,.tv-sel,.sim-banner,button")) return;
       e.preventDefault();
       try { el.setPointerCapture(e.pointerId); } catch {}
       const p = rel(e);
       S.aim = aimAt(p.x, p.y);
       down = { ...p, moved: false, started: false };
-      if ((S.mode === "r" || S.mode === "t") && !S.pend && S.aim) { S.pend = { i: S.aim.i, p: S.aim.p }; down.started = true; modeUi(); }
+      if (["r", "t", "f", "m"].includes(S.mode) && !S.pend && S.aim) { S.pend = { i: S.aim.i, p: S.aim.p }; down.started = true; modeUi(); }
     }, true);
     el.addEventListener("pointermove", (e) => {
       if (!S || !S.mode || (e.pointerType !== "mouse" && !down)) return;
@@ -453,14 +454,23 @@
     $("#simTools").addEventListener("pointerdown", pointerDown);
     $("#simTools").addEventListener("contextmenu", onContext);
     }
-    chart.subscribeCrosshairMove((p) => { if (S) S.hover = p.point && S.pend ? { x: p.point.x, y: p.point.y } : null; });
-    chart.timeScale().subscribeVisibleLogicalRangeChange(() => drawOverlay());
+    chart.subscribeCrosshairMove((p) => {
+      if (!S) return;
+      S.hover = p.point && S.pend ? { x: p.point.x, y: p.point.y } : null;
+      S.hoverP = p.point ? series.coordinateToPrice(p.point.y) : null;
+      legend(p.seriesData && p.seriesData.get(series), p.time);
+    });
+    chart.timeScale().subscribeVisibleLogicalRangeChange(() => { drawOverlay(); const b = $("#simLatest"); if (b) b.hidden = chart.timeScale().scrollPosition() > -3; });
     const loop = () => { if (!S || !chart || gen !== chartGen) return; drawTools(); drawAim(); requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
   }
   // ---------- what the chart shows: your timeframe, chart type, indicators and clock (the replay itself always runs on
   // the strategy's candles — 5-minute, or 1-hour for gas — and bigger timeframes are built from them as they print)
-  const TFS = [[5, "5m"], [15, "15m"], [30, "30m"], [60, "1h"], [240, "4h"], [1440, "D"], [10080, "W"]];
+  const TFS = [[5, "5m"], [10, "10m"], [15, "15m"], [30, "30m"], [45, "45m"], [60, "1h"], [120, "2h"], [180, "3h"], [240, "4h"], [1440, "D"], [10080, "W"]];
+  const TF_NAME = (m) => ({ 1440: "1 day", 10080: "1 week" })[m] || (m >= 60 ? `${m / 60} hour${m === 60 ? "" : "s"}` : `${m} minutes`);
+  // your favourite timeframes: one tap in the bar above the chart (like TradingView's quick-access bar)
+  const favTF = () => { try { const v = JSON.parse(localStorage.getItem("edge.sim.favtf") || "null"); if (Array.isArray(v) && v.length) return v; } catch {} return [5, 15, 60, 240, 1440]; };
+  const saveFavTF = (v) => { try { localStorage.setItem("edge.sim.favtf", JSON.stringify(v)); } catch {} };
   const TYPES = [["candles", "Candles", "🕯"], ["hollow", "Hollow candles", "◻"], ["ha", "Heikin Ashi", "🟩"], ["bars", "Bars", "┤"], ["line", "Line", "〰"], ["area", "Area", "◢"]];
   const EMAS = [9, 20, 50, 200], EMA_C = { 9: "#f0b90b", 20: "#00bcd4", 50: "#e91e63", 200: "#ffffff" };
   const baseMin = () => (S.P.tf === "60m" ? 60 : 5);
@@ -531,6 +541,7 @@
   const idxOf = (t) => { let lo = 0, hi = S.bars.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (S.bars[m].t <= t) lo = m; else hi = m - 1; } return lo; };
   const gTime = (t) => { const i = idxOf(t), g = S.D.g[S.D.of[i]]; return (g ? g.t : t) / 1000; };
   function paintAll() {
+    setTimeout(() => legend(), 0);
     dispBuild();
     series.setData(S.D.g.map(barOf));
     for (const e of emaSeries) e.s.setData(S.D.g.map((g) => ({ time: g.t / 1000, value: g.ema[e.p] })));
@@ -545,7 +556,8 @@
   function viewBar() {
     const el = $("#tvBar"); if (!el || !S) return;
     const V = S.view, ty = TYPES.find((x) => x[0] === V.type) || TYPES[0];
-    el.innerHTML = `<button data-s="vmenu" data-a="tf" class="tf">${(TFS.find((x) => x[0] === V.tf) || [0, V.tf + "m"])[1]} ▾</button>
+    const favs = favTF().filter((m) => m >= baseMin() && TFS.some((x) => x[0] === m)).sort((a, b) => a - b), lab = (m) => (TFS.find((x) => x[0] === m) || [0, m + "m"])[1];
+    el.innerHTML = `<span class="tv-favs">${favs.map((m) => `<button data-s="vtf" data-a="${m}" class="fav ${V.tf === m ? "on" : ""}">${lab(m)}</button>`).join("")}${favs.includes(V.tf) ? "" : `<button data-s="vtf" data-a="${V.tf}" class="fav on">${lab(V.tf)}</button>`}<button data-s="vmenu" data-a="tf" class="tf-more" title="All timeframes (or just type one: 15, 2h, D…)">▾</button></span>
       <button data-s="vmenu" data-a="type" title="Chart type">${ty[2]} <span>${ty[1]}</span> ▾</button>
       <button data-s="vmenu" data-a="ind" title="Indicators">ƒx <span>Indicators</span>${V.ema.length + (V.pdhl ? 1 : 0) + (V.seps ? 1 : 0) ? ` <i>${V.ema.length + (V.pdhl ? 1 : 0) + (V.seps ? 1 : 0)}</i>` : ""}</button>
       ${MK[S.market].strategy === "london" && window.EdgeStrategy2 ? `<button data-s="vmenu" data-a="strat" class="strat">📐 <span>${S.P.strategy === "sd" ? "Your zones" : "London breakout"}</span> ▾</button>` : ""}
@@ -556,8 +568,8 @@
     const V = S.view, r = btn.getBoundingClientRect(), base = baseMin();
     const check = (on) => `<i>${on ? "✓" : ""}</i>`;
     let html = "";
-    if (kind === "tf") html = `<div class="tv-mh">Timeframe</div>` + TFS.filter(([m]) => m >= base).map(([m, l]) => `<button data-s="vtf" data-a="${m}">${check(V.tf === m)}${l === "D" ? "1 day" : l === "W" ? "1 week" : l.replace("m", " minutes").replace("h", " hour" + (l === "1h" ? "" : "s"))}</button>`).join("")
-      + `<p class="tv-mnote">The replay moves one ${base === 5 ? "5-minute" : "1-hour"} candle at a time; bigger candles build up as you go.</p>`;
+    if (kind === "tf") { const fav = favTF(); html = `<div class="tv-mh">Timeframe · ☆ to add to your bar</div>` + TFS.filter(([m]) => m >= base).map(([m]) => `<div class="tv-mrow"><button data-s="vtf" data-a="${m}">${check(V.tf === m)}${TF_NAME(m)}</button><button class="star ${fav.includes(m) ? "on" : ""}" data-s="vfav" data-a="${m}" title="${fav.includes(m) ? "Remove from" : "Add to"} favourites">${fav.includes(m) ? "★" : "☆"}</button></div>`).join("")
+      + `<p class="tv-mnote">Tip: just type a timeframe on the keyboard — 15, 2h, 4h, D — then Enter. The replay moves one ${base === 5 ? "5-minute" : "1-hour"} candle at a time; bigger candles build up as you go.</p>`; }
     if (kind === "strat") html = `<div class="tv-mh">Strategy to practise</div>` + [["london", "London breakout", "The tested plan: the Asian box breaks in London"], ["sd", "Your zones (supply & demand)", "15m zones in the 15m trend · 5m break · limit at the 5m zone"]].map(([k, l, d]) => `<button data-s="vstrat" data-a="${k}">${check(S.P.strategy === k)}<span>${l}<small class="tv-msub">${d}</small></span></button>`).join("");
     if (kind === "type") html = `<div class="tv-mh">Chart type</div>` + TYPES.map(([k, l, ic]) => `<button data-s="vtype" data-a="${k}">${check(V.type === k)}<span class="ic">${ic}</span>${l}</button>`).join("");
     if (kind === "ind") html = `<div class="tv-mh">Indicators</div>` + EMAS.map((n) => `<button data-s="vema" data-a="${n}">${check(V.ema.includes(n))}<span class="sw" style="background:${EMA_C[n]}"></span>EMA ${n}</button>`).join("")
@@ -724,7 +736,7 @@
       const k = `dr:${n}`, sel = S.sel === k, st = dStyle(d), dash = st.dash ? 'stroke-dasharray="6 4"' : "", lw = st.lw;
       if (d.type === "h") {
         const y = Y(d.p); if (y == null) return;
-        back += `<line x1="0" x2="${W}" y1="${y}" y2="${y}" stroke="${st.color}" stroke-width="${lw}" ${dash}/>` + dText(st, 0, W, y, y);
+        back += `<line x1="0" x2="${W}" y1="${y}" y2="${y}" stroke="${st.color}" stroke-width="${lw}" ${dash}/>` + dText(st, 0, W, y, y) + (d.alert ? `<text x="${W - 70}" y="${y - 5}" class="tt" fill="${st.color}">${d.alertFired ? "🔔 hit" : "🔔"}</text>` : "");
         front += `<line x1="0" x2="${W}" y1="${y}" y2="${y}" class="hit" data-k="${k}" data-f="body"/>`;
         if (sel) { front += hz(k, W / 2, y, "body", true); axis += axP(W, y, d.p); }
         return;
@@ -736,7 +748,7 @@
         back += `<rect x="${xa}" y="${ya}" width="${w}" height="${hh}" fill="${st.bg}" fill-opacity="${st.fill}" stroke="none"/>`;
         if (st.border) back += `<rect x="${xa}" y="${ya}" width="${w}" height="${hh}" fill="none" stroke="${st.color}" stroke-width="${lw}" ${dash}/>`;
         if (st.mid) back += `<line x1="${xa}" x2="${xb}" y1="${(ya + yb) / 2}" y2="${(ya + yb) / 2}" stroke="${st.color}" stroke-width="1" stroke-dasharray="5 4" stroke-opacity=".85"/>`;
-        back += dText(st, xa, xb, ya, yb);
+        back += dText(st, xa, xb, ya, yb) + (d.alert ? `<text x="${xa + 4}" y="${ya + 14}" class="tt" fill="${st.color}">${d.alertFired ? "🔔 reached" : "🔔"}</text>` : "");
         front += `<rect x="${xa}" y="${ya}" width="${w}" height="${hh}" class="body" data-k="${k}" data-f="body"/>`;
         if (sel) {
           const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
@@ -744,6 +756,18 @@
           front += hz(k, x1, my, "e1", true) + hz(k, x2, my, "e2", true) + hz(k, mx, y1, "p1", true) + hz(k, mx, y2, "p2", true);
           front += hz(k, x1, y1, "a") + hz(k, x2, y2, "b") + hz(k, x1, y2, "c") + hz(k, x2, y1, "d");
         }
+      } else if (d.type === "f") { // Fibonacci retracement: 1 at the first point, 0 at the second — premium / discount and the OTE band
+        const xa = st.xl ? 0 : Math.min(x1, x2), xb = st.xr ? W : Math.max(x1, x2), lv = (l) => d.p2 + (d.p1 - d.p2) * l;
+        const yo1 = Y(lv(0.618)), yo2 = Y(lv(0.79));
+        if (yo1 != null && yo2 != null) back += `<rect x="${xa}" y="${Math.min(yo1, yo2)}" width="${Math.max(1, xb - xa)}" height="${Math.abs(yo2 - yo1)}" fill="#f0b90b" fill-opacity=".1"/>`;
+        for (const [l, name] of FIB) {
+          const y = Y(lv(l)); if (y == null) continue;
+          const c = l === 0.5 ? "#f0b90b" : st.color;
+          back += `<line x1="${xa}" x2="${xb}" y1="${y}" y2="${y}" stroke="${c}" stroke-width="${l === 0.5 ? lw + 0.5 : lw}" ${l === 0 || l === 1 ? "" : dash}/><text x="${xa + 4}" y="${y - 4}" class="tt" fill="${c}">${name} · ${fmt(lv(l))}</text>`;
+          front += `<line x1="${xa}" x2="${xb}" y1="${y}" y2="${y}" class="hit" data-k="${k}" data-f="body"/>`;
+        }
+        back += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${st.color}" stroke-opacity=".5" stroke-dasharray="3 3"/>`;
+        if (sel) front += hz(k, x1, y1, "a") + hz(k, x2, y2, "b");
       } else {
         let [ax, ay, bx, by] = x1 <= x2 ? [x1, y1, x2, y2] : [x2, y2, x1, y1];
         const m = bx !== ax ? (by - ay) / (bx - ax) : 0;
@@ -758,7 +782,8 @@
         if (d.type === "r") axis += `<rect x="${W}" y="${Math.min(y1, y2)}" width="6" height="${Math.abs(y2 - y1)}" fill="#2962ff" fill-opacity=".35"/>`;
       }
     });
-    if (S.pend) { // first corner of a rectangle / trend line, waiting for the second point
+    if (S.meas || (S.pend && S.mode === "m")) back += measHtml(S.meas ? S.meas.a : S.pend, S.meas ? S.meas.b : S.aim, W);
+    if (S.pend && S.mode !== "m") { // first corner of a rectangle / trend line, waiting for the second point
       const x = L2X(S.pend.i), y = Y(S.pend.p), c = S.aim ? { x: L2X(S.aim.i), y: Y(S.aim.p) } : S.hover, st = dStyle({ type: S.mode, ...styleOf(S.mode) });
       if (x != null && y != null) {
         back += `<circle cx="${x}" cy="${y}" r="4" fill="${st.color}"/>`;
@@ -814,6 +839,7 @@
           + `<button data-s="dsty" data-a="${k}" data-f="lw" data-v="${st.lw >= 4 ? 1 : Math.floor(st.lw) + 1}" title="Line width">— ${Math.floor(st.lw)}px</button>`
           + `<button data-s="dsty" data-a="${k}" data-f="dash" data-v="${st.dash ? 0 : 1}" title="Line style">${st.dash ? "┄" : "—"}</button>`
           + `<button data-s="ddlg" data-a="${k}" data-f="style" title="Settings">⚙︎</button>`
+          + (d.type === "h" || d.type === "r" ? `<button data-s="alert" data-a="${k}" class="${d.alert ? "on" : ""}" title="${d.alert ? "Remove the alert" : "Alert me when price gets here"}">🔔</button>` : "")
           + `<button data-s="lock" data-a="${k}" title="${d.lock ? "Unlock" : "Lock"}">${d.lock ? "🔒" : "🔓"}</button>`
           + `<button data-s="del" data-a="${k}" title="Remove">🗑</button><button data-s="menu" data-a="${k}" title="More">⋯</button></div>`;
       } else bar = `<div class="tv-sel" style="left:${Math.max(4, Math.min(x, cw - 230))}px;top:${Math.max(48, Math.min(y - 64, H - 90))}px">${btns}<button data-s="menu" data-a="${so.k}" title="More">⋯</button>${so.kind === "pos" ? "" : `<button data-s="del" data-a="${so.k}" title="${so.kind === "ord" ? "Cancel order" : "Remove"}">🗑</button>`}</div>`;
@@ -918,7 +944,7 @@
         + it("clone", "Clone", "⧉") + it("rev", "Reverse", "⇅") + it("lock", o.t.lock ? "Unlock" : "Lock", o.t.lock ? "🔓" : "🔒") + hr + it("del", "Remove", "🗑", "bad");
     } else if (o.kind === "ord") html = it("tk", "Edit order…", "✎", "strong") + it("del", "Cancel order", "✕", "bad");
     else if (o.kind === "pos") html = (o.t.beAt == null ? it("be", "Move stop to entry", "🛡️") : "") + it("closepos", "Close position", "✕", "bad");
-    else html = it("ddlg", "Settings…", "⚙︎", "strong") + it("clone", "Clone", "⧉") + it("lock", o.t.lock ? "Unlock" : "Lock", o.t.lock ? "🔒" : "🔓") + hr + it("del", "Remove", "🗑", "bad") + it("delall", "Remove all drawings", "🧹", "bad");
+    else html = it("ddlg", "Settings…", "⚙︎", "strong") + (o.t.type === "h" || o.t.type === "r" ? it("alert", o.t.alert ? "Remove alert" : o.t.type === "r" ? "Alert when price reaches this zone" : "Alert when price reaches this line", "🔔") : "") + it("clone", "Clone", "⧉") + it("lock", o.t.lock ? "Unlock" : "Lock", o.t.lock ? "🔒" : "🔓") + hr + it("del", "Remove", "🗑", "bad") + it("delall", "Remove all drawings", "🧹", "bad");
     const m = document.createElement("div");
     m.id = "tvMenu"; m.className = "tv-menu"; m.innerHTML = html;
     $("#sim").appendChild(m);
@@ -953,7 +979,7 @@
   }
 
   // ---------- drawing settings (TradingView's dialog): Style · Text · Coordinates · Visibility, with Cancel / Ok
-  const DNAME = { r: "Rectangle", h: "Horizontal line", t: "Trend line" };
+  const DNAME = { r: "Rectangle", h: "Horizontal line", t: "Trend line", f: "Fib retracement" };
   function openDlg(k, tab = "style") {
     closeMenu();
     const o = objOf(k); if (!o || o.kind !== "draw") return;
@@ -1135,6 +1161,9 @@
   const ICON = {
     long: `<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="9" fill="${PROFIT}" opacity=".55"/><rect x="4" y="13" width="16" height="7" fill="${LOSS}" opacity=".6"/><path d="M4 13h16" stroke="currentColor" stroke-width="1.6"/></svg>`,
     short: `<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" fill="${LOSS}" opacity=".6"/><rect x="4" y="11" width="16" height="9" fill="${PROFIT}" opacity=".55"/><path d="M4 11h16" stroke="currentColor" stroke-width="1.6"/></svg>`,
+    f: `<svg viewBox="0 0 24 24"><path d="M3 5h18M3 10h18M3 14h18M3 19h18" stroke="currentColor" stroke-width="1.5"/><path d="M5 19L19 5" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 2"/></svg>`,
+    ruler: `<svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2" stroke="currentColor" stroke-width="1.4"/></svg>`,
+    bell: `<svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z M10 20a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
     h: `<svg viewBox="0 0 24 24"><path d="M2 12h20" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>`,
     r: `<svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="4" cy="6" r="2" fill="currentColor"/><circle cx="20" cy="18" r="2" fill="currentColor"/></svg>`,
     t: `<svg viewBox="0 0 24 24"><path d="M5 19L19 5" stroke="currentColor" stroke-width="1.8"/><circle cx="5" cy="19" r="2.4" fill="currentColor"/><circle cx="19" cy="5" r="2.4" fill="currentColor"/></svg>`,
@@ -1145,11 +1174,11 @@
   };
   const toolbarHtml = () => `<div class="tv-tools" id="tvTools">
       <button data-s="mode" data-a="long" title="Long position (B)">${ICON.long}</button><button data-s="mode" data-a="short" title="Short position (S)">${ICON.short}</button><i></i>
-      <button data-s="mode" data-a="h" title="Horizontal line (H)">${ICON.h}</button><button data-s="mode" data-a="r" title="Rectangle — mark a zone (R)">${ICON.r}</button><button data-s="mode" data-a="t" title="Trend line (T)">${ICON.t}</button><button data-s="levellock" title="Level lines — like holding Shift">${ICON.level}</button><i></i>
+      <button data-s="mode" data-a="h" title="Horizontal line (H)">${ICON.h}</button><button data-s="mode" data-a="r" title="Rectangle — mark a zone (R)">${ICON.r}</button><button data-s="mode" data-a="t" title="Trend line (T · Alt+T)">${ICON.t}</button><button data-s="mode" data-a="f" title="Fib retracement — premium / discount (Alt+F)">${ICON.f}</button><button data-s="mode" data-a="m" title="Measure (or Shift + drag)">${ICON.ruler}</button><button data-s="alerthere" title="Price alert at the crosshair (Alt+A)">${ICON.bell}</button><button data-s="levellock" title="Level lines — like holding Shift">${ICON.level}</button><i></i>
       <button data-s="magnet" title="Magnet — snap to the candle's high, low, open or close (M)">${ICON.magnet}</button><button data-s="undo" title="Undo (Ctrl+Z)">${ICON.undo}</button><button data-s="redo" title="Redo (Ctrl+Y)">${ICON.redo}</button><i></i>
       <button data-s="plan" id="simPlanBtn" title="Draw the London plan (P)" hidden>✨</button><button data-s="clearall" title="Remove all drawings">🗑</button></div><div class="tv-hint" id="tvHint" hidden></div>`;
   const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-  const HINT = { long: "Tap where you want to buy", short: "Tap where you want to sell", h: "Tap a price for the line", r: "Press and drag out the zone — or tap one corner, then the other", t: "Press and drag the line — or tap where it starts, then where it ends. Hold Shift for a level line" };
+  const HINT = { long: "Tap where you want to buy", short: "Tap where you want to sell", h: "Tap a price for the line", r: "Press and drag out the zone — or tap one corner, then the other", t: "Press and drag the line — or tap where it starts, then where it ends. Hold Shift for a level line", f: "Drag from the start of the swing to its end — 0.5 is equilibrium, the gold band is 0.618–0.79", m: "Drag to measure — price, ticks, %, $, bars and time" };
   function modeUi() {
     document.querySelectorAll('#tvTools [data-s="mode"]').forEach((b) => b.classList.toggle("on", b.dataset.a === (S && S.mode)));
     const mg = $('#tvTools [data-s="magnet"]'); if (mg) mg.classList.toggle("on", !!(S && S.magnet));
@@ -1166,7 +1195,7 @@
   function setMode(m) { S.mode = S.mode === m ? null : m; S.pend = null; S.sel = null; closeMenu(); modeUi(); }
   // a tap on the chart: draw with the chosen tool, otherwise deselect
   function chartTap(x, y) {
-    if (!S.mode) { if (S.sel) { S.sel = null; closeMenu(); } return; }
+    if (!S.mode) { S.meas = null; if (S.sel) { S.sel = null; closeMenu(); } return; }
     place(aimAt(x, y));
   }
   // put the chosen tool where the crosshair is
@@ -1176,6 +1205,7 @@
     if (m === "long" || m === "short") { hist(); addTool(m === "long" ? 1 : -1, price, Math.min(idx, S.i + 5), true); S.mode = null; }
     else if (m === "h") { hist(); S.draws.push({ type: "h", p: price, tf: S.view.tf, ...styleOf("h") }); S.sel = `dr:${S.draws.length - 1}`; S.mode = null; }
     else if (!S.pend) S.pend = { i: idx, p: price };
+    else if (m === "m") { S.meas = { a: S.pend, b: { i: idx, p: price } }; S.pend = null; S.mode = null; } // the measurement stays until your next click
     else { hist(); S.draws.push({ type: m, i1: S.pend.i, p1: S.pend.p, i2: idx, p2: price, tf: S.view.tf, ...styleOf(m) }); S.sel = `dr:${S.draws.length - 1}`; S.pend = null; S.mode = null; }
     if (navigator.vibrate && COARSE) try { navigator.vibrate(8); } catch {}
     modeUi();
@@ -1186,7 +1216,9 @@
     h: { color: "#f0b90b", lw: 1.5, dash: false },
     r: { color: "#2962ff", bg: "#2962ff", fill: 0.2, border: true, mid: false, lw: 1, dash: false, xl: false, xr: false },
     t: { color: "#2962ff", lw: 2, dash: false, xl: false, xr: false },
+    f: { color: "#9598a1", lw: 1, dash: true, xl: false, xr: true },
   };
+  const FIB = [[1, "1"], [0.79, "0.79"], [0.705, "0.705"], [0.618, "0.618"], [0.5, "0.5 · equilibrium"], [0, "0"]];
   const TXT = { tc: "#ffffff", ts: 12, tb: false, ti: false, tvv: "middle", tha: "center" }; // text: colour, size, bold, italic, where
   const COLORS = ["#ffffff", "#d1d4dc", "#9598a1", "#5d606b", "#2a2e39", "#000000", "#f23645", "#ff9800", "#ffeb3b", "#4caf50", "#089981", "#00bcd4", "#2962ff", "#673ab7", "#9c27b0", "#e91e63", "#f0b90b", "#26a69a"];
   const STY = {};
@@ -1310,8 +1342,9 @@
     if (S.orders.length && inWins(S.P, prev.min) && !inWins(S.P, b.min) && prev.min < 18 * 60) { S.orders = []; toast("Window closed — your orders were cancelled, as the plan says."); }
     fills(b);
     if (S.pos) manage(b);
+    alerts(b, prev);
     paintPnl(); checkRules();
-    panel(); markers(); drawLines();
+    panel(); markers(); drawLines(); legend();
     return true;
   }
   function fills(b) {
@@ -1679,7 +1712,8 @@
       case "pick": return openPicker();
       case "acct": return openAcct();
       case "vmenu": return viewMenu(a, b);
-      case "vtf": return setView({ tf: Number(a) });
+      case "vtf": closeMenu(); return setView({ tf: Number(a) });
+      case "vfav": { const m = Number(a), f = favTF(), next = f.includes(m) ? f.filter((x) => x !== m) : [...f, m]; saveFavTF(next.length ? next : [m]); viewBar(); return viewMenu("tf", $('#tvBar [data-a="tf"]')); }
       case "vtype": return setView({ type: a });
       case "vema": { const n = Number(a), e = S.view.ema.includes(n) ? S.view.ema.filter((x) => x !== n) : [...S.view.ema, n].sort((x, y) => x - y); setView({ ema: e }); return viewMenu("ind", $('#tvBar [data-a="ind"]')); }
       case "vpdhl": setView({ pdhl: !S.view.pdhl }); return viewMenu("ind", $('#tvBar [data-a="ind"]'));
@@ -1730,6 +1764,9 @@
       case "undo": return undoRedo(true);
       case "redo": return undoRedo(false);
       case "magnet": return toggleMagnet();
+      case "alert": { closeMenu(); const o = objOf(a); if (!o || o.kind !== "draw") return; hist(); o.t.alert = !o.t.alert; o.t.alertFired = false; return toast(o.t.alert ? "🔔 Alert set — the replay pauses with a sound when price gets there." : "Alert removed."); }
+      case "alerthere": return alertHere();
+      case "latest": chart.timeScale().scrollToRealTime(); return;
       case "levellock": S.levelLock = !S.levelLock; modeUi(); return toast(S.levelLock ? "Level lines on — trend lines stay perfectly flat (same as holding Shift)." : "Level lines off.");
       case "dsty": { // a drawing's colour / fill / line / extend
         const o = objOf(a); if (!o || o.kind !== "draw") return;
@@ -1776,11 +1813,25 @@
     if (!S || e.target.closest("input,textarea,select")) { if (S && e.key === "Enter" && S.tk) { e.preventDefault(); submitTicket(); } return; }
     const k = e.key.toLowerCase(), go = (fn) => { e.preventDefault(); fn(); };
     if (S.dlg && k !== "escape") return;
-    if (k === "escape") return go(() => { if ($("#tvMenu")) return closeMenu(); if (S.dlg) return dlgDone(false); if (S.tk) { S.tkLines = null; closeTicket(); return drawLines(); } if (S.mode) return setMode(S.mode); if (S.reviewing) return endReview(); S.sel = null; });
+    if (k === "escape") return go(() => { if ($("#tvMenu")) return closeMenu(); if (S.dlg) return dlgDone(false); if (S.tk) { S.tkLines = null; closeTicket(); return drawLines(); } if (S.mode) return setMode(S.mode); if (S.meas) { S.meas = null; return; } if (S.reviewing) return endReview(); S.sel = null; });
     if (S.tk) { if (k === "enter") go(submitTicket); return; }
     if ((e.ctrlKey || e.metaKey) && k === "z") return go(() => undoRedo(!e.shiftKey));
     if ((e.ctrlKey || e.metaKey) && k === "y") return go(() => undoRedo(false));
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.altKey && !e.ctrlKey && !e.metaKey) { // TradingView's quick-draw keys (e.code, so it works on a Mac too)
+      const c = { KeyH: "h", KeyT: "t", KeyR: "r", KeyF: "f" }[e.code];
+      if (c) return go(() => setMode(c));
+      if (e.code === "KeyA") return go(alertHere);
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) return;
+    // type a timeframe: 15 ↵, 2h ↵, 4h ↵, D ↵, W ↵ (or , to start)
+    if (S.tfType != null) {
+      if (/^[0-9]$/.test(k) || (["m", "h", "d", "w"].includes(k) && !/[mhdw]$/.test(S.tfType))) return go(() => tfType(S.tfType + k));
+      if (k === "backspace") return go(() => tfType(S.tfType.slice(0, -1)));
+      if (k === "enter") return go(tfApply);
+      if (k === "escape") return go(() => tfType(null));
+    }
+    if (/^[0-9]$/.test(k) || k === ",") return go(() => tfType(k === "," ? "" : k));
     if (k === "m") return go(toggleMagnet);
     if (k === " ") return go(play);
     if (k === "arrowright") return go(() => { stop(); step(); });
@@ -1792,6 +1843,67 @@
     if (k === "enter" && !S.reviewing) return go(() => openTicket(S.sel && S.sel !== "pos" ? S.sel : S.tools.length ? "tool:0" : null));
     if (k === "f") return go(fullScreen);
   }
+  // ---------- price alerts: on a line or a zone — the replay pauses with a sound when price gets there
+  function alertHere() {
+    const p = S.hoverP != null ? onTick(S.hoverP) : S.bars[S.i].c;
+    hist(); S.draws.push({ type: "h", p, tf: S.view.tf, ...styleOf("h"), alert: true }); S.sel = `dr:${S.draws.length - 1}`;
+    toast(`🔔 Alert at ${fmt(p)} — drag the line to move it.`);
+  }
+  function alerts(b, prev) {
+    for (const d of S.draws) {
+      if (!d.alert || d.alertFired) continue;
+      const hit = d.type === "h" ? b.l <= d.p && b.h >= d.p
+        : d.type === "r" ? b.l <= Math.max(d.p1, d.p2) && b.h >= Math.min(d.p1, d.p2) && !(prev && prev.l <= Math.max(d.p1, d.p2) && prev.h >= Math.min(d.p1, d.p2)) : false;
+      if (!hit) continue;
+      d.alertFired = true;
+      stop(); beep();
+      if (navigator.vibrate) try { navigator.vibrate([60, 40, 60]); } catch {}
+      toast(d.type === "h" ? `🔔 Price reached your line at ${fmt(d.p)} — your move.` : `🔔 Price is in your zone ${fmt(Math.min(d.p1, d.p2))}–${fmt(Math.max(d.p1, d.p2))} — look for your entry.`, 6000);
+    }
+  }
+  function beep() {
+    try {
+      const A = beep.ctx || (beep.ctx = new (window.AudioContext || window.webkitAudioContext)());
+      for (const d of [0, 0.18]) { const o = A.createOscillator(), g = A.createGain(); o.frequency.value = 880; g.gain.setValueAtTime(0.12, A.currentTime + d); g.gain.exponentialRampToValueAtTime(0.0001, A.currentTime + d + 0.15); o.connect(g); g.connect(A.destination); o.start(A.currentTime + d); o.stop(A.currentTime + d + 0.16); }
+    } catch {}
+  }
+  // ---------- measure (TradingView's Shift + drag): price, ticks, %, $ per contract, bars and time
+  function measHtml(a, b, W) {
+    if (!a || !b) return "";
+    const x1 = L2X(a.i), x2 = L2X(b.i), y1 = series.priceToCoordinate(a.p), y2 = series.priceToCoordinate(b.p);
+    if ([x1, x2, y1, y2].some((v) => v == null)) return "";
+    const dp = b.p - a.p, up = dp >= 0, c = up ? "#2962ff" : "#ef5350", bars = Math.round(Math.abs(b.i - a.i) / kTF()), mins = Math.abs(b.i - a.i) * baseMin();
+    const t1 = `${up ? "+" : "−"}${fmt(Math.abs(dp))} (${((dp / a.p) * 100).toFixed(2)}%) · ${Math.round(Math.abs(dp) / tick())} ticks`;
+    const t2 = `${bars} bar${bars === 1 ? "" : "s"} · ${mins >= 1440 ? `${(mins / 1440).toFixed(1)}d` : `${Math.floor(mins / 60)}h ${mins % 60}m`} · ${money(Math.abs(dp) * S.P.pv)} per ${S.P.sym}`;
+    const xa = Math.min(x1, x2), ya = Math.min(y1, y2), w = Math.max(1, Math.abs(x2 - x1)), h = Math.max(1, Math.abs(y2 - y1));
+    const lw = Math.max(t1.length, t2.length) * 6.3 + 16, lx = Math.max(2, Math.min(W - lw - 2, (x1 + x2) / 2 - lw / 2)), ly = up ? ya - 46 : ya + h + 6;
+    return `<rect x="${xa}" y="${ya}" width="${w}" height="${h}" fill="${c}" fill-opacity=".15"/><line x1="${(x1 + x2) / 2}" x2="${(x1 + x2) / 2}" y1="${y1}" y2="${y2}" stroke="${c}" stroke-width="1.5"/><line x1="${x1}" x2="${x2}" y1="${(y1 + y2) / 2}" y2="${(y1 + y2) / 2}" stroke="${c}" stroke-width="1.5"/>`
+      + `<rect x="${lx}" y="${Math.max(2, ly)}" width="${lw}" height="40" rx="5" fill="${c}"/><text x="${lx + lw / 2}" y="${Math.max(2, ly) + 16}" text-anchor="middle" class="tl">${esc(t1)}</text><text x="${lx + lw / 2}" y="${Math.max(2, ly) + 32}" text-anchor="middle" class="tl">${esc(t2)}</text>`;
+  }
+  // ---------- the legend (top left): the candle under the crosshair — or the latest one
+  function legend(bar, time) {
+    const el = $("#simLegend"); if (!el || !S || !S.D) return;
+    let g = bar && bar.open != null ? { o: bar.open, h: bar.high, l: bar.low, c: bar.close, t: time * 1000 } : null;
+    if (!g) { const last = S.D.g[S.D.g.length - 1]; if (!last) return; g = { o: last.o, h: last.h, l: last.l, c: last.c, t: last.t }; }
+    const ch = g.c - g.o, c = ch >= 0 ? "#26a69a" : "#ef5350", lab = (TFS.find((x) => x[0] === S.view.tf) || [0, S.view.tf + "m"])[1];
+    const html = `<b>${esc(S.P.sym)} · ${lab}</b> <span>O</span><em style="color:${c}">${fmt(g.o)}</em> <span>H</span><em style="color:${c}">${fmt(g.h)}</em> <span>L</span><em style="color:${c}">${fmt(g.l)}</em> <span>C</span><em style="color:${c}">${fmt(g.c)}</em> <em style="color:${c}">${ch >= 0 ? "+" : "−"}${fmt(Math.abs(ch))} (${((ch / g.o) * 100).toFixed(2)}%)</em>`;
+    if (el.__last !== html) { el.__last = html; el.innerHTML = html; }
+  }
+  function tfType(v) {
+    S.tfType = v;
+    let el = $("#tfType");
+    if (v == null) { if (el) el.remove(); clearTimeout(S.tfT); return; }
+    if (!el) { el = document.createElement("div"); el.id = "tfType"; el.className = "tf-type"; $("#simChart").appendChild(el); }
+    const m = tfParse(v);
+    el.innerHTML = `<b>${esc(v || "…")}</b><small>${m ? `${TF_NAME(m)} · Enter` : "type 15, 2h, 4h, D, W"}</small>`;
+    clearTimeout(S.tfT); S.tfT = setTimeout(() => tfType(null), 4000);
+  }
+  function tfParse(v) {
+    const x = /^(\d*)([mhdw]?)$/.exec(String(v || "")); if (!x || (!x[1] && !x[2])) return null;
+    const n = Number(x[1] || 1), m = x[2] === "h" ? n * 60 : x[2] === "d" ? n * 1440 : x[2] === "w" ? n * 10080 : n;
+    return TFS.some((t) => t[0] === m) && m >= baseMin() ? m : null;
+  }
+  function tfApply() { const m = tfParse(S.tfType); tfType(null); if (m) setView({ tf: m }); else toast("That timeframe isn't available here — 5m, 10m, 15m, 30m, 45m, 1h, 2h, 3h, 4h, D, W."); }
   function fullScreen() {
     const el = $("#sim"), d = document;
     if (d.fullscreenElement || d.webkitFullscreenElement) return (d.exitFullscreen || d.webkitExitFullscreen).call(d);
