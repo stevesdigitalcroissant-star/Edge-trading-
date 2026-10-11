@@ -714,3 +714,15 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 .sim.nopanel .sim-panel { display: none; }
 @media (min-width: 900px) { .sim.nopanel { grid-template-columns: 1fr; } }
 .sim-ptog svg { display: block; } .sim.nopanel .sim-ptog { color: var(--muted); }
+/* top bar: undo / redo / chart settings, like TradingView */
+.tv-ur { display: inline-flex; gap: 1px; margin-left: auto; padding-left: 6px; border-left: 1px solid var(--line); }
+.tv-bar .tv-ur button { padding: 6px 8px; display: grid; place-items: center; }
+.tv-bar .tv-ur button svg { width: 18px; height: 18px; }
+.tv-bar .tv-ur button:disabled { opacity: .35; cursor: default; }
+.tv-cs { width: 340px; } .cs-c { display: inline-block; width: 22px; height: 12px; border-radius: 3px; vertical-align: middle; }
+.sim-chart.no-legend .sim-legend { display: none; }
+/* no flying: menus, bars and dialogs appear in place, instantly (TradingView doesn't animate them) */
+body.sim-on .tv-menu, body.sim-on .tv-sel, body.sim-on .tv-hint, body.sim-on .tv-tk-wrap, body.sim-on .tv-tk, body.sim-on .tf-type, body.sim-on .pb-text, body.sim-on .sim-review { animation: none !important; }
+.sim-chart.bg-light .sim-legend { text-shadow: 0 1px 2px #fff; color: #5d606b; } .sim-chart.bg-light .sim-legend b { color: #131722; }
+.sim-chart.bg-light .sim-tools .tt { stroke: #fff; }
+.tv-cs .tv-sty-r > span { width: 92px; flex: none; }

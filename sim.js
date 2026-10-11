@@ -414,7 +414,11 @@
       localization: { locale: "en-US", timeFormatter: (t) => V.clock === "ny" ? `${new Date(t * 1000).toLocaleString([], { timeZone: NYZ, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} NY` : `${new Date(t * 1000).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · NY ${hm(nyInfo(t * 1000).min)}` },
       crosshair: { mode: LW.CrosshairMode.Normal },
     });
-    const pf = { priceFormat: { type: "price", precision: S.P.dec, minMove: S.P.dec === 2 ? 0.01 : 0.001 } }, UP = "#26a69a", DN = "#ef5350";
+    const CS = chartSet(), pf = { priceFormat: { type: "price", precision: S.P.dec, minMove: S.P.dec === 2 ? 0.01 : 0.001 } }, UP = CS.up, DN = CS.dn;
+    const bg = BGS[CS.bg] || null;
+    chart.applyOptions({ layout: bg ? { background: { type: "solid", color: bg.c }, textColor: bg.t } : {}, grid: { vertLines: { visible: CS.grid, ...(bg ? { color: bg.g } : {}) }, horzLines: { visible: CS.grid, ...(bg ? { color: bg.g } : {}) } },
+      timeScale: { rightOffset: CS.margin }, rightPriceScale: { mode: CS.log ? LW.PriceScaleMode.Logarithmic : LW.PriceScaleMode.Normal } });
+    el.classList.toggle("no-legend", !CS.legend); el.classList.toggle("bg-light", CS.bg === "white");
     series = V.type === "bars" ? chart.addBarSeries({ upColor: UP, downColor: DN, thinBars: false, ...pf })
       : V.type === "line" ? chart.addLineSeries({ color: "#2962ff", lineWidth: 2, ...pf })
       : V.type === "area" ? chart.addAreaSeries({ lineColor: "#2962ff", topColor: "rgba(41,98,255,.35)", bottomColor: "rgba(41,98,255,0)", lineWidth: 2, ...pf })
@@ -422,13 +426,8 @@
       : chart.addCandlestickSeries({ upColor: UP, downColor: DN, wickUpColor: UP, wickDownColor: DN, borderVisible: false, ...pf });
     emaSeries = V.ema.map((p) => ({ p, s: chart.addLineSeries({ color: EMA_C[p] || "#f0b90b", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }) }));
     // keep every stop and target on screen
-    series.applyOptions({ autoscaleInfoProvider: (orig) => {
-      if (S && S.freeze) return { priceRange: S.freeze };
-      const r = orig(); if (!r || !S) return r;
-      const xs = []; for (const o of objects()) xs.push(o.e, o.sl, ...(o.pos && o.tp != null ? [o.tp] : []));
-      if (!xs.length) return r;
-      return { priceRange: { minValue: Math.min(r.priceRange.minValue, ...xs), maxValue: Math.max(r.priceRange.maxValue, ...xs) }, margins: r.margins };
-    } });
+    // like TradingView: the candles decide the price scale — placing or dragging a tool never makes the chart jump
+    series.applyOptions({ autoscaleInfoProvider: (orig) => (S && S.freeze ? { priceRange: S.freeze } : orig()) });
     chart.subscribeClick((p) => { if (!p.point || !S || S.reviewing || S.justDragged || S.mode || Date.now() - (S.tapAt || 0) < 400) return; chartTap(p.point.x, p.point.y); });
     // drawing (like TradingView): the crosshair is right under your finger / pointer, with its exact price and time on the axes.
     // Zones and trend lines: press, drag them out, lift — or tap one corner, then tap the other. Lines and positions: tap where you want them.
@@ -460,6 +459,7 @@
       place(S.aim);
     }, true);
     el.addEventListener("pointercancel", () => { down = null; }, true);
+    el.addEventListener("contextmenu", (e) => { if (!e.target.closest("[data-k]")) onContext(e); }, true); // right-click on the chart itself
     el.addEventListener("pointerleave", (e) => { if (S && !down && e.pointerType === "mouse" && !S.pend) S.aim = null; });
     new ResizeObserver(() => drawOverlay()).observe(el);
     $("#simTools").addEventListener("pointerdown", pointerDown);
@@ -568,9 +568,33 @@
     chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, last - 90), to: last + 12 });
     markers(); drawLines(); drawOverlay(); viewBar();
   }
-  function setView(patch) {
+  function setView(patch, keepMenu = false) {
+    // keep looking at the same moment when you change timeframe, chart type or settings (TradingView does)
+    let vr = null; try { vr = chart && chart.timeScale().getVisibleRange(); } catch {}
     Object.assign(S.view, patch); saveView();
-    S.lv = null; buildChart(); paintAll(); closeMenu();
+    S.lv = null; buildChart(); paintAll(); if (!keepMenu) closeMenu();
+    if (vr) try { chart.timeScale().setVisibleRange(vr); } catch {}
+  }
+  // ---------- chart settings (⚙ above the chart): candle colours, background, grid, OHLC legend, log scale, right margin
+  const BGS = { theme: null, black: { c: "#000000", t: "#9598a1", g: "rgba(255,255,255,.06)" }, navy: { c: "#131722", t: "#b2b5be", g: "rgba(255,255,255,.06)" }, white: { c: "#ffffff", t: "#131722", g: "rgba(0,0,0,.07)" } };
+  const CANDLES = [["#26a69a", "#ef5350", "TradingView"], ["#089981", "#f23645", "Classic"], ["#2962ff", "#e91e63", "Blue / pink"], ["#d1d4dc", "#5d606b", "Mono"], ["#00c853", "#ff1744", "Bright"]];
+  const chartSet = () => ({ up: "#26a69a", dn: "#ef5350", bg: "theme", grid: true, legend: true, log: false, margin: 12, ...(S.view.cs || {}) });
+  function settingsMenu(btn) {
+    const c = chartSet(), r = btn.getBoundingClientRect();
+    const opt = (k, v, label, on, extra = "") => `<button data-s="vcs" data-f="${k}" data-v="${v}" class="${on ? "on" : ""}" ${extra}>${label}</button>`;
+    const row = (name, h) => `<div class="tv-sty-r"><span>${name}</span><div>${h}</div></div>`;
+    const html = `<div class="tv-mh">Chart settings</div><div class="tv-sty">`
+      + row("Candles", CANDLES.map(([u, d, n]) => opt("candles", `${u}|${d}`, `<i class="cs-c" style="background:linear-gradient(90deg,${u} 50%,${d} 50%)"></i>`, c.up === u && c.dn === d, `title="${n}"`)).join(""))
+      + row("Background", [["theme", "App"], ["black", "Black"], ["navy", "Navy"], ["white", "White"]].map(([k, l]) => opt("bg", k, l, c.bg === k)).join(""))
+      + row("Grid", opt("grid", 1, "On", c.grid) + opt("grid", 0, "Off", !c.grid))
+      + row("OHLC", opt("legend", 1, "Show", c.legend) + opt("legend", 0, "Hide", !c.legend))
+      + row("Scale", opt("log", 0, "Regular", !c.log) + opt("log", 1, "Log", c.log))
+      + row("Right margin", [4, 12, 30].map((m) => opt("margin", m, `${m} bars`, c.margin === m)).join(""))
+      + `</div><p class="tv-mnote">Drag the price scale to zoom it; double-click it to go back to auto.</p>`;
+    closeMenu();
+    const m = document.createElement("div"); m.id = "tvMenu"; m.className = "tv-menu tv-cs"; m.innerHTML = html; $("#sim").appendChild(m);
+    const mr = m.getBoundingClientRect(); m.style.left = `${Math.max(6, Math.min(r.left, innerWidth - mr.width - 6))}px`; m.style.top = `${r.bottom + 4}px`;
+    S.keepMenu = true; setTimeout(() => { if (S) S.keepMenu = false; }, 50);
   }
   function viewBar() {
     const el = $("#tvBar"); if (!el || !S) return;
@@ -581,7 +605,9 @@
       <button data-s="vmenu" data-a="ind" title="Indicators">ƒx <span>Indicators</span>${V.ema.length + (V.pdhl ? 1 : 0) + (V.seps ? 1 : 0) ? ` <i>${V.ema.length + (V.pdhl ? 1 : 0) + (V.seps ? 1 : 0)}</i>` : ""}</button>
       <button data-s="vmenu" data-a="strat" class="strat">📐 <span>${({ sd: "Your zones", london: "London breakout", ngzone: "Gas zones", free: "No strategy" })[S.P.strategy]}</span> ▾</button>
       ${S.P.strategy === "sd" ? `<button data-s="vzones" title="Show Edge's 15m zones">${S.view.zones === false ? "◻ Zones off" : "▦ Zones"}</button><button data-s="vhints" title="Edge's checklist in the panel">${S.view.hints === false ? "💬 Hints off" : "💬 Hints"}</button>` : ""}
-      <button data-s="vclock" title="Time on the chart">🕐 ${V.clock === "ny" ? "New York" : "Your time"}</button>`;
+      <button data-s="vclock" title="Time on the chart">🕐 ${V.clock === "ny" ? "New York" : "Your time"}</button>
+      <span class="tv-ur"><button data-s="undo" title="Undo (Ctrl+Z)">${ICON.undo}</button><button data-s="redo" title="Redo (Ctrl+Y)">${ICON.redo}</button><button data-s="vsettings" title="Chart settings">⚙︎</button></span>`;
+    setTimeout(histUi, 0);
   }
   function viewMenu(kind, btn) {
     const V = S.view, r = btn.getBoundingClientRect(), base = baseMin();
@@ -959,9 +985,15 @@
     if (o.kind === "pos") { const r = $("#simChart").getBoundingClientRect(); openMenu(k, r.left + r.width / 2, r.top + 80); }
   }
   function onContext(ev) {
-    const h = ev.target.closest("[data-k]"); if (!h || !S) return;
-    ev.preventDefault();
-    S.sel = h.dataset.k; openMenu(h.dataset.k, ev.clientX, ev.clientY);
+    if (!S) return;
+    const h = ev.target.closest("[data-k]");
+    if (!h && !ev.target.closest("#simChart")) return;
+    ev.preventDefault(); ev.stopPropagation();
+    if (S.mode) return setMode(S.mode); // placing a tool: right-click cancels it
+    if (!h) { S.sel = null; closeMenu(); return; }
+    const k = h.dataset.k;
+    if (k.startsWith("dr:") || k.startsWith("tool:")) { remove(k); return toast("Removed — Ctrl+Z (or ↶ above the chart) brings it back."); }
+    S.sel = k; openMenu(k, ev.clientX, ev.clientY); // orders and the open trade: the menu (cancel / close are deliberate)
   }
 
   // ---------- the press-and-hold menu
@@ -1210,7 +1242,7 @@
   const toolbarHtml = () => `<div class="tv-tools" id="tvTools">
       <button data-s="mode" data-a="long" title="Long position (B)">${ICON.long}</button><button data-s="mode" data-a="short" title="Short position (S)">${ICON.short}</button><i></i>
       <button data-s="mode" data-a="h" title="Horizontal line (H)">${ICON.h}</button><button data-s="mode" data-a="r" title="Rectangle — mark a zone (R)">${ICON.r}</button><button data-s="mode" data-a="t" title="Trend line (T · Alt+T)">${ICON.t}</button><button data-s="mode" data-a="f" title="Fib retracement — premium / discount (Alt+F)">${ICON.f}</button><button data-s="mode" data-a="m" title="Measure (or Shift + drag)">${ICON.ruler}</button><button data-s="alerthere" title="Price alert at the crosshair (Alt+A)">${ICON.bell}</button><button data-s="levellock" title="Level lines — like holding Shift">${ICON.level}</button><i></i>
-      <button data-s="magnet" title="Magnet — snap to the candle's high, low, open or close (M)">${ICON.magnet}</button><button data-s="undo" title="Undo (Ctrl+Z)">${ICON.undo}</button><button data-s="redo" title="Redo (Ctrl+Y)">${ICON.redo}</button><i></i>
+      <button data-s="magnet" title="Magnet — snap to the candle's high, low, open or close (M)">${ICON.magnet}</button><i></i>
       <button data-s="plan" id="simPlanBtn" title="Draw the London plan (P)" hidden>✨</button><button data-s="clearall" title="Remove all drawings">🗑</button></div><div class="tv-hint" id="tvHint" hidden></div>`;
   const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
   const HINT = { long: "Tap where you want to buy", short: "Tap where you want to sell", h: "Tap a price for the line", r: "Press and drag out the zone — or tap one corner, then the other", t: "Press and drag the line — or tap where it starts, then where it ends. Hold Shift for a level line", f: "Drag from the start of the swing to its end — 0.5 is equilibrium, the gold band is 0.618–0.79", m: "Drag to measure — price, ticks, %, $, bars and time" };
@@ -1342,7 +1374,7 @@
     modeUi(); toast(S.magnet ? "Magnet on — points snap to the candle's high, low, open or close." : "Magnet off — points go exactly where you aim.");
   }
   function histUi() {
-    const u = $('#tvTools [data-s="undo"]'), r = $('#tvTools [data-s="redo"]');
+    const u = $('#tvBar [data-s="undo"]'), r = $('#tvBar [data-s="redo"]');
     if (u) u.disabled = !(S && (S.undo.length || S.pend)); if (r) r.disabled = !(S && S.redo.length);
   }
 
@@ -1801,6 +1833,10 @@
       case "undo": return undoRedo(true);
       case "redo": return undoRedo(false);
       case "magnet": return toggleMagnet();
+      case "vsettings": return settingsMenu(b);
+      case "vcs": { const f = b.dataset.f, v = b.dataset.v, c = { ...chartSet() };
+        if (f === "candles") { const [u, d] = v.split("|"); c.up = u; c.dn = d; } else if (f === "bg") c.bg = v; else if (f === "margin") c.margin = Number(v); else c[f] = v === "1";
+        setView({ cs: c }, true); return settingsMenu($('#tvBar [data-s="vsettings"]')); }
       case "panel": return showPanel($("#sim").classList.contains("nopanel"));
       case "alert": { closeMenu(); const o = objOf(a); if (!o || o.kind !== "draw") return; hist(); o.t.alert = !o.t.alert; o.t.alertFired = false; return toast(o.t.alert ? "🔔 Alert set — the replay pauses with a sound when price gets there." : "Alert removed."); }
       case "alerthere": return alertHere();
