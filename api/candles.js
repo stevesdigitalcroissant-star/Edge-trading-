@@ -63,7 +63,7 @@ module.exports = async (req, res) => {
     }
     // ?tail=1 — just the last day of 5-minute candles, refreshed every minute (the home chart's live edge)
     if (url.searchParams.get("tail")) {
-      const bars = await load(market, 1, "5m");
+      const bars = await load(market, 5, "5m"); // 5 days: on a weekend the last day has no candles
       res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=60");
       return res.status(200).json({ market, symbol: SYMBOLS[market], interval: "5m", bars });
     }
