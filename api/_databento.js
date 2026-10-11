@@ -2,7 +2,7 @@
 // Needs DATABENTO_API_KEY (databento.com → Portal → API keys). Pay as you go; new accounts get free credit.
 // Each month is fetched once as 1-minute candles and kept in the candle archive (_bars.js, the private
 // Blob store), so the same month never costs twice; it's rolled up to 5 minutes, 15 minutes or 1 hour on read.
-const ROOT = { gold: "GC", crude: "CL", natgas: "NG", silver: "SI", es: "ES" };
+const ROOT = { gold: "GC", crude: "CL", natgas: "NG", silver: "SI", es: "ES", nq: "NQ" };
 const TF = { "1m": 1, "5m": 5, "15m": 15, "60m": 60 };
 const archive = require("./_bars");
 const API = "https://hist.databento.com/v0/timeseries.get_range";
@@ -44,7 +44,7 @@ function rollUp(bars, minutes) {
 
 async function fetchMonth(market, month, fetchImpl = fetch) {
   const root = ROOT[market];
-  if (!root) throw new Error("Pick gold, crude, natgas, silver or es");
+  if (!root) throw new Error("Pick gold, crude, natgas, silver, es or nq");
   if (!key()) throw new Error("Databento isn't connected — add DATABENTO_API_KEY in Vercel");
   const [y, m] = month.split("-").map(Number);
   const start = new Date(Date.UTC(y, m - 1, 1)).toISOString().slice(0, 10);
@@ -91,7 +91,7 @@ async function month(store, market, monthStr, tf = "5m", fetchImpl = fetch) {
 // Fill the archive: buy every month in [from, to] that isn't there yet, until the time budget runs out.
 // Call again with the returned `next` to continue. Months already archived cost nothing.
 async function fill(store, market, from, to, budgetMs = 45000, fetchImpl = fetch) {
-  if (!ROOT[market]) throw new Error("Pick gold, crude, natgas, silver or es");
+  if (!ROOT[market]) throw new Error("Pick gold, crude, natgas, silver, es or nq");
   if (!archive.ready()) throw new Error("No Blob store connected — nowhere to keep the candles");
   const last = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
   const months = [];
