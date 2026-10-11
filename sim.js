@@ -16,7 +16,8 @@
   const SD_RULES = { daily: "off", trendTF: "4h", maxTouches: 9, waitMin: 480 }; // your rules: the 4H trend decides (daily over 4H over 15m)
   const SD_PLAN = { strategy: "sd", win: [120, 960], wins: [[120, 960]], tpR: 3.2, beR: 0 };
   const stratPref = (m) => { try { return localStorage.getItem(`edge.sim.strat.${m}`) || "sd"; } catch { return "sd"; } }; // your zones by default
-  const planOf = (m) => (MK[m].strategy === "london" && stratPref(m) === "sd" && window.EdgeStrategy2 ? { ...MK[m], ...SD_PLAN } : MK[m]);
+  const FREE_PLAN = { strategy: "free", win: [0, 1440], wins: [[0, 1440]], tpR: 3, beR: 0 }; // just the chart: no strategy, no hints, no windows
+  const planOf = (m) => (stratPref(m) === "free" ? { ...MK[m], ...FREE_PLAN } : MK[m].strategy === "london" && stratPref(m) === "sd" && window.EdgeStrategy2 ? { ...MK[m], ...SD_PLAN } : MK[m]);
   const cache = {};
   const $ = (s, el = document) => el.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -244,7 +245,7 @@
       const sc = scorecard(S, tr);
       tr.score = sc.checks;
       for (const c of sc.checks) if (!c.ok) add(c.id, c.title, c.text, c.ann, true);
-    } else {
+    } else if (P.strategy === "ngzone") {
       // natural gas zones as they stood when you entered
       const i = S.bars.findIndex((b) => b.t === tr.tIn);
       const zs = gasZones(S.bars, i).filter((z) => z.dir === tr.dir);
@@ -287,6 +288,7 @@
         text: tr.score.map((c) => `${c.ok ? "✅" : "⚠️"} ${c.title}`).join("\n") + (!misses ? `\n\n${R > 0.1 ? "That's exactly how it's done. Repeat it." : "You did everything right — this was a normal loss. The winners pay for these."}` : "") });
       return f;
     }
+    if (!f.length && P.strategy === "free") { add("clean", R > 0.1 ? "Nice trade — saved to your examples" : "Trade saved to your examples", "No strategy selected, so there's no scorecard. Pick “Your zones” in the strategy menu to get one on every trade.", [], false); return f; }
     if (!f.length) {
       if (R > 0.1) add("clean", "Clean trade. Nothing to add.", "You followed the plan from entry to exit. That's exactly how it's done.", [], false);
       else add("clean", "You followed the plan — this was a normal loss", `Most London and zone trades lose (they're ${P.strategy === "london" ? "57–70" : P.strategy === "sd" ? "about 55–60" : "about 53"}%), and the winners pay for them. Nothing to fix here.`, P.strategy === "london" && S.plan ? [{ type: "box", t1: S.plan.boxStart, t2: S.plan.boxEnd, p1: S.plan.hi, p2: S.plan.lo, color: "var(--c4h)", label: "Asian box" }] : [], false);
@@ -314,15 +316,24 @@
   // ---------- the simulator UI
   let S = null, chart = null, series = null, lines = [], overlay = null, timer = null;
 
+  // the side panel (hints, checklist, reviews) can be hidden for a full-width chart; it comes back by itself for a review
+  const panelHidden = () => { try { return localStorage.getItem("edge.sim.panel") === "off"; } catch { return false; } };
+  const ICON_PANEL = `<svg viewBox="0 0 24 24" width="18" height="18"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M15 5v14" stroke="currentColor" stroke-width="1.7"/></svg>`;
+  function showPanel(on, remember = true) {
+    const el = $("#sim"); if (!el) return;
+    el.classList.toggle("nopanel", !on);
+    if (remember) try { localStorage.setItem("edge.sim.panel", on ? "on" : "off"); } catch {}
+  }
   function open(market = "gold", day = null) {
     close();
     const el = document.createElement("div");
-    el.id = "sim"; el.className = "sim";
+    el.id = "sim"; el.className = `sim${panelHidden() ? " nopanel" : ""}`;
     el.innerHTML = `<div class="sim-top">
         <button class="sim-x" data-s="close" aria-label="Close">✕</button>
         <div class="sim-mk">${Object.entries(MK).map(([k, v]) => `<button data-s="mk" data-a="${k}" class="${k === market ? "on" : ""}">${{ gold: "Gold", crude: "Crude", silver: "Silver", natgas: "Gas" }[k]}</button>`).join("")}</div>
         <button class="sim-date" data-s="pick" id="simDate" title="Pick the day to train on">📅</button>
         <button class="sim-x" data-s="fs" title="Full screen (F)">⛶</button>
+        <button class="sim-x sim-ptog" data-s="panel" title="Show / hide the side panel">${ICON_PANEL}</button>
         <button class="sim-pnl" data-s="acct" title="Your practice account"><small>Balance</small><b id="simBal">—</b><em id="simPnl">0.00R</em></button></div>
       <div class="sim-info" id="simInfo">Loading prices…</div>
       <div class="tv-bar" id="tvBar"></div>
@@ -382,7 +393,7 @@
     loadHist(market);
     const d = new Date(day * 864e5); // the New York trading day
     const db = $("#simDate"); if (db) db.textContent = `📅 ${d.toLocaleDateString([], { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" })}`;
-    $("#simInfo").innerHTML = `<b>${P.name}</b> · ${d.toLocaleDateString([], { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" })} · ${P.tf === "5m" ? "5-minute" : "1-hour Heikin Ashi"} candles · ${P.strategy === "ngzone" ? `windows ${winTxt(P)}` : `${P.strategy === "sd" ? "your zones · " : ""}orders live ${winTxt(P)}`}`;
+    $("#simInfo").innerHTML = `<b>${P.name}</b> · ${d.toLocaleDateString([], { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" })} · ${P.tf === "5m" ? "5-minute" : "1-hour Heikin Ashi"} candles · ${P.strategy === "free" ? "no strategy — just the chart" : P.strategy === "ngzone" ? `windows ${winTxt(P)}` : `${P.strategy === "sd" ? "your zones · " : ""}orders live ${winTxt(P)}`}`;
     panel();
   }
 
@@ -517,6 +528,12 @@
       D.pre = D.g.length;
     }
     for (let i = S.from; i <= S.i; i++) dispAdd(i);
+    // where every candle of the day will sit on this chart — future ones too — so a drawing that reaches past the
+    // last candle stays pinned to its own time instead of sliding as new candles print (bigger timeframes especially)
+    const n = S.bars.length, vg = new Int32Array(n), start = [];
+    let ord = -1, key = null;
+    for (let i = S.from; i < n; i++) { const k = gKey(S.bars[i]); if (k !== key) { ord++; key = k; start.push(i); } vg[i] = ord; }
+    S.D.vg = vg; S.D.vgStart = start; S.D.vgOff = (S.D.of[S.from] ?? S.D.pre) - vg[S.from];
   }
   async function loadHist(market) {
     try {
@@ -536,8 +553,10 @@
     return { time: t, open: g.o, high: g.h, low: g.l, close: g.c };
   };
   // base candle index ⇄ chart position (a 1-hour chart has one bar for twelve 5-minute candles)
-  const dIdx = (i) => { const D = S.D, last = D.g.length - 1; if (i > S.i) return last + (i - S.i) / kTF(); if (i < S.from) return (D.pre || 0) + (i - S.from) / kTF(); return D.of[i] ?? last; };
-  const bIdx = (l) => { const D = S.D, last = D.g.length - 1, pre = D.pre || 0; if (l > last) return S.i + (l - last) * kTF(); if (l < pre) return S.from + (l - pre) * kTF(); return D.g[Math.round(l)].i0; };
+  const dIdx = (i) => { const D = S.D, last = D.g.length - 1;
+    if (i > S.i) { const n = S.bars.length, r = Math.round(i); if (D.vg && r < n) return D.vgOff + D.vg[r]; if (D.vg) return D.vgOff + D.vg[n - 1] + (i - (n - 1)) / kTF(); return last + (i - S.i) / kTF(); } if (i < S.from) return (D.pre || 0) + (i - S.from) / kTF(); return D.of[i] ?? last; };
+  const bIdx = (l) => { const D = S.D, last = D.g.length - 1, pre = D.pre || 0;
+    if (l > last) { if (!D.vgStart) return S.i + (l - last) * kTF(); const o = Math.round(l) - D.vgOff, st = D.vgStart; return o < st.length ? st[o] : S.bars.length - 1 + (o - (st.length - 1)) * kTF(); } if (l < pre) return S.from + (l - pre) * kTF(); return D.g[Math.round(l)].i0; };
   const idxOf = (t) => { let lo = 0, hi = S.bars.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (S.bars[m].t <= t) lo = m; else hi = m - 1; } return lo; };
   const gTime = (t) => { const i = idxOf(t), g = S.D.g[S.D.of[i]]; return (g ? g.t : t) / 1000; };
   function paintAll() {
@@ -560,7 +579,7 @@
     el.innerHTML = `<span class="tv-favs">${favs.map((m) => `<button data-s="vtf" data-a="${m}" class="fav ${V.tf === m ? "on" : ""}">${lab(m)}</button>`).join("")}${favs.includes(V.tf) ? "" : `<button data-s="vtf" data-a="${V.tf}" class="fav on">${lab(V.tf)}</button>`}<button data-s="vmenu" data-a="tf" class="tf-more" title="All timeframes (or just type one: 15, 2h, D…)">▾</button></span>
       <button data-s="vmenu" data-a="type" title="Chart type">${ty[2]} <span>${ty[1]}</span> ▾</button>
       <button data-s="vmenu" data-a="ind" title="Indicators">ƒx <span>Indicators</span>${V.ema.length + (V.pdhl ? 1 : 0) + (V.seps ? 1 : 0) ? ` <i>${V.ema.length + (V.pdhl ? 1 : 0) + (V.seps ? 1 : 0)}</i>` : ""}</button>
-      ${MK[S.market].strategy === "london" && window.EdgeStrategy2 ? `<button data-s="vmenu" data-a="strat" class="strat">📐 <span>${S.P.strategy === "sd" ? "Your zones" : "London breakout"}</span> ▾</button>` : ""}
+      <button data-s="vmenu" data-a="strat" class="strat">📐 <span>${({ sd: "Your zones", london: "London breakout", ngzone: "Gas zones", free: "No strategy" })[S.P.strategy]}</span> ▾</button>
       ${S.P.strategy === "sd" ? `<button data-s="vzones" title="Show Edge's 15m zones">${S.view.zones === false ? "◻ Zones off" : "▦ Zones"}</button><button data-s="vhints" title="Edge's checklist in the panel">${S.view.hints === false ? "💬 Hints off" : "💬 Hints"}</button>` : ""}
       <button data-s="vclock" title="Time on the chart">🕐 ${V.clock === "ny" ? "New York" : "Your time"}</button>`;
   }
@@ -570,7 +589,10 @@
     let html = "";
     if (kind === "tf") { const fav = favTF(); html = `<div class="tv-mh">Timeframe · ☆ to add to your bar</div>` + TFS.filter(([m]) => m >= base).map(([m]) => `<div class="tv-mrow"><button data-s="vtf" data-a="${m}">${check(V.tf === m)}${TF_NAME(m)}</button><button class="star ${fav.includes(m) ? "on" : ""}" data-s="vfav" data-a="${m}" title="${fav.includes(m) ? "Remove from" : "Add to"} favourites">${fav.includes(m) ? "★" : "☆"}</button></div>`).join("")
       + `<p class="tv-mnote">Tip: just type a timeframe on the keyboard — 15, 2h, 4h, D — then Enter. The replay moves one ${base === 5 ? "5-minute" : "1-hour"} candle at a time; bigger candles build up as you go.</p>`; }
-    if (kind === "strat") html = `<div class="tv-mh">Strategy to practise</div>` + [["london", "London breakout", "The tested plan: the Asian box breaks in London"], ["sd", "Your zones (supply & demand)", "15m zones in the 15m trend · 5m break · limit at the 5m zone"]].map(([k, l, d]) => `<button data-s="vstrat" data-a="${k}">${check(S.P.strategy === k)}<span>${l}<small class="tv-msub">${d}</small></span></button>`).join("");
+    if (kind === "strat") html = `<div class="tv-mh">Strategy to practise</div>` + [
+      ...(MK[S.market].strategy === "london" && window.EdgeStrategy2 ? [["sd", "Your zones (supply & demand)", "Your playbook: zones, 4H trend, scorecard on every trade"]] : []),
+      ...(MK[S.market].strategy === "london" ? [["london", "London breakout", "The tested plan: the Asian box breaks in London"]] : [["ngzone", "Gas zones", "The tested natural gas zone plan"]]),
+      ["free", "No strategy", "Just the chart — no zones, no hints, no trading windows"]].map(([k, l, d]) => `<button data-s="vstrat" data-a="${k}">${check(S.P.strategy === k)}<span>${l}<small class="tv-msub">${d}</small></span></button>`).join("");
     if (kind === "type") html = `<div class="tv-mh">Chart type</div>` + TYPES.map(([k, l, ic]) => `<button data-s="vtype" data-a="${k}">${check(V.type === k)}<span class="ic">${ic}</span>${l}</button>`).join("");
     if (kind === "ind") html = `<div class="tv-mh">Indicators</div>` + EMAS.map((n) => `<button data-s="vema" data-a="${n}">${check(V.ema.includes(n))}<span class="sw" style="background:${EMA_C[n]}"></span>EMA ${n}</button>`).join("")
       + `<hr><button data-s="vpdhl">${check(V.pdhl)}Previous day high / low</button><button data-s="vseps">${check(V.seps)}New-day lines (18:00 New York)</button>`;
@@ -640,6 +662,7 @@
     return [...S.lv.list, ...mine];
   }
   function snap(price, extra = [], bd = 9) {
+    if (!S.magnet) return onTick(price); // nothing sticks to anything unless the magnet is on — points go exactly where you put them
     let best = null;
     const y0 = series.priceToCoordinate(price);
     if (y0 == null) return onTick(price);
@@ -1587,14 +1610,14 @@
     }
     const toolsHtml = S.tools.map((t, i) => { const r = Math.abs(t.e - t.sl), type = kindOf(t), n = contracts(r); return `<div class="sim-toolrow ${t.dir > 0 ? "long" : "short"}"><span><b>${t.dir > 0 ? "▲ Long" : "▼ Short"}</b> ${fmt(t.e)} <small class="muted">SL ${fmt(t.sl)} · TP ${fmt(t.tp)} · ${(Math.abs(t.tp - t.e) / r).toFixed(1)}R · ${n ? `${n} ${P.sym} for ${money(riskUSD())}` : `1 ${P.sym} risks ${money(r * P.pv)}`}</small></span><button class="btn small primary" data-s="tk" data-a="tool:${i}">${type === "market" ? (t.dir > 0 ? "Buy…" : "Sell…") : `${type === "limit" ? "Limit" : "Stop"} order…`}</button></div>`; }).join("");
     const coach = P.strategy === "sd" && S.sd && S.view.hints !== false ? (() => { const c = window.EdgeStrategy2.panel(S.sd, S.i); return `<div class="sd-coach"><div class="sd-steps">${c.steps.map(([t, ok, d]) => `<div class="${ok ? "ok" : ""}"><i>${ok ? "✓" : "○"}</i><span><b>${esc(t)}</b><small>${esc(d)}</small></span></div>`).join("")}</div><p>${esc(c.doNow)}</p></div>`; })() : "";
-    const hint = S.tools.length || S.orders.length ? coach : (P.strategy === "sd" ? `<p class="sim-hint" style="margin:4px 0 8px">Your playbook: switch to <b>W · D · 4H</b> and mark the zones → find the fresh <b>15m</b> zone in the trend → back on the <b>5m</b>, wait for the change of character and put your limit at the start of the gap, stop behind the swing, 3R or more. Edge scores the trade when it closes.</p>${coach}` : `<p class="sim-hint" style="margin:4px 0 8px">Pick <b>Long</b> or <b>Short</b> on the chart's toolbar and tap where you want in${P.strategy === "london" ? " — or <b>✨</b> to draw the plan once the box is set" : ""}. Drag to adjust (it snaps to the ${P.strategy === "london" ? "box edges" : "zone edges"}, your lines and whole R). <b>Press and hold</b> a position → <b>Create order…</b></p>${coach}`);
+    const hint = S.tools.length || S.orders.length ? coach : (P.strategy === "sd" ? `<p class="sim-hint" style="margin:4px 0 8px">Your playbook: switch to <b>W · D · 4H</b> and mark the zones → find the fresh <b>15m</b> zone in the trend → back on the <b>5m</b>, wait for the change of character and put your limit at the start of the gap, stop behind the swing, 3R or more. Edge scores the trade when it closes.</p>${coach}` : `<p class="sim-hint" style="margin:4px 0 8px">Pick <b>Long</b> or <b>Short</b> on the chart's toolbar and tap where you want in${P.strategy === "london" ? " — or <b>✨</b> to draw the plan once the box is set" : ""}. Drag to adjust (turn on 🧲 if you want it to snap to candles and your lines). <b>Press and hold</b> a position → <b>Create order…</b></p>${coach}`);
     el.innerHTML = `${clock}${hint}${toolsHtml}${S.orders.length ? `<div class="sim-orders">${orderRows()}</div>` : ""}<button class="btn small" data-s="tk" style="margin-top:8px">＋ New order (type prices)</button>`;
   }
   const orderRows = () => S.orders.map((o, i) => `<div class="row between"><span>${o.side > 0 ? "▲ BUY" : "▼ SELL"} ${o.type.toUpperCase()} ${o.qty || ""} <b>${fmt(o.price)}</b> <small class="muted">SL ${fmt(o.sl)} · TP ${o.tp != null ? fmt(o.tp) : "—"}</small></span><span class="row"><button class="btn small" data-s="tk" data-a="ord:${i}">Edit</button><button class="btn small" data-s="del" data-a="ord:${i}">Cancel</button></span></div>`).join("");
 
   // ---------- pick the day you train on: any day since 2019 (Databento) or the last 60 days, and when the replay starts
   const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const STARTS = { london: [[18 * 60, "Asian 18:00"], [120, "London 02:00"], [480, "New York 08:00"]], sd: [[18 * 60, "Asian 18:00"], [120, "London 02:00"], [480, "New York 08:00"]], ngzone: [[180, "03:00"], [360, "Window 06:00"], [660, "Window 11:00"]] };
+  const STARTS = { london: [[18 * 60, "Asian 18:00"], [120, "London 02:00"], [480, "New York 08:00"]], sd: [[18 * 60, "Asian 18:00"], [120, "London 02:00"], [480, "New York 08:00"]], free: [[18 * 60, "Asian 18:00"], [120, "London 02:00"], [480, "New York 08:00"]], ngzone: [[180, "03:00"], [360, "Window 06:00"], [660, "Window 11:00"]] };
   function startAt(market) { try { const v = localStorage.getItem(`edge.sim.at.${market}`); if (v != null) return Number(v); } catch {} return null; }
   const lastMonth = (y) => { const n = new Date(Date.now() - 864e5); return y < n.getUTCFullYear() ? 12 : n.getUTCMonth() + 1; };
   const pkMonthStr = () => `${PK.year}-${String(PK.month).padStart(2, "0")}`;
@@ -1652,6 +1675,7 @@
     const tr = S.trades[n];
     stop(); $("#simBanner").hidden = true;
     S.reviewing = { n, k: 0, items: tr.findings };
+    showPanel(true, false); // the review lives in the panel
     showReview();
     // keep the drawings glued to the candles while the chart rescales or you zoom
     const loop = () => { if (!S || !S.reviewing) return; drawOverlay(); requestAnimationFrame(loop); };
@@ -1671,6 +1695,7 @@
 
   // ---------- end of the session: what went well, common mistakes, what to do
   function endSession() {
+    showPanel(true, false);
     stop();
     if (!S.ended) { S.ended = true; S.orders = []; if (S.pos) { const b = S.bars[S.i]; exit(b.c, b, "16:40 close-out"); } $("#simBanner").hidden = true; drawLines(); endOfDay(); }
     const P = S.P, tot = S.trades.reduce((x, t) => x + t.R, 0), counts = {};
@@ -1718,7 +1743,7 @@
       case "vema": { const n = Number(a), e = S.view.ema.includes(n) ? S.view.ema.filter((x) => x !== n) : [...S.view.ema, n].sort((x, y) => x - y); setView({ ema: e }); return viewMenu("ind", $('#tvBar [data-a="ind"]')); }
       case "vpdhl": setView({ pdhl: !S.view.pdhl }); return viewMenu("ind", $('#tvBar [data-a="ind"]'));
       case "vseps": setView({ seps: !S.view.seps }); return viewMenu("ind", $('#tvBar [data-a="ind"]'));
-      case "vstrat": try { localStorage.setItem(`edge.sim.strat.${S.market}`, a); } catch {} closeMenu(); return start(S.market, { day: S.day, src: S.src, month: S.month, seq: S.seq }).catch((e) => toast(e.message));
+      case "vstrat": try { localStorage.setItem(`edge.sim.strat.${S.market}`, a === "ngzone" ? "london" : a); } catch {} closeMenu(); return start(S.market, { day: S.day, src: S.src, month: S.month, seq: S.seq }).catch((e) => toast(e.message));
       case "vzones": S.view.zones = S.view.zones === false; saveView(); viewBar(); return;
       case "vhints": S.view.hints = S.view.hints === false; saveView(); viewBar(); return panel();
       case "vclock": return setView({ clock: S.view.clock === "ny" ? "local" : "ny" });
@@ -1764,6 +1789,7 @@
       case "undo": return undoRedo(true);
       case "redo": return undoRedo(false);
       case "magnet": return toggleMagnet();
+      case "panel": return showPanel($("#sim").classList.contains("nopanel"));
       case "alert": { closeMenu(); const o = objOf(a); if (!o || o.kind !== "draw") return; hist(); o.t.alert = !o.t.alert; o.t.alertFired = false; return toast(o.t.alert ? "🔔 Alert set — the replay pauses with a sound when price gets there." : "Alert removed."); }
       case "alerthere": return alertHere();
       case "latest": chart.timeScale().scrollToRealTime(); return;
