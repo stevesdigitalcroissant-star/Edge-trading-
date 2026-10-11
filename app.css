@@ -798,7 +798,7 @@ body.home-on main#view { padding-top: 14px; }
 .hm-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
 .hm-act { display: flex; gap: 12px; }
 .hm-act .link, .hm-act a { font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: none; background: none; border: 0; padding: 0; cursor: pointer; }
-@media (min-width: 1100px) {
+@media (min-width: 1280px) {
   body.home-on .shell { display: grid; grid-template-columns: minmax(0, 1fr) 460px; gap: 18px; max-width: 1560px; margin: 0 auto; padding: 18px 20px 0; align-items: start; }
   body.home-on .home { position: sticky; top: 76px; margin: 0; max-width: none; height: calc(100vh - 190px); }
   body.home-on .hm-chart { flex: 1; height: auto; min-height: 360px; }
@@ -813,3 +813,42 @@ body.home-on main#view { padding-top: 14px; }
 .setup-steps .su-row p { margin: 2px 0 0; font-size: 12.5px; }
 .setup-steps .su-row.ok b { color: var(--muted); }
 .su-how { margin-top: 6px; font-size: 13px; } .su-how summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+
+/* ---------- PC & iPad: use the width */
+@media (min-width: 760px) {
+  /* cards flow in two columns; the big ones run across both */
+  main#view { max-width: 1240px; display: block; columns: 2; column-gap: 16px; padding-left: 20px; padding-right: 20px; }
+  main#view > * { break-inside: avoid; margin: 0 0 16px; width: 100%; }
+  main#view > .hero, main#view > .banner, main#view > .confirm, main#view > [data-tour="sim"], main#view > [data-tour="playbook"], main#view > [data-tour="journal"],
+  main#view > [data-tour="setups"], main#view > [data-tour="open"], main#view > #planCard.open, main#view > .adv, main#view > .setup-steps { column-span: all; }
+  .home { width: calc(100% - 40px); max-width: 1200px; margin: 18px auto 0; }
+  .hm-chart { height: max(380px, 52vh); }
+  .sim-tiles { grid-template-columns: repeat(8, 1fr); }
+  .adv[open] { display: block; }
+  .tour-bub { max-width: 520px; }
+}
+@media (min-width: 760px) and (max-width: 1023px) { .sim-tiles { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 1024px) {
+  /* the menu moves to a rail on the left */
+  #app { padding-left: 96px; }
+  .tabs { left: 14px; top: 76px; bottom: auto; transform: none; width: 76px; grid-template-columns: 1fr; gap: 6px; padding: 8px 6px; border-radius: 20px; }
+  .tabs button { padding: 10px 0 9px; }
+  .tabs button.on::before { top: 50%; left: -7px; width: 2px; height: 18px; margin: -9px 0 0; }
+  .top { margin-left: -96px; padding-left: 18px; }
+  main#view { padding-bottom: 40px; }
+  .toast { bottom: 24px; }
+}
+@media (min-width: 1280px) {
+  body.home-on .shell { padding-left: 0; }
+  body.home-on .home { width: auto; max-width: none; }
+  body.home-on main#view { columns: 1; padding: 0 0 40px; }
+  body.home-on .home { height: calc(100vh - 110px); }
+}
+@media (min-width: 760px) {
+  #coachBody { display: contents; } /* its cards join the two-column flow */
+  main#view > [data-tour="train"], main#view [data-tour="train"] { column-span: all; }
+  #coachBody > * { break-inside: avoid; margin: 0 0 16px; }
+  #coachBody > [data-tour="sim"], #coachBody > [data-tour="playbook"], #coachBody > [data-tour="reviews"], #coachBody > .hero { column-span: all; }
+}
+@media (min-width: 1600px) { main#view { max-width: 1440px; } }
+@media (min-width: 760px) { #coachBody > .readiness:not(:has(+ [data-tour="progress"])) { column-span: all; } }

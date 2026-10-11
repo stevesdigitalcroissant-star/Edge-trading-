@@ -186,6 +186,7 @@
   const qtyFor = (z, risk) => (z && z.kind === "futures" && z.riskPerContract > 0 ? Math.floor(risk / z.riskPerContract + 1e-9) : null);
 
   function render() {
+    document.body.dataset.tab = tab; // wide screens lay each screen out differently
     for (const b of document.querySelectorAll("#tabs button")) b.classList.toggle("on", b.dataset.tab === tab || (tab === "watch" && b.dataset.tab === "now") || (tab === "bias" && b.dataset.tab === "rules"));
     const live = S.setups.filter((x) => x.status === "open" && x.g.take.ok && !(x.expires && S.now > x.expires)).length;
     $("#setupBadge").hidden = !live; $("#setupBadge").textContent = live;
@@ -677,7 +678,7 @@
       <div class="ring"><svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="7"/>
         <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="url(#goldGrad)" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct / 100)}"/></svg>
         <div class="lbl"><b>${last.length ? `${pct}%` : "—"}</b><small>rules kept</small></div></div></section>`;
-    const sims = [["nq", "💻", "Nasdaq", "MNQ"], ["es", "🇺🇸", "S&P 500", "MES"], ["ym", "🏛️", "Dow", "MYM"], ["gold", "🥇", "Gold", "MGC"], ["silver", "🥈", "Silver", "SIL"], ["crude", "🛢️", "Crude oil", "MCL"], ["copper", "🟠", "Copper", "MHG"], ["natgas", "🔥", "Natural gas", "QG"]];
+    const sims = [["nq", "💻", "Nasdaq", "MNQ"], ["es", "🗽", "S&P 500", "MES"], ["ym", "🏛️", "Dow", "MYM"], ["gold", "🥇", "Gold", "MGC"], ["silver", "🥈", "Silver", "SIL"], ["crude", "🛢️", "Crude oil", "MCL"], ["copper", "🟠", "Copper", "MHG"], ["natgas", "🔥", "Natural gas", "QG"]];
     const practice = `<section class="card" data-tour="sim"><div class="card-head"><h2>🕹 Practice</h2><span class="muted">real past days · like TradingView</span></div>
       <div class="sim-tiles">${sims.map(([m, ic, n, c]) => `<button type="button" class="sim-tile" data-sim="${m}"><span>${ic}</span><b>${n}</b><small>${c}</small></button>`).join("")}</div>
       <p class="muted" style="margin:10px 0 0;font-size:12.5px">Start on the weekly / daily / 4H, mark the zones, drop to the 15m, then take the trade on the 5m. Every trade gets a scorecard.</p></section>`;
@@ -710,7 +711,7 @@
       <div class="odds"><div><b>${Rd.n}</b><small>practice trades</small></div><div><b class="${Rd.expectancy > 0.3 ? "good" : Rd.expectancy < 0 ? "bad" : ""}">${Rd.expectancy == null ? "—" : rs(Rd.expectancy)}</b><small>average a trade</small></div><div><b>${Rd.keptPct == null ? "—" : `${Rd.keptPct}%`}</b><small>playbook kept</small></div></div>
       ${Rd.ready ? `<div class="insight good"><span>✅</span><div><b>Your practice shows an edge, with the rules kept.</b><p>Go live small — the risk autopilot keeps you inside the firm's rules.</p></div></div>` : `<ul class="why">${Rd.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`}
       ${od ? `<p class="muted" style="margin:8px 0 0">${od.usedOwn ? "With your results" : "With your playbook's tested results (+0.66R a trade)"}, on your prop account: <b>${Math.round(od.pass5 * 100)}%</b> chance to pass in 5 trading days, <b>${Math.round(od.passN * 100)}%</b> in 20, <b>${Math.round(od.fail * 100)}%</b> to fail.</p>` : ""}</section>` : "";
-    return `${hero}${ready}${practice}${progress}${trades}${book}`;
+    return `${hero}${practice}${ready}${progress}${trades}${book}`;
   }
   function bindCoach() {
     const v = $("#coachBody"); if (!v) return;
