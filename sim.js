@@ -305,7 +305,7 @@
     if (at != null && at !== 18 * 60) { const j = all.findIndex((b, k) => k >= startI && b.cme === day && b.min >= at && b.min < 18 * 60); if (j > 0) startI = j; } // your chosen start time
     S = { market, P, day, bars: all, sess, i: startI, from: 0, view: viewPrefs(market), speed: 1, orders: [], pos: null, trades: [], plan: P.strategy === "london" ? londonPlan(sess, P) : null, reviewing: null, tools: [], draws: [], undo: [], redo: [], aim: null, magnet: magnetPref(), mode: null, pend: null, sel: null, tk: null, tkLines: null, src: useDb ? "db" : "free", month, days: data.days, seq: !!o.seq,
       sd: P.strategy === "sd" ? window.EdgeStrategy2.run(all, market, SD_RULES) : null }; // only ever read up to the current candle (no peeking)
-    closeTicket(); closeMenu(); if (S) modeUi();
+    closeTicket(); closeMenu(); closeDlg(); if (S) modeUi();
     { const a = acct(); S.dayStart = a.balance; S.dayLock = null; }
     setTimeout(paintPnl, 0);
     buildChart();
@@ -351,31 +351,33 @@
       return { priceRange: { minValue: Math.min(r.priceRange.minValue, ...xs), maxValue: Math.max(r.priceRange.maxValue, ...xs) }, margins: r.margins };
     } });
     chart.subscribeClick((p) => { if (!p.point || !S || S.reviewing || S.justDragged || S.mode || Date.now() - (S.tapAt || 0) < 400) return; chartTap(p.point.x, p.point.y); });
-    // while a drawing tool is picked, our own tap detection places it (sturdier than the chart's click on touch screens)
-    // drawing: a crosshair shows exactly where the tool will land. Mouse: it follows the pointer — click to place.
-    // Touch: press and drag — the crosshair sits above your finger so you can see it; lift to place. A quick tap places it right there.
+    // drawing (like TradingView): the crosshair is right under your finger / pointer, with its exact price and time on the axes.
+    // Zones and trend lines: press, drag them out, lift — or tap one corner, then tap the other. Lines and positions: tap where you want them.
     let down = null;
     if (!el.__wired) { el.__wired = true; // once per simulator (the chart itself is rebuilt when you change the view)
     const rel = (e) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
     el.addEventListener("pointerdown", (e) => {
       down = null;
-      if (!S || !S.mode || S.reviewing || e.target.closest("[data-k],.tv-tools,.tv-sel,.sim-banner,button")) return;
-      const p = rel(e), touch = e.pointerType !== "mouse";
-      down = { ...p, t: Date.now(), touch, moved: false, ax: p.x, ay: touch ? p.y - AIM_UP : p.y };
-      if (touch) { e.preventDefault(); S.aim = aimAt(down.ax, down.ay); }
+      if (!S || !S.mode || S.reviewing || e.button > 0 || e.target.closest("[data-k],.tv-tools,.tv-sel,.sim-banner,button")) return;
+      e.preventDefault();
+      try { el.setPointerCapture(e.pointerId); } catch {}
+      const p = rel(e);
+      S.aim = aimAt(p.x, p.y);
+      down = { ...p, moved: false, started: false };
+      if ((S.mode === "r" || S.mode === "t") && !S.pend && S.aim) { S.pend = { i: S.aim.i, p: S.aim.p }; down.started = true; modeUi(); }
     }, true);
     el.addEventListener("pointermove", (e) => {
-      if (!S || !S.mode) return;
+      if (!S || !S.mode || (e.pointerType !== "mouse" && !down)) return;
       const p = rel(e);
-      if (down && down.touch) { if (Math.hypot(p.x - down.x, p.y - down.y) > 6) down.moved = true; S.aim = aimAt(down.ax + p.x - down.x, down.ay + p.y - down.y); }
-      else if (e.pointerType === "mouse") S.aim = aimAt(p.x, p.y);
+      if (down && Math.hypot(p.x - down.x, p.y - down.y) > 8) down.moved = true;
+      S.aim = aimAt(p.x, p.y);
     }, true);
     el.addEventListener("pointerup", (e) => {
       if (!down || !S || !S.mode) return;
       const d = down, p = rel(e); down = null; S.tapAt = Date.now();
-      if (d.touch) return place(d.moved || Date.now() - d.t > 350 ? S.aim : aimAt(d.x, d.y));
-      if (Math.hypot(p.x - d.x, p.y - d.y) > 10 || Date.now() - d.t > 800) return;
-      place(aimAt(p.x, p.y));
+      S.aim = aimAt(p.x, p.y);
+      if (d.started && !d.moved) return; // tapped the first corner: now tap (or drag to) the second
+      place(S.aim);
     }, true);
     el.addEventListener("pointercancel", () => { down = null; }, true);
     el.addEventListener("pointerleave", (e) => { if (S && !down && e.pointerType === "mouse" && !S.pend) S.aim = null; });
@@ -628,38 +630,53 @@
         const x = ts.logicalToCoordinate(gi - 0.5); if (x != null) back += `<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="#9598a1" stroke-opacity=".7" stroke-dasharray="4 4"/>`;
       }
     }
-    // your lines, rectangles and trend lines (in your colours; zones and lines can stretch left / right like TradingView)
+    // your lines, zones (rectangles) and trend lines — styled like TradingView: border, background, middle line, text, extend
+    const hz = (k, x, y, f, sq) => `<circle cx="${x}" cy="${y}" r="17" class="hz" data-k="${k}" data-f="${f}"/>` + (sq ? `<rect x="${x - 6}" y="${y - 6}" width="12" height="12" rx="3" class="h" data-k="${k}" data-f="${f}"/>` : `<circle cx="${x}" cy="${y}" r="6.5" class="h" data-k="${k}" data-f="${f}"/>`);
+    let axis = "";
     S.draws.forEach((d, n) => {
-      const k = `dr:${n}`, sel = S.sel === k, st = { ...DEF[d.type], ...d }, dash = st.dash ? 'stroke-dasharray="6 4"' : "", lw = st.lw + (sel ? 0.75 : 0);
+      if (d.hide && d.hide.includes(S.view.tf)) return; // hidden on this timeframe (Visibility)
+      const k = `dr:${n}`, sel = S.sel === k, st = dStyle(d), dash = st.dash ? 'stroke-dasharray="6 4"' : "", lw = st.lw;
       if (d.type === "h") {
         const y = Y(d.p); if (y == null) return;
-        back += `<line x1="0" x2="${W}" y1="${y}" y2="${y}" stroke="${st.color}" stroke-width="${lw}" ${dash}/><text x="${W - 6}" y="${y - 5}" text-anchor="end" class="tt" fill="${st.color}">${fmt(d.p)}</text>`;
+        back += `<line x1="0" x2="${W}" y1="${y}" y2="${y}" stroke="${st.color}" stroke-width="${lw}" ${dash}/>` + dText(st, 0, W, y, y);
         front += `<line x1="0" x2="${W}" y1="${y}" y2="${y}" class="hit" data-k="${k}" data-f="body"/>`;
-        if (sel) front += `<rect x="${W / 2 - 6}" y="${y - 6}" width="12" height="12" class="h" data-k="${k}" data-f="body"/>`;
-      } else {
-        const x1 = L2X(d.i1), x2 = L2X(d.i2), y1 = Y(d.p1), y2 = Y(d.p2);
-        if ([x1, x2, y1, y2].some((v) => v == null)) return;
-        if (d.type === "r") {
-          const xa = st.xl ? 0 : Math.min(x1, x2), xb = st.xr ? W : Math.max(x1, x2), ya = Math.min(y1, y2), hh = Math.abs(y2 - y1);
-          back += `<rect x="${xa}" y="${ya}" width="${Math.max(1, xb - xa)}" height="${hh}" fill="${st.color}" fill-opacity="${st.fill}" stroke="${st.color}" stroke-width="${lw}" ${dash}/>`;
-          front += `<rect x="${xa}" y="${ya}" width="${Math.max(1, xb - xa)}" height="${hh}" class="body" data-k="${k}" data-f="body"/>`;
-          if (sel) front += `<circle cx="${x1}" cy="${y2}" r="6" class="h" data-k="${k}" data-f="c"/><circle cx="${x2}" cy="${y1}" r="6" class="h" data-k="${k}" data-f="d"/>`;
-        } else {
-          let [ax, ay, bx, by] = x1 <= x2 ? [x1, y1, x2, y2] : [x2, y2, x1, y1];
-          const m = bx !== ax ? (by - ay) / (bx - ax) : 0;
-          if (st.xl && bx !== ax) { ay -= m * ax; ax = 0; }
-          if (st.xr && bx !== ax) { by += m * (W - bx); bx = W; }
-          back += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="${st.color}" stroke-width="${lw}" ${dash}/>`;
-          front += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" class="hit" data-k="${k}" data-f="body"/>`;
+        if (sel) { front += hz(k, W / 2, y, "body", true); axis += axP(W, y, d.p); }
+        return;
+      }
+      const x1 = L2X(d.i1), x2 = L2X(d.i2), y1 = Y(d.p1), y2 = Y(d.p2);
+      if ([x1, x2, y1, y2].some((v) => v == null)) return;
+      if (d.type === "r") {
+        const xa = st.xl ? 0 : Math.min(x1, x2), xb = st.xr ? W : Math.max(x1, x2), ya = Math.min(y1, y2), yb = Math.max(y1, y2), w = Math.max(1, xb - xa), hh = Math.max(1, yb - ya);
+        back += `<rect x="${xa}" y="${ya}" width="${w}" height="${hh}" fill="${st.bg}" fill-opacity="${st.fill}" stroke="none"/>`;
+        if (st.border) back += `<rect x="${xa}" y="${ya}" width="${w}" height="${hh}" fill="none" stroke="${st.color}" stroke-width="${lw}" ${dash}/>`;
+        if (st.mid) back += `<line x1="${xa}" x2="${xb}" y1="${(ya + yb) / 2}" y2="${(ya + yb) / 2}" stroke="${st.color}" stroke-width="1" stroke-dasharray="5 4" stroke-opacity=".85"/>`;
+        back += dText(st, xa, xb, ya, yb);
+        front += `<rect x="${xa}" y="${ya}" width="${w}" height="${hh}" class="body" data-k="${k}" data-f="body"/>`;
+        if (sel) {
+          const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+          front += `<rect x="${Math.min(x1, x2)}" y="${ya}" width="${Math.abs(x2 - x1)}" height="${hh}" fill="none" stroke="#2962ff" stroke-width="1" stroke-opacity=".6" pointer-events="none"/>`;
+          front += hz(k, x1, my, "e1", true) + hz(k, x2, my, "e2", true) + hz(k, mx, y1, "p1", true) + hz(k, mx, y2, "p2", true);
+          front += hz(k, x1, y1, "a") + hz(k, x2, y2, "b") + hz(k, x1, y2, "c") + hz(k, x2, y1, "d");
         }
-        if (sel) front += `<circle cx="${x1}" cy="${y1}" r="6" class="h" data-k="${k}" data-f="a"/><circle cx="${x2}" cy="${y2}" r="6" class="h" data-k="${k}" data-f="b"/>`;
+      } else {
+        let [ax, ay, bx, by] = x1 <= x2 ? [x1, y1, x2, y2] : [x2, y2, x1, y1];
+        const m = bx !== ax ? (by - ay) / (bx - ax) : 0;
+        if (st.xl && bx !== ax) { ay -= m * ax; ax = 0; }
+        if (st.xr && bx !== ax) { by += m * (W - bx); bx = W; }
+        back += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="${st.color}" stroke-width="${lw}" stroke-linecap="round" ${dash}/>` + dText(st, Math.min(x1, x2), Math.max(x1, x2), (y1 + y2) / 2, (y1 + y2) / 2);
+        front += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" class="hit" data-k="${k}" data-f="body"/>`;
+        if (sel) front += hz(k, x1, y1, "a") + hz(k, x2, y2, "b");
+      }
+      if (sel) { // the zone's exact prices and times on the axes, like TradingView
+        axis += axP(W, y1, d.p1) + axP(W, y2, d.p2) + axT(x1, H, d.i1) + axT(x2, H, d.i2);
+        if (d.type === "r") axis += `<rect x="${W}" y="${Math.min(y1, y2)}" width="6" height="${Math.abs(y2 - y1)}" fill="#2962ff" fill-opacity=".35"/>`;
       }
     });
     if (S.pend) { // first corner of a rectangle / trend line, waiting for the second point
-      const x = L2X(S.pend.i), y = Y(S.pend.p), c = S.aim ? { x: L2X(S.aim.i), y: Y(S.aim.p) } : S.hover, st = styleOf(S.mode);
+      const x = L2X(S.pend.i), y = Y(S.pend.p), c = S.aim ? { x: L2X(S.aim.i), y: Y(S.aim.p) } : S.hover, st = dStyle({ type: S.mode, ...styleOf(S.mode) });
       if (x != null && y != null) {
         back += `<circle cx="${x}" cy="${y}" r="4" fill="${st.color}"/>`;
-        if (c && c.x != null && c.y != null) back += S.mode === "r" ? `<rect x="${Math.min(x, c.x)}" y="${Math.min(y, c.y)}" width="${Math.abs(c.x - x)}" height="${Math.abs(c.y - y)}" fill="${st.color}" fill-opacity="${st.fill ?? 0.15}" stroke="${st.color}" stroke-dasharray="4 3"/>` : `<line x1="${x}" y1="${y}" x2="${c.x}" y2="${c.y}" stroke="${st.color}" stroke-width="2" stroke-dasharray="4 3"/>`;
+        if (c && c.x != null && c.y != null) back += S.mode === "r" ? `<rect x="${Math.min(x, c.x)}" y="${Math.min(y, c.y)}" width="${Math.abs(c.x - x)}" height="${Math.abs(c.y - y)}" fill="${st.bg}" fill-opacity="${st.fill}" stroke="${st.color}" stroke-width="${st.lw}"/>` : `<line x1="${x}" y1="${y}" x2="${c.x}" y2="${c.y}" stroke="${st.color}" stroke-width="2" stroke-dasharray="4 3"/>`;
       }
     }
     // long / short positions, pending orders and the open trade
@@ -702,11 +719,20 @@
       const cw = $("#simChart").clientWidth, btns = so.kind === "tool"
         ? `<button data-s="tk" data-a="${so.k}" class="go ${so.dir > 0 ? "buy" : "sell"}">${kindOf(so.t) === "market" ? (so.dir > 0 ? "Buy" : "Sell") : `${kindOf(so.t) === "limit" ? "Limit" : "Stop"} order`}…</button><button data-s="clone" data-a="${so.k}" title="Clone">⧉</button><button data-s="rev" data-a="${so.k}" title="Reverse">⇅</button>`
         : so.kind === "ord" ? `<button data-s="tk" data-a="${so.k}" class="go">Edit order…</button>`
-        : so.kind === "pos" ? `<button data-s="be" ${so.t.beAt != null ? "disabled" : ""}>🛡️ Stop to entry</button><button data-s="closepos" class="go sell">Close</button>`
-        : `<button data-s="menu" data-a="${so.k}" title="Colour, fill, extend"><span class="tv-dot" style="background:${({ ...DEF[so.t.type], ...so.t }).color}"></span></button>${so.t.type !== "h" ? `<button data-s="dsty" data-a="${so.k}" data-f="xr" data-v="${so.t.xr ? 0 : 1}" class="${so.t.xr ? "on" : ""}" title="Extend right">⇥</button>` : ""}`;
-      bar = `<div class="tv-sel" style="left:${Math.max(4, Math.min(x, cw - 230))}px;top:${Math.max(48, Math.min(y - 64, H - 90))}px">${btns}<button data-s="menu" data-a="${so.k}" title="More">⋯</button>${so.kind === "pos" ? "" : `<button data-s="del" data-a="${so.k}" title="${so.kind === "ord" ? "Cancel order" : "Remove"}">🗑</button>`}</div>`;
+        : so.kind === "pos" ? `<button data-s="be" ${so.t.beAt != null ? "disabled" : ""}>🛡️ Stop to entry</button><button data-s="closepos" class="go sell">Close</button>` : "";
+      if (so.kind === "draw") { // TradingView's floating bar for a drawing: line colour · fill · text · width · style · settings · lock · delete
+        const d = so.t, st = dStyle(d), k = so.k;
+        bar = `<div class="tv-sel tv-dbar"><button data-s="dpop" data-a="${k}" data-f="color" title="Line colour"><svg viewBox="0 0 24 24"><path d="M4 20l4-1L19 8l-3-3L5 16z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><i style="background:${st.color}"></i></button>`
+          + (d.type === "r" ? `<button data-s="dpop" data-a="${k}" data-f="bg" title="Background"><svg viewBox="0 0 24 24"><path d="M6 11l6-6 7 7-6 6z M18 15c1 1.5 1.5 2.3 1.5 3a1.5 1.5 0 0 1-3 0c0-.7.5-1.5 1.5-3z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><i style="background:${st.bg}"></i></button>` : "")
+          + `<button data-s="ddlg" data-a="${k}" data-f="text" title="Text"><b>T</b>${st.text ? "<i style=\"background:#2962ff\"></i>" : ""}</button>`
+          + `<button data-s="dsty" data-a="${k}" data-f="lw" data-v="${st.lw >= 4 ? 1 : Math.floor(st.lw) + 1}" title="Line width">— ${Math.floor(st.lw)}px</button>`
+          + `<button data-s="dsty" data-a="${k}" data-f="dash" data-v="${st.dash ? 0 : 1}" title="Line style">${st.dash ? "┄" : "—"}</button>`
+          + `<button data-s="ddlg" data-a="${k}" data-f="style" title="Settings">⚙︎</button>`
+          + `<button data-s="lock" data-a="${k}" title="${d.lock ? "Unlock" : "Lock"}">${d.lock ? "🔒" : "🔓"}</button>`
+          + `<button data-s="del" data-a="${k}" title="Remove">🗑</button><button data-s="menu" data-a="${k}" title="More">⋯</button></div>`;
+      } else bar = `<div class="tv-sel" style="left:${Math.max(4, Math.min(x, cw - 230))}px;top:${Math.max(48, Math.min(y - 64, H - 90))}px">${btns}<button data-s="menu" data-a="${so.k}" title="More">⋯</button>${so.kind === "pos" ? "" : `<button data-s="del" data-a="${so.k}" title="${so.kind === "ord" ? "Cancel order" : "Remove"}">🗑</button>`}</div>`;
     }
-    const html = back + front;
+    const html = back + front + axis;
     if (html !== svg.__last) { svg.__last = html; svg.innerHTML = html; }
     if (bar !== tb.__last) { tb.__last = bar; tb.innerHTML = bar; }
   }
@@ -739,6 +765,10 @@
         else if (f === "b") { a = at(st.i2 + dl, st.p2 + dp); t.i2 = a.i; t.p2 = a.p; }
         else if (f === "c") { a = at(st.i1 + dl, st.p2 + dp); t.i1 = a.i; t.p2 = a.p; }
         else if (f === "d") { a = at(st.i2 + dl, st.p1 + dp); t.i2 = a.i; t.p1 = a.p; }
+        else if (f === "e1") { t.i1 = st.i1 + dl; a = { i: t.i1, p: (t.p1 + t.p2) / 2 }; } // one side only (left / right edge)
+        else if (f === "e2") { t.i2 = st.i2 + dl; a = { i: t.i2, p: (t.p1 + t.p2) / 2 }; }
+        else if (f === "p1") { a = at(Math.round((st.i1 + st.i2) / 2), st.p1 + dp); t.p1 = a.p; } // one edge only (top / bottom)
+        else if (f === "p2") { a = at(Math.round((st.i1 + st.i2) / 2), st.p2 + dp); t.p2 = a.p; }
         else { t.i1 = st.i1 + dl; t.i2 = st.i2 + dl; t.p1 = onTick(st.p1 + dp); t.p2 = onTick(st.p2 + dp); }
         S.dragAim = a;
         return;
@@ -800,16 +830,7 @@
         + it("clone", "Clone", "⧉") + it("rev", "Reverse", "⇅") + it("lock", o.t.lock ? "Unlock" : "Lock", o.t.lock ? "🔓" : "🔒") + hr + it("del", "Remove", "🗑", "bad");
     } else if (o.kind === "ord") html = it("tk", "Edit order…", "✎", "strong") + it("del", "Cancel order", "✕", "bad");
     else if (o.kind === "pos") html = (o.t.beAt == null ? it("be", "Move stop to entry", "🛡️") : "") + it("closepos", "Close position", "✕", "bad");
-    else { // a drawing: its look (remembered for the next one you draw, like TradingView)
-      const d = o.t, st = { ...DEF[d.type], ...d };
-      const opt = (f, v, label, on, extra = "") => `<button data-s="dsty" data-a="${k}" data-f="${f}" data-v="${v}" class="${on ? "on" : ""}" ${extra}>${label}</button>`;
-      const row = (name, h) => `<div class="tv-sty-r"><span>${name}</span><div>${h}</div></div>`;
-      html = `<div class="tv-sty"><div class="tv-sw">${COLORS.map((c) => opt("color", c, "", st.color === c, `style="background:${c}" title="${c}"`)).join("")}</div>`
-        + (d.type === "r" ? row("Fill", [0, 0.1, 0.18, 0.3, 0.5].map((v) => opt("fill", v, v ? `${Math.round(v * 100)}%` : "None", st.fill === v)).join("")) : "")
-        + row("Line", [1, 2, 3].map((v) => opt("lw", v, `${v}px`, Math.round(st.lw) === v)).join("") + opt("dash", st.dash ? 0 : 1, "┄ Dashed", st.dash))
-        + (d.type !== "h" ? row("Extend", opt("xl", st.xl ? 0 : 1, "← Left", st.xl) + opt("xr", st.xr ? 0 : 1, "Right →", st.xr)) : "") + "</div>" + hr
-        + it("clone", "Clone", "⧉") + it("lock", d.lock ? "Unlock" : "Lock", d.lock ? "🔓" : "🔒") + hr + it("del", "Remove", "🗑", "bad") + it("delall", "Remove all drawings", "🧹", "bad");
-    }
+    else html = it("ddlg", "Settings…", "⚙︎", "strong") + it("clone", "Clone", "⧉") + it("lock", o.t.lock ? "Unlock" : "Lock", o.t.lock ? "🔒" : "🔓") + hr + it("del", "Remove", "🗑", "bad") + it("delall", "Remove all drawings", "🧹", "bad");
     const m = document.createElement("div");
     m.id = "tvMenu"; m.className = "tv-menu"; m.innerHTML = html;
     $("#sim").appendChild(m);
@@ -818,6 +839,96 @@
     m.style.top = `${Math.max(6, Math.min(cy, innerHeight - r.height - 6))}px`;
   }
   function closeMenu() { const m = $("#tvMenu"); if (m) m.remove(); }
+  // colour popover (line colour, or background colour + opacity) — from the drawing's floating bar
+  function openPop(k, f, cx, cy) {
+    closeMenu();
+    const o = objOf(k); if (!o || o.kind !== "draw") return;
+    const st = dStyle(o.t), cur = st[f];
+    const m = document.createElement("div");
+    m.id = "tvMenu"; m.className = "tv-menu tv-pop";
+    m.innerHTML = `<div class="tv-sty"><div class="tv-sw">${COLORS.map((c) => `<button data-s="dsty" data-a="${k}" data-f="${f}" data-v="${c}" class="${cur === c ? "on" : ""}" style="background:${c}" title="${c}"></button>`).join("")}</div>`
+      + (f === "bg" ? `<label class="tv-op"><span>Opacity</span><input type="range" min="0" max="100" step="5" value="${Math.round(st.fill * 100)}" data-dk="fill" data-a="${k}"><b>${Math.round(st.fill * 100)}%</b></label>` : "")
+      + `<label class="tv-op"><span>Custom</span><input type="color" value="${/^#[0-9a-f]{6}$/i.test(cur) ? cur : "#2962ff"}" data-dk="${f}" data-a="${k}"></label></div>`;
+    m.addEventListener("input", popInput);
+    $("#sim").appendChild(m);
+    const r = m.getBoundingClientRect();
+    m.style.left = `${Math.max(6, Math.min(cx, innerWidth - r.width - 6))}px`;
+    m.style.top = `${Math.max(6, Math.min(cy, innerHeight - r.height - 6))}px`;
+    S.menuAt = { x: cx, y: cy }; S.keepMenu = true; setTimeout(() => { if (S) S.keepMenu = false; }, 300);
+  }
+  function popInput(ev) {
+    const el = ev.target, f = el.dataset.dk, o = objOf(el.dataset.a); if (!f || !o || o.kind !== "draw") return;
+    if (!S.popHist) { hist(); S.popHist = true; setTimeout(() => { if (S) S.popHist = false; }, 1500); } // one undo step per slide
+    o.t[f] = f === "fill" ? Number(el.value) / 100 : el.value;
+    if (f === "fill") { const b = el.parentNode.querySelector("b"); if (b) b.textContent = `${el.value}%`; }
+    saveStyle(o.t);
+  }
+
+  // ---------- drawing settings (TradingView's dialog): Style · Text · Coordinates · Visibility, with Cancel / Ok
+  const DNAME = { r: "Rectangle", h: "Horizontal line", t: "Trend line" };
+  function openDlg(k, tab = "style") {
+    closeMenu();
+    const o = objOf(k); if (!o || o.kind !== "draw") return;
+    if (!S.dlg || S.dlg.k !== k) S.dlg = { k, orig: JSON.stringify(o.t), before: drawState() };
+    S.dlg.tab = tab; S.sel = k;
+    renderDlg();
+  }
+  function renderDlg() {
+    const D = S.dlg, o = D && objOf(D.k); if (!o || !o.t) return closeDlg();
+    const d = o.t, st = dStyle(d), tab = D.tab, k = D.k;
+    let el = $("#tvDlg");
+    if (!el) { el = document.createElement("div"); el.id = "tvDlg"; el.className = "tv-tk-wrap"; $("#sim").appendChild(el); el.addEventListener("input", dlgInput); el.addEventListener("change", dlgInput); }
+    const sw = (f, cur) => `<div class="tv-sw sm">${COLORS.map((c) => `<button data-s="dset" data-f="${f}" data-v="${c}" class="${cur === c ? "on" : ""}" style="background:${c}"></button>`).join("")}<input type="color" data-dk="${f}" value="${/^#[0-9a-f]{6}$/i.test(cur) ? cur : "#2962ff"}" title="Custom colour"></div>`;
+    const chk = (f, on, label) => `<label class="tv-chk"><input type="checkbox" data-dk="${f}" ${on ? "checked" : ""}><span>${label}</span></label>`;
+    const sel = (f, cur, opts) => `<select data-dk="${f}">${opts.map(([v, l]) => `<option value="${v}" ${String(cur) === String(v) ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+    const ext = st.xl && st.xr ? "both" : st.xl ? "left" : st.xr ? "right" : "none";
+    let body = "";
+    if (tab === "style") {
+      body = (d.type !== "h" ? `<div class="tv-dr"><span>Extend</span>${sel("ext", ext, [["none", "Don't extend"], ["left", "Extend left"], ["right", "Extend right"], ["both", "Extend both"]])}</div>` : "")
+        + `<div class="tv-dr top"><span>${d.type === "r" ? chk("border", st.border, "Border") : "Line"}</span><div>${sw("color", st.color)}<div class="tv-dr2">${sel("lw", Math.floor(st.lw), [[1, "1px"], [2, "2px"], [3, "3px"], [4, "4px"]])}${sel("dash", st.dash ? 1 : 0, [[0, "Solid"], [1, "Dashed"]])}</div></div></div>`
+        + (d.type === "r" ? `<div class="tv-dr top"><span>${chk("bgon", st.fill > 0, "Background")}</span><div>${sw("bg", st.bg)}<label class="tv-op"><span>Opacity</span><input type="range" min="0" max="100" step="5" data-dk="fill" value="${Math.round(st.fill * 100)}"><b>${Math.round(st.fill * 100)}%</b></label></div></div>`
+          + `<div class="tv-dr">${chk("mid", st.mid, "Middle line (50% of the zone)")}</div>` : "");
+    } else if (tab === "text") {
+      body = `<div class="tv-dr2">${sel("ts", st.ts, [10, 11, 12, 14, 16, 20, 24].map((v) => [v, v]))}<button data-s="dset" data-f="tb" data-v="${st.tb ? 0 : 1}" class="tv-tbi ${st.tb ? "on" : ""}"><b>B</b></button><button data-s="dset" data-f="ti" data-v="${st.ti ? 0 : 1}" class="tv-tbi ${st.ti ? "on" : ""}"><i>I</i></button></div>${sw("tc", st.tc)}
+        <textarea data-dk="text" rows="3" placeholder="Add text — e.g. 4H demand, 15m zone, liquidity">${esc(d.text || "")}</textarea>
+        <div class="tv-dr"><span>Text alignment</span><div class="tv-dr2">${sel("tvv", st.tvv, d.type === "r" ? [["top", "Top"], ["middle", "Middle"], ["bottom", "Bottom"]] : [["top", "Above"], ["bottom", "Below"]])}${sel("tha", st.tha, [["left", "Left"], ["center", "Center"], ["right", "Right"]])}</div></div>`;
+    } else if (tab === "coords") {
+      const pt = (n, pf, iF) => `<div class="tv-dr"><span>#${n}</span><div class="tv-dr2"><label class="tv-num"><small>Price</small><input data-dk="${pf}" inputmode="decimal" value="${Number(d[pf]).toFixed(S.P.dec)}"></label>${iF ? `<label class="tv-num"><small>Time</small><span class="tv-nudge"><button data-s="dbar" data-f="${iF}" data-v="-1">‹</button><em>${esc(new Date(tOfIdx(d[iF])).toLocaleString([], { timeZone: S.view.clock === "ny" ? NYZ : undefined, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }))}</em><button data-s="dbar" data-f="${iF}" data-v="1">›</button></span></label>` : ""}</div></div>`;
+      body = d.type === "h" ? pt(1, "p") : pt(1, "p1", "i1") + pt(2, "p2", "i2");
+      body += `<p class="muted tv-note">Type the exact price of each edge — ‹ › moves a side by one candle of this chart.</p>`;
+    } else {
+      const hide = d.hide || [];
+      body = `<p class="muted tv-note">Show this drawing on:</p><div class="tv-vis">${TFS.map(([m, l]) => chk(`vis:${m}`, !hide.includes(m), l)).join("")}</div>`;
+    }
+    el.innerHTML = `<div class="tv-tk tv-dlg"><div class="tv-tk-h"><b>${DNAME[d.type] || "Drawing"}</b><span></span><button class="sim-x" data-s="dcancel" aria-label="Close">✕</button></div>
+      <div class="tv-tabs">${[["style", "Style"], ["text", "Text"], ["coords", "Coordinates"], ["vis", "Visibility"]].map(([t, l]) => `<button data-s="dtab" data-a="${t}" class="${tab === t ? "on" : ""}">${l}</button>`).join("")}</div>
+      <div class="tv-dbody">${body}</div>
+      <div class="tv-dfoot"><select data-dk="tpl"><option value="">Template</option><option value="save">Save as default</option><option value="reset">Reset to Edge's default</option></select><span></span><button class="btn" data-s="dcancel">Cancel</button><button class="btn primary" data-s="dok">Ok</button></div></div>`;
+  }
+  function dlgInput(ev) {
+    const el = ev.target, f = el.dataset.dk, D = S.dlg, o = D && objOf(D.k); if (!f || !o) return;
+    const d = o.t, v = el.type === "checkbox" ? el.checked : el.value;
+    if (f === "text") d.text = v;
+    else if (f === "ext") { d.xl = v === "left" || v === "both"; d.xr = v === "right" || v === "both"; }
+    else if (f === "border" || f === "mid") d[f] = v;
+    else if (f === "bgon") d.fill = v ? (Number(dStyle(d).fill) || 0.2) || 0.2 : 0;
+    else if (f === "fill") { d.fill = Number(v) / 100; const b = el.parentNode.querySelector("b"); if (b) b.textContent = `${v}%`; return; }
+    else if (f === "lw" || f === "ts") d[f] = Number(v);
+    else if (f === "dash") d.dash = v === "1";
+    else if (f === "tvv" || f === "tha" || f === "color" || f === "bg" || f === "tc") d[f] = v;
+    else if (f === "p" || f === "p1" || f === "p2") { const n = Number(String(v).replace(",", ".")); if (Number.isFinite(n) && n > 0) d[f] = onTick(n); return; }
+    else if (f.startsWith("vis:")) { const m = Number(f.slice(4)), h = new Set(d.hide || []); if (v) h.delete(m); else h.add(m); d.hide = [...h]; return; }
+    else if (f === "tpl") { if (v === "save") { saveStyle(d); toast(`Saved — new ${(DNAME[d.type] || "drawing").toLowerCase()}s will look like this.`); } else if (v === "reset") { for (const x of STYLE_KEYS(d.type)) delete d[x]; Object.assign(d, DEF[d.type], TXT); } el.value = ""; }
+    if (ev.type === "change" || el.tagName === "SELECT" || el.type === "checkbox" || el.type === "color") { if (f === "text") return; renderDlg(); }
+  }
+  function closeDlg() { const el = $("#tvDlg"); if (el) el.remove(); if (S) S.dlg = null; }
+  function dlgDone(ok) {
+    const D = S.dlg; if (!D) return closeDlg();
+    const o = objOf(D.k);
+    if (!ok) { if (o && o.t) { const orig = JSON.parse(D.orig); for (const x of Object.keys(o.t)) delete o.t[x]; Object.assign(o.t, orig); } }
+    else if (D.orig !== JSON.stringify(o && o.t)) { S.undo.push(D.before); S.redo = []; histUi(); if (o && o.t) saveStyle(o.t); }
+    closeDlg();
+  }
 
   // ---------- order ticket (like TradingView's): Market / Limit / Stop · risk in $ ⇄ contracts · take profit and stop loss
   function openTicket(k, market = false) {
@@ -926,7 +1037,7 @@
   }
   function remove(k) {
     if (!k) return;
-    if (k.startsWith("tool:") || k.startsWith("dr:")) hist();
+    if (k.startsWith("tool:") || k.startsWith("dr:")) { hist(); closeDlg(); }
     if (k.startsWith("tool:")) S.tools.splice(Number(k.slice(5)), 1);
     else if (k.startsWith("ord:")) { S.orders.splice(Number(k.slice(4)), 1); toast("Order cancelled."); }
     else if (k.startsWith("dr:")) S.draws.splice(Number(k.slice(3)), 1);
@@ -949,19 +1060,17 @@
       <button data-s="magnet" title="Magnet — snap to the candle's high, low, open or close (M)">${ICON.magnet}</button><button data-s="undo" title="Undo (Ctrl+Z)">${ICON.undo}</button><button data-s="redo" title="Redo (Ctrl+Y)">${ICON.redo}</button><i></i>
       <button data-s="plan" id="simPlanBtn" title="Draw the London plan (P)" hidden>✨</button><button data-s="clearall" title="Remove all drawings">🗑</button></div><div class="tv-hint" id="tvHint" hidden></div>`;
   const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-  const HINT = COARSE
-    ? { long: "Press and drag to aim the crosshair — lift to buy there", short: "Press and drag to aim the crosshair — lift to sell there", h: "Press and drag to aim — lift to place the line", r: "Drag to aim at the first corner — lift to set it", t: "Drag to aim where the line starts — lift to set it" }
-    : { long: "Click where you want to buy", short: "Click where you want to sell", h: "Click a price for the line", r: "Click one corner of the zone", t: "Click where the line starts" };
+  const HINT = { long: "Tap where you want to buy", short: "Tap where you want to sell", h: "Tap a price for the line", r: "Press and drag out the zone — or tap one corner, then the other", t: "Press and drag the line — or tap where it starts, then where it ends" };
   function modeUi() {
     document.querySelectorAll('#tvTools [data-s="mode"]').forEach((b) => b.classList.toggle("on", b.dataset.a === (S && S.mode)));
     const mg = $('#tvTools [data-s="magnet"]'); if (mg) mg.classList.toggle("on", !!(S && S.magnet));
     histUi();
     const h = $("#tvHint"); if (!h) return;
-    h.hidden = !(S && S.mode); if (S && S.mode) h.textContent = S.pend ? (S.mode === "r" ? `Now aim at the opposite corner${COARSE ? " — lift to finish" : ""}` : `Now aim where it ends${COARSE ? " — lift to finish" : ""}`) : HINT[S.mode];
+    h.hidden = !(S && S.mode); if (S && S.mode) h.textContent = S.pend ? (S.mode === "r" ? "Drag to the opposite corner — or tap it" : "Drag to where it ends — or tap it") : HINT[S.mode];
     const arming = !!(S && S.mode), c = $("#simChart"); if (c) c.classList.toggle("arming", arming);
     if (!arming && S) S.aim = null;
-    // on a touch screen the chart holds still while you aim (pan and zoom come back when the tool is placed)
-    if (chart && COARSE) chart.applyOptions({ handleScroll: !arming, handleScale: !arming });
+    // the chart holds still while you draw (pan comes back when the tool is placed; the mouse wheel still zooms)
+    if (chart) chart.applyOptions({ handleScroll: !arming, handleScale: arming ? { mouseWheel: true, pinch: false, axisPressedMouseMove: true, axisDoubleClickReset: true } : true });
     if (chart) { const v = { visible: !arming, labelVisible: !arming }; chart.applyOptions({ crosshair: { vertLine: v, horzLine: v } }); }
   }
   function setMode(m) { S.mode = S.mode === m ? null : m; S.pend = null; S.sel = null; closeMenu(); modeUi(); }
@@ -983,19 +1092,43 @@
   }
 
   // ---------- precision: the crosshair you aim with, the magnet, and the look of each drawing
-  const AIM_UP = 64; // on touch, the crosshair floats this far above your finger
-  const DEF = { h: { color: "#f0b90b", lw: 1.5, dash: false }, r: { color: "#9598a1", fill: 0.18, lw: 1, dash: false, xl: false, xr: false }, t: { color: "#2962ff", lw: 2, dash: false, xl: false, xr: false } };
-  const COLORS = ["#f0b90b", "#ff9800", "#ef5350", "#e91e63", "#9c27b0", "#2962ff", "#00bcd4", "#26a69a", "#4caf50", "#9598a1", "#ffffff", "#000000"];
+  const DEF = {
+    h: { color: "#f0b90b", lw: 1.5, dash: false },
+    r: { color: "#2962ff", bg: "#2962ff", fill: 0.2, border: true, mid: false, lw: 1, dash: false, xl: false, xr: false },
+    t: { color: "#2962ff", lw: 2, dash: false, xl: false, xr: false },
+  };
+  const TXT = { tc: "#ffffff", ts: 12, tb: false, ti: false, tvv: "middle", tha: "center" }; // text: colour, size, bold, italic, where
+  const COLORS = ["#ffffff", "#d1d4dc", "#9598a1", "#5d606b", "#2a2e39", "#000000", "#f23645", "#ff9800", "#ffeb3b", "#4caf50", "#089981", "#00bcd4", "#2962ff", "#673ab7", "#9c27b0", "#e91e63", "#f0b90b", "#26a69a"];
   const STY = {};
+  const STYLE_KEYS = (type) => [...Object.keys(DEF[type] || {}), ...Object.keys(TXT)];
   function styleOf(type) {
     if (!DEF[type]) return {};
-    if (!STY[type]) { let v = {}; try { v = JSON.parse(localStorage.getItem(`edge.sim.style.${type}`) || "{}"); } catch {} STY[type] = { ...DEF[type], ...v }; }
+    if (!STY[type]) { let v = {}; try { v = JSON.parse(localStorage.getItem(`edge.sim.style.${type}`) || "{}"); } catch {} STY[type] = { ...DEF[type], ...TXT, ...v }; }
     return { ...STY[type] };
   }
   function saveStyle(d) {
-    const v = {}; for (const f of Object.keys(DEF[d.type] || {})) if (d[f] !== undefined) v[f] = d[f];
-    STY[d.type] = { ...DEF[d.type], ...v };
+    const v = {}; for (const f of STYLE_KEYS(d.type)) if (d[f] !== undefined) v[f] = d[f];
+    STY[d.type] = { ...DEF[d.type], ...TXT, ...v };
     try { localStorage.setItem(`edge.sim.style.${d.type}`, JSON.stringify(v)); } catch {}
+  }
+  // a drawing's full look (older drawings had one colour for border and fill)
+  const dStyle = (d) => ({ ...DEF[d.type], ...TXT, ...d, bg: d.bg ?? d.color ?? (DEF[d.type] || {}).bg, lw: Number(d.lw ?? (DEF[d.type] || {}).lw ?? 1) });
+  function dText(st, xa, xb, ya, yb) {
+    if (!st.text) return "";
+    const fs = Number(st.ts) || 12, lines = String(st.text).split("\n"), lh = fs * 1.25, flat = ya === yb;
+    const x = st.tha === "left" ? xa + 6 : st.tha === "right" ? xb - 6 : (xa + xb) / 2, anchor = st.tha === "left" ? "start" : st.tha === "right" ? "end" : "middle";
+    const blockH = lh * lines.length;
+    let y0 = flat ? (st.tvv === "bottom" ? ya + fs + 4 : ya - 6 - lh * (lines.length - 1))
+      : st.tvv === "top" ? ya + fs + 4 : st.tvv === "bottom" ? yb - 6 - lh * (lines.length - 1) : (ya + yb) / 2 - blockH / 2 + fs * 0.9;
+    return `<text x="${x}" y="${y0}" text-anchor="${anchor}" class="dtx" fill="${st.tc}" style="font-size:${fs}px;font-weight:${st.tb ? 700 : 500};font-style:${st.ti ? "italic" : "normal"}">${lines.map((l, j) => `<tspan x="${x}" dy="${j ? lh : 0}">${esc(l) || " "}</tspan>`).join("")}</text>`;
+  }
+  const axP = (W, y, p) => { if (y == null || p == null) return ""; const t = fmt(p), w = t.length * 7 + 14; return `<rect x="${W}" y="${y - 10}" width="${w}" height="20" rx="3" fill="#2962ff"/><text x="${W + 7}" y="${y + 4}" class="tl">${t}</text>`; };
+  function axT(x, H, i) {
+    if (x == null || i == null) return "";
+    const t = tOfIdx(i), ny = S.view.clock === "ny";
+    const s = new Date(t).toLocaleString([], { timeZone: ny ? NYZ : undefined, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+    const w = s.length * 6.3 + 14, x0 = Math.max(2, Math.min(PW - w - 2, x - w / 2));
+    return `<rect x="${x0}" y="${H - 27}" width="${w}" height="20" rx="3" fill="#2962ff"/><text x="${x0 + w / 2}" y="${H - 13}" text-anchor="middle" class="tl">${esc(s)}</text>`;
   }
   function magnetPref() { try { return localStorage.getItem("edge.sim.magnet") !== "0"; } catch { return true; } }
   // the chart candle a base candle belongs to (for the magnet: its open, high, low and close)
@@ -1041,7 +1174,7 @@
     if (!from.length) return toast(back ? "Nothing to undo." : "Nothing to redo.");
     to.push(drawState());
     const st = JSON.parse(from.pop());
-    S.draws = st.draws; S.tools = st.tools; S.sel = null; closeMenu();
+    S.draws = st.draws; S.tools = st.tools; S.sel = null; closeMenu(); closeDlg();
     histUi(); drawLines(); panel();
   }
   function toggleMagnet() {
@@ -1108,7 +1241,7 @@
   }
   // "Teach Edge": what you had on the chart when you took the trade — every zone and line you drew, on which timeframe
   const tOfIdx = (i) => (i == null ? null : i >= 0 && i < S.bars.length ? S.bars[Math.round(i)].t : S.bars[0].t + Math.round(i) * baseMin() * 6e4);
-  const teachSnap = () => ({ viewTf: S.view.tf, draws: S.draws.map((d) => ({ type: d.type, tf: d.tf ?? null, p: d.p ?? null, p1: d.p1 ?? null, p2: d.p2 ?? null, t1: tOfIdx(d.i1), t2: tOfIdx(d.i2) })) });
+  const teachSnap = () => ({ viewTf: S.view.tf, draws: S.draws.map((d) => ({ type: d.type, tf: d.tf ?? null, p: d.p ?? null, p1: d.p1 ?? null, p2: d.p2 ?? null, t1: tOfIdx(d.i1), t2: tOfIdx(d.i2), text: d.text || null })) });
   function teachSave(tr) {
     const api = window.Edge && window.Edge.api; if (!api) return;
     const t = tr.teach || { draws: [] };
@@ -1441,6 +1574,7 @@
   // ---------- clicks
   function onClick(ev) {
     if (!ev.target.closest("#tvMenu") && !(S && S.keepMenu)) closeMenu();
+    if (ev.target.id === "tvDlg") return dlgDone(true); // tap outside the settings = Ok
     if (ev.target.id === "tvTicket") { if (S) S.tkLines = null; closeTicket(); return drawLines(); } // tap outside the ticket
     const b = ev.target.closest("[data-s]"); if (!b || !S && b.dataset.s !== "close") return;
     const a = b.dataset.a;
@@ -1482,6 +1616,13 @@
       case "mode": return setMode(a);
       case "plan": return planTools();
       case "clearall": case "delall": if (S.draws.length || S.tools.length) hist(); S.draws = []; S.tools = []; S.sel = null; closeMenu(); drawLines(); return panel();
+      case "dpop": { const r = b.getBoundingClientRect(); return openPop(a, b.dataset.f, r.left, r.bottom + 6); }
+      case "ddlg": return openDlg(a, b.dataset.f === "text" ? "text" : "style");
+      case "dtab": S.dlg.tab = a; return renderDlg();
+      case "dset": { const o = S.dlg && objOf(S.dlg.k); if (!o) return; const f = b.dataset.f, v = b.dataset.v; o.t[f] = f === "tb" || f === "ti" ? v === "1" : v; return renderDlg(); }
+      case "dbar": { const o = S.dlg && objOf(S.dlg.k); if (!o) return; const f = b.dataset.f; o.t[f] = Math.round(o.t[f] + Number(b.dataset.v) * kTF()); return renderDlg(); }
+      case "dcancel": return dlgDone(false);
+      case "dok": return dlgDone(true);
       case "undo": return undoRedo(true);
       case "redo": return undoRedo(false);
       case "magnet": return toggleMagnet();
@@ -1489,10 +1630,10 @@
         const o = objOf(a); if (!o || o.kind !== "draw") return;
         hist();
         const f = b.dataset.f, v = b.dataset.v;
-        o.t[f] = f === "color" ? v : ["dash", "xl", "xr"].includes(f) ? v === "1" : Number(v);
+        o.t[f] = ["color", "bg", "tc"].includes(f) ? v : ["dash", "xl", "xr"].includes(f) ? v === "1" : Number(v);
+        if (f === "bg" && !(o.t.fill > 0)) o.t.fill = 0.2;
         saveStyle(o.t);
-        if (b.closest("#tvMenu") && S.menuAt) openMenu(a, S.menuAt.x, S.menuAt.y, true);
-        return;
+        return closeMenu();
       }
       case "menu": { const r = b.getBoundingClientRect(); return openMenu(a, r.left, r.bottom + 4); }
       case "tk": return openTicket(a || null);
@@ -1529,7 +1670,8 @@
   function onKey(e) {
     if (!S || e.target.closest("input,textarea,select")) { if (S && e.key === "Enter" && S.tk) { e.preventDefault(); submitTicket(); } return; }
     const k = e.key.toLowerCase(), go = (fn) => { e.preventDefault(); fn(); };
-    if (k === "escape") return go(() => { if ($("#tvMenu")) return closeMenu(); if (S.tk) { S.tkLines = null; closeTicket(); return drawLines(); } if (S.mode) return setMode(S.mode); if (S.reviewing) return endReview(); S.sel = null; });
+    if (S.dlg && k !== "escape") return;
+    if (k === "escape") return go(() => { if ($("#tvMenu")) return closeMenu(); if (S.dlg) return dlgDone(false); if (S.tk) { S.tkLines = null; closeTicket(); return drawLines(); } if (S.mode) return setMode(S.mode); if (S.reviewing) return endReview(); S.sel = null; });
     if (S.tk) { if (k === "enter") go(submitTicket); return; }
     if ((e.ctrlKey || e.metaKey) && k === "z") return go(() => undoRedo(!e.shiftKey));
     if ((e.ctrlKey || e.metaKey) && k === "y") return go(() => undoRedo(false));

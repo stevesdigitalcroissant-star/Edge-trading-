@@ -575,3 +575,42 @@ label.tv-row, .tv-row:not(:has(.tv-tog)) { grid-template-columns: 82px 1fr auto 
 #simBanner .teach textarea { width: 100%; box-sizing: border-box; background: var(--panel); color: inherit; border: 1px solid var(--line2); border-radius: 6px; padding: 6px; font: inherit; resize: vertical; }
 #simPanel .teach-sum { margin: 10px 0; padding: 8px; border: 1px dashed var(--line2); border-radius: 8px; display: grid; gap: 6px; }
 #simPanel .teach-sum textarea { width: 100%; box-sizing: border-box; background: var(--panel); color: inherit; border: 1px solid var(--line2); border-radius: 6px; padding: 6px; font: inherit; resize: vertical; }
+/* drawings, TradingView style: big touch targets on handles, text, floating bar, colour popover, settings dialog */
+.sim-tools .hz { fill: transparent; pointer-events: all; touch-action: none; cursor: grab; }
+.sim-tools .h { fill: #fff; stroke: #2962ff; stroke-width: 2; }
+.sim-tools .dtx { paint-order: stroke; stroke: rgba(0, 0, 0, .35); stroke-width: 2px; pointer-events: none; font-family: var(--font); }
+.tv-dbar { left: 56px; top: 8px; display: flex; align-items: center; }
+.tv-dbar button { position: relative; min-width: 34px; height: 34px; display: grid; place-items: center; padding: 0 8px; font-size: 13px; }
+.tv-dbar button svg { width: 19px; height: 19px; }
+.tv-dbar button i { position: absolute; left: 7px; right: 7px; bottom: 3px; height: 3px; border-radius: 2px; }
+.tv-dbar button b { font: 700 16px var(--font); }
+.tv-pop { min-width: 0; width: 248px; }
+.tv-op { display: flex; align-items: center; gap: 8px; font: 600 12px var(--font); color: var(--muted); }
+.tv-op input[type=range] { flex: 1; accent-color: #2962ff; }
+.tv-op input[type=color], .tv-sw input[type=color] { width: 100%; height: 26px; padding: 0; border: 1px solid var(--line2); border-radius: 6px; background: none; cursor: pointer; }
+.tv-op b { width: 38px; text-align: right; color: var(--text); }
+.tv-sw.sm { grid-template-columns: repeat(9, 1fr); gap: 5px; }
+.tv-sw.sm button { aspect-ratio: 1; min-height: 22px; border: 0; padding: 0; border-radius: 5px; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(127, 127, 127, .35); }
+.tv-sw.sm button.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px #2962ff; }
+.tv-sw.sm input[type=color] { grid-column: span 2; height: 22px; }
+.tv-sim-wrap, #tvDlg { align-items: center; }
+.tv-dlg { max-width: 460px; border-radius: 16px; }
+.tv-dlg .tv-tabs { grid-template-columns: repeat(4, 1fr); }
+.tv-dbody { display: grid; gap: 14px; padding: 4px 0; }
+.tv-dr { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+.tv-dr.top { align-items: flex-start; }
+.tv-dr > span { width: 120px; flex: none; color: var(--muted); }
+.tv-dr > div { flex: 1; display: grid; gap: 8px; min-width: 0; }
+.tv-dr2 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tv-dlg select, .tv-dlg textarea, .tv-num input { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel2); color: var(--text); font: 600 13.5px var(--font); }
+.tv-dlg textarea { width: 100%; box-sizing: border-box; resize: vertical; font-weight: 500; }
+.tv-chk { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text); }
+.tv-chk input { width: 18px; height: 18px; accent-color: #2962ff; }
+.tv-tbi { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel2); color: var(--text); cursor: pointer; font-size: 15px; }
+.tv-tbi.on { background: #2962ff; color: #fff; border-color: #2962ff; }
+.tv-num { display: grid; gap: 3px; } .tv-num small { color: var(--muted); font-size: 11px; } .tv-num input { width: 110px; }
+.tv-nudge { display: flex; align-items: center; gap: 4px; } .tv-nudge em { font-style: normal; font: 600 12.5px var(--font); min-width: 108px; text-align: center; }
+.tv-nudge button { width: 30px; height: 34px; border-radius: 7px; border: 1px solid var(--line2); background: var(--panel2); color: var(--text); font-size: 16px; cursor: pointer; }
+.tv-vis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.tv-note { margin: 0; font-size: 12.5px; }
+.tv-dfoot { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; } .tv-dfoot span { flex: 1; }
