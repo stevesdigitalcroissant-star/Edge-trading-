@@ -820,7 +820,27 @@
     $("#modal").showModal();
   }
 
-  // Settings → Connect Tradovate: one short form; Edge signs in to check it before saving anything
+  // Settings → Connect Tradovate: like TradingView — straight to Tradovate's own sign-in page, then back here
+  function tradovateConnect() {
+    if (!S.tvOAuth) return tradovateDialog();
+    const body = $("#modalBody");
+    body.innerHTML = `<h3>Connect Tradovate</h3>
+      <div class="tv-envs"><button type="button" class="btn tv-connect" data-oenv="live">Live account</button><button type="button" class="btn" data-oenv="demo">Demo account</button></div>
+      <p class="err" id="tvErr"></p>
+      <p class="muted" style="font-size:12.5px;margin:8px 0 0">You'll sign in on Tradovate's page and come straight back. Edge never sees your password.</p>
+      <div class="row" style="margin-top:10px"><button class="btn" value="cancel">Cancel</button></div>`;
+    body.querySelectorAll("[data-oenv]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true; b.textContent = "Opening Tradovate…";
+      try { const r = await api("POST", { action: "tradovateOAuth", env: b.dataset.oenv }); location.href = r.url; }
+      catch (e) { $("#tvErr").textContent = e.message; b.disabled = false; b.textContent = b.dataset.oenv === "live" ? "Live account" : "Demo account"; }
+    }));
+    $("#modal").showModal();
+  }
+  // back from Tradovate's sign-in page
+  { const q = new URLSearchParams(location.search), tv = q.get("tv");
+    if (tv) { setTimeout(() => toast(tv === "ok" ? `✅ Tradovate connected${q.get("acct") ? ` · ${q.get("acct")}` : ""}${q.get("env") === "demo" ? " (demo)" : ""}` : `Tradovate: ${q.get("msg") || "couldn't connect"}`, 7000), 600); history.replaceState(null, "", location.pathname + location.hash); } }
+
+  // the fallback when Tradovate sign-in isn't set up on the server: one short form; Edge signs in to check it before saving anything
   function tradovateDialog() {
     const body = $("#modalBody");
     body.innerHTML = `<h3>Connect Tradovate</h3>
@@ -909,8 +929,8 @@
           <div class="stat"><small>Storage</small><b style="font-size:15px">${S.storage === "memory" ? `<span class="pill bad">not saved</span>` : esc(S.storage)}</b></div>
         </div>
         ${S.broker.kind === "manual" ? `<div class="connect"><button class="btn tv-connect" data-tvconnect>Connect Tradovate</button>
-          <p class="muted">Edge places your trades on your Tradovate account — entry, stop and target — and sees the fills itself. You'll need your Tradovate login and an API key (Tradovate → Settings → API Access).</p></div>`
-          : S.broker.kind === "tradovate" ? `<div class="connect ok"><b>✅ Tradovate connected</b>${S.broker.account && S.broker.account.name ? ` <span class="muted">· ${esc(S.broker.account.name)}</span>` : ""}${S.broker.account && S.broker.account.error ? `<p class="err" style="margin:6px 0 0">${esc(S.broker.account.error)}</p>` : ""}${S.tradovateApp ? `<button class="btn small" data-tvdisconnect style="margin-left:auto">Disconnect</button>` : ""}</div>` : ""}
+          <p class="muted">${S.tvOAuth ? "Sign in on Tradovate's page — Edge then places your trades (entry, stop, target) and sees the fills itself." : "Edge places your trades on your Tradovate account — entry, stop and target — and sees the fills itself. You'll need your Tradovate login and an API key (Tradovate → Settings → API Access)."}</p></div>`
+          : S.broker.kind === "tradovate" ? `<div class="connect ok"><b>✅ Tradovate connected</b>${S.broker.account && S.broker.account.name ? ` <span class="muted">· ${esc(S.broker.account.name)}</span>` : ""}${S.broker.account && S.broker.account.error ? `<p class="err" style="margin:6px 0 0;flex-basis:100%">${esc(S.broker.account.error)}</p>${/expired|sign-in/i.test(S.broker.account.error) ? `<button class="btn tv-connect" data-tvconnect style="flex-basis:100%">Reconnect Tradovate</button>` : ""}` : ""}${S.tradovateApp ? `<button class="btn small" data-tvdisconnect style="margin-left:auto">Disconnect</button>` : ""}</div>` : ""}
         <p class="muted">Webhook URL for your TradingView alert: <code>${esc(hook)}</code></p>
         <div class="row"><button class="btn small" data-testalert>Send a test alert</button></div>
       </section>
@@ -1019,7 +1039,7 @@
     }));
     const chk = $("#copyHook"); if (chk) chk.addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.origin + "/api/hook"); toast("Webhook URL copied."); } catch { toast(location.origin + "/api/hook", 8000); } });
     const lt = $("#logTrade"); if (lt) lt.addEventListener("click", logTradeDialog);
-    v.querySelectorAll("[data-tvconnect]").forEach((b) => b.addEventListener("click", tradovateDialog));
+    v.querySelectorAll("[data-tvconnect]").forEach((b) => b.addEventListener("click", tradovateConnect));
     v.querySelectorAll("[data-tvdisconnect]").forEach((b) => b.addEventListener("click", async () => { if (confirm("Disconnect Tradovate? Edge stops placing orders for you (open positions stay on Tradovate).")) act({ action: "tradovateDisconnect" }, "Tradovate disconnected."); }));
     v.querySelectorAll("[data-testalert]").forEach((b) => b.addEventListener("click", async () => { const r = await act({ action: "testAlert" }); if (r) toast(r.sent ? "Sent — check your phone." : "No device has notifications on yet — tap Turn on first."); }));
     const so = $("#signOut"); if (so) so.addEventListener("click", () => { try { localStorage.removeItem("edge.token"); } catch {} token = ""; authView = "signin"; showLogin(); });

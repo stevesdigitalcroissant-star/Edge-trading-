@@ -153,6 +153,15 @@ function tradovate(cfg = fromEnv()) {
   const base = env === "live" ? "https://live.tradovateapi.com/v1" : "https://demo.tradovateapi.com/v1";
   const TV = (TVS[`${env}:${cfg.username}`] = TVS[`${env}:${cfg.username}`] || { token: null, exp: 0, acct: null, contracts: {} });
   async function auth(force = false) {
+    if (cfg.accessToken) { // signed in on Tradovate's own page (OAuth): keep the token fresh, never see the password
+      if (Date.now() < cfg.exp - 15 * 60e3 && !force) return cfg.accessToken;
+      if (Date.now() < cfg.exp - 30e3) {
+        const r = await net(`${base}/auth/renewaccesstoken`, { headers: { Authorization: `Bearer ${cfg.accessToken}`, Accept: "application/json" }, signal: AbortSignal.timeout(10000) });
+        const j = await r.json().catch(() => ({}));
+        if (j.accessToken) { cfg.accessToken = j.accessToken; cfg.exp = Date.parse(j.expirationTime) || Date.now() + 80 * 60e3; if (cfg.save) await cfg.save({ accessToken: cfg.accessToken, exp: cfg.exp }).catch(() => {}); return cfg.accessToken; }
+      }
+      throw new Error("Tradovate sign-in expired — tap Reconnect Tradovate in Settings.");
+    }
     if (!force && TV.token && Date.now() < TV.exp - 120e3) return TV.token;
     const r = await net(`${base}/auth/accesstokenrequest`, {
       method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, signal: AbortSignal.timeout(10000),
@@ -165,7 +174,7 @@ function tradovate(cfg = fromEnv()) {
     TV.token = j.accessToken; TV.exp = Date.parse(j.expirationTime) || Date.now() + 60 * 60e3;
     return TV.token;
   }
-  const net = (url, opts) => fetch(url, opts).catch(() => { throw new Error(`Couldn't reach Tradovate (${env}) — check the connection and try again.`); });
+  var net = (url, opts) => fetch(url, opts).catch(() => { throw new Error(`Couldn't reach Tradovate (${env}) — check the connection and try again.`); });
   async function call(method, path, body, retry = true) {
     const r = await net(`${base}${path}`, {
       method, headers: { Authorization: `Bearer ${await auth()}`, "Content-Type": "application/json", Accept: "application/json" },
@@ -211,7 +220,8 @@ function tradovate(cfg = fromEnv()) {
   const fills = async (orderId) => { const f = (await call("GET", `/fill/deps?masterid=${orderId}`).catch(() => [])) || []; const q = f.reduce((a, x) => a + x.qty, 0); return q ? f.reduce((a, x) => a + x.price * x.qty, 0) / q : null; };
   return {
     kind: "tradovate", label: `Tradovate (${env === "live" ? "live" : "demo"} — direct)`, env,
-    async account() { const a = await acct(); const c = await call("POST", "/cashBalance/getcashbalancesnapshot", { accountId: a.id }).catch(() => null); return { name: a.name, currency: "USD", balance: c ? c.totalCashValue : null }; },
+    // auth first, so an expired sign-in shows up in Settings (→ Reconnect)
+    async account() { await auth(); const a = await acct(); const c = await call("POST", "/cashBalance/getcashbalancesnapshot", { accountId: a.id }).catch(() => null); return { name: a.name, currency: "USD", balance: c ? c.totalCashValue : null }; },
     // entry (limit or market) with the stop and the target attached on Tradovate's servers
     async order({ ticker, dir, qty, sl, tp, price, type = "market" }) {
       const a = await acct(), symbol = await contract(ticker);
@@ -269,7 +279,42 @@ async function brokerFor(store) {
   if (b.kind !== "manual" || !store) return b;
   const box = await store.get("tradovateConn").catch(() => null);
   if (!box) return b;
-  try { return tradovate(await unseal(store, box)); } catch { return b; }
+  try {
+    const cfg = await unseal(store, box);
+    if (cfg.accessToken) cfg.save = async (patch) => { const { save, ...keep } = { ...cfg, ...patch }; await store.set("tradovateConn", await seal(store, keep)); };
+    return tradovate(cfg);
+  } catch { return b; }
+}
+// ---------- "Connect Tradovate" like TradingView: Tradovate's own sign-in page (OAuth), then straight back to Edge.
+// Needs an OAuth app registered once on Tradovate (Settings → API Access → OAuth Registration), redirect URI
+// = <your Edge address>/api/tradovate. Env: TRADOVATE_OAUTH_CLIENT_ID, TRADOVATE_OAUTH_CLIENT_SECRET.
+const OAUTH_PAGE = () => process.env.TRADOVATE_OAUTH_URL || "https://trader.tradovate.com/oauth";
+const OAUTH_TOKEN = () => process.env.TRADOVATE_OAUTH_TOKEN_URL || "https://live.tradovateapi.com/auth/oauthtoken";
+const oauthReady = () => !!(process.env.TRADOVATE_OAUTH_CLIENT_ID && process.env.TRADOVATE_OAUTH_CLIENT_SECRET);
+async function oauthStart(store, { env, origin }) {
+  if (!oauthReady()) throw new Error("Tradovate sign-in isn't set up on this server yet.");
+  const state = crypto.randomBytes(16).toString("hex"), redirect = `${origin}/api/tradovate`;
+  await store.set(`tvoauth:${state}`, { env: env === "demo" ? "demo" : "live", redirect, at: Date.now() });
+  const q = new URLSearchParams({ response_type: "code", client_id: process.env.TRADOVATE_OAUTH_CLIENT_ID, redirect_uri: redirect, state });
+  return { url: `${OAUTH_PAGE()}?${q}` };
+}
+// Tradovate sends you back here with a one-time code → swap it for an access token, check it, save it (sealed)
+async function oauthFinish(store, { code, state }) {
+  const st = state && (await store.get(`tvoauth:${state}`));
+  if (!st || Date.now() - st.at > 15 * 60e3) throw new Error("That sign-in link expired — tap Connect Tradovate again.");
+  await store.del(`tvoauth:${state}`);
+  const r = await fetch(OAUTH_TOKEN(), {
+    method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, signal: AbortSignal.timeout(10000),
+    body: JSON.stringify({ grant_type: "authorization_code", code, redirect_uri: st.redirect, client_id: process.env.TRADOVATE_OAUTH_CLIENT_ID, client_secret: process.env.TRADOVATE_OAUTH_CLIENT_SECRET }),
+  }).catch(() => { throw new Error("Couldn't reach Tradovate — try again."); });
+  const j = await r.json().catch(() => ({}));
+  const token = j.access_token || j.accessToken;
+  if (!token) throw new Error(`Tradovate didn't accept the sign-in: ${j.error_description || j.error || j.errorText || r.status}`);
+  const cfg = { accessToken: token, exp: j.expires_in ? Date.now() + Number(j.expires_in) * 1000 : Date.parse(j.expirationTime) || Date.now() + 80 * 60e3, env: st.env, username: "oauth" };
+  delete TVS[`${cfg.env}:oauth`];
+  const a = await tradovate(cfg).account();
+  await store.set("tradovateConn", await seal(store, cfg));
+  return { account: a, env: cfg.env };
 }
 // Settings → Connect Tradovate: sign in once to check the details, then save them (sealed)
 async function connectTradovate(store, body) {
@@ -283,4 +328,4 @@ async function connectTradovate(store, body) {
 }
 async function disconnectTradovate(store) { await store.del("tradovateConn"); return { ok: true }; }
 
-module.exports = { getBroker, brokerFor, connectTradovate, disconnectTradovate };
+module.exports = { getBroker, brokerFor, connectTradovate, disconnectTradovate, oauthStart, oauthFinish, oauthReady };

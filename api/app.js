@@ -1,7 +1,7 @@
 // /api/app — the dashboard. Account actions work signed-out; everything else needs a session.
 // GET → everything the page shows; POST {action, …} → do something.
 const { getStore } = require("./_store");
-const { brokerFor, connectTradovate, disconnectTradovate } = require("./_broker");
+const { brokerFor, connectTradovate, disconnectTradovate, oauthStart, oauthReady } = require("./_broker");
 const { state, action } = require("./_core");
 const auth = require("./_auth");
 
@@ -20,7 +20,11 @@ module.exports = async (req, res) => {
     if (req.method === "POST" && OPEN[body.action]) return res.status(200).json(await OPEN[body.action](store, body));
     const acct = await auth.authorized(store, req.headers);
     if (!acct) return res.status(401).json({ error: "Sign in" });
-    if (req.method === "GET") return res.status(200).json({ ...(await state(store, await brokerFor(store))), account: { email: acct.email, created: acct.created } });
+    if (req.method === "GET") return res.status(200).json({ ...(await state(store, await brokerFor(store))), tvOAuth: oauthReady(), account: { email: acct.email, created: acct.created } });
+    if (req.method === "POST" && body.action === "tradovateOAuth") {
+      const host = req.headers["x-forwarded-host"] || req.headers.host, proto = req.headers["x-forwarded-proto"] || (/^localhost|^127\./.test(host || "") ? "http" : "https");
+      return res.status(200).json(await oauthStart(store, { env: body.env, origin: process.env.APP_URL || `${proto}://${host}` }));
+    }
     if (req.method === "POST" && body.action === "tradovateConnect") return res.status(200).json(await connectTradovate(store, body));
     if (req.method === "POST" && body.action === "tradovateDisconnect") return res.status(200).json(await disconnectTradovate(store));
     if (req.method === "POST" && body.action === "changePassword") return res.status(200).json(await auth.changePassword(store, acct, body));
