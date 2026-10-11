@@ -16,7 +16,7 @@ function parse(j) {
 }
 
 // Yahoo keeps 5m/15m candles for 60 days and 1-hour candles for 2 years
-const INTERVALS = { "5m": 59, "15m": 59, "60m": 729 };
+const INTERVALS = { "5m": 59, "15m": 59, "60m": 729, "1d": 3650 }; // daily: 10 years, for the big picture (weekly / daily zones)
 
 async function load(market, days = 59, interval = "5m") {
   const sym = SYMBOLS[market];
@@ -24,7 +24,7 @@ async function load(market, days = 59, interval = "5m") {
   let last;
   for (const host of ["query1", "query2"]) {
     try {
-      const r = await fetch(`https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${days}d&includePrePost=true`, {
+      const r = await fetch(`https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${days >= 3650 ? "10y" : days + "d"}&includePrePost=true`, {
         headers: { "User-Agent": "Mozilla/5.0 (Edge trading co-pilot)", Accept: "application/json" },
       });
       if (!r.ok) throw new Error(`price data ${r.status}`);

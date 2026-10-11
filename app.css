@@ -550,3 +550,8 @@ label.tv-row, .tv-row:not(:has(.tv-tog)) { grid-template-columns: 82px 1fr auto 
 .sd-coach > p { margin: 8px 0 0; font-size: 13.5px; font-weight: 600; }
 .tv-menu .tv-msub { display: block; font-size: 11.5px; color: var(--muted); font-weight: 400; margin-top: 2px; }
 .tv-bar button.strat span { color: #f0b90b; }
+/* Teach Edge: the why box on the trade-closed banner */
+#simBanner .teach { margin: 8px 0; padding: 8px; border: 1px dashed var(--line2); border-radius: 8px; display: grid; gap: 6px; }
+#simBanner .teach textarea { width: 100%; box-sizing: border-box; background: var(--panel); color: inherit; border: 1px solid var(--line2); border-radius: 6px; padding: 6px; font: inherit; resize: vertical; }
+#simPanel .teach-sum { margin: 10px 0; padding: 8px; border: 1px dashed var(--line2); border-radius: 8px; display: grid; gap: 6px; }
+#simPanel .teach-sum textarea { width: 100%; box-sizing: border-box; background: var(--panel); color: inherit; border: 1px solid var(--line2); border-radius: 6px; padding: 6px; font: inherit; resize: vertical; }

@@ -310,6 +310,7 @@
     setTimeout(paintPnl, 0);
     buildChart();
     paintAll();
+    loadHist(market);
     const d = new Date(day * 864e5); // the New York trading day
     const db = $("#simDate"); if (db) db.textContent = `📅 ${d.toLocaleDateString([], { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" })}`;
     $("#simInfo").innerHTML = `<b>${P.name}</b> · ${d.toLocaleDateString([], { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" })} · ${P.tf === "5m" ? "5-minute" : "1-hour Heikin Ashi"} candles · ${P.strategy === "ngzone" ? `windows ${winTxt(P)}` : `${P.strategy === "sd" ? "your zones · " : ""}orders live ${winTxt(P)}`}`;
@@ -371,7 +372,7 @@
   }
   // ---------- what the chart shows: your timeframe, chart type, indicators and clock (the replay itself always runs on
   // the strategy's candles — 5-minute, or 1-hour for gas — and bigger timeframes are built from them as they print)
-  const TFS = [[5, "5m"], [15, "15m"], [30, "30m"], [60, "1h"], [240, "4h"], [1440, "D"]];
+  const TFS = [[5, "5m"], [15, "15m"], [30, "30m"], [60, "1h"], [240, "4h"], [1440, "D"], [10080, "W"]];
   const TYPES = [["candles", "Candles", "🕯"], ["hollow", "Hollow candles", "◻"], ["ha", "Heikin Ashi", "🟩"], ["bars", "Bars", "┤"], ["line", "Line", "〰"], ["area", "Area", "◢"]];
   const EMAS = [9, 20, 50, 200], EMA_C = { 9: "#f0b90b", 20: "#00bcd4", 50: "#e91e63", 200: "#ffffff" };
   const baseMin = () => (S.P.tf === "60m" ? 60 : 5);
@@ -385,11 +386,12 @@
     return out;
   }
   const saveView = () => { try { localStorage.setItem(`edge.sim.view.${S.market}`, JSON.stringify(S.view)); } catch {} };
-  const gKey = (b) => (S.view.tf >= 1440 ? b.cme : b.cme * 1440 + Math.floor(((b.min - 1080 + 1440) % 1440) / S.view.tf)); // aligned to the 18:00 New York open, like TradingView
+  const wk = (cme) => Math.floor((cme + 3) / 7); // weeks start Monday (the Sunday 18:00 open belongs to Monday)
+  const gKey = (b) => (S.view.tf >= 10080 ? wk(b.cme) : S.view.tf >= 1440 ? b.cme : b.cme * 1440 + Math.floor(((b.min - 1080 + 1440) % 1440) / S.view.tf)); // aligned to the 18:00 New York open, like TradingView
   function dispAdd(i) {
     const D = S.D, b = S.bars[i], key = gKey(b);
     let g = D.g[D.g.length - 1];
-    if (g && g.key === key) { g.h = Math.max(g.h, b.h); g.l = Math.min(g.l, b.l); g.c = b.c; g.i1 = i; }
+    if (g && g.key === key) { g.h = Math.max(g.h, b.h); g.l = Math.min(g.l, b.l); g.c = b.c; g.i1 = i; if (g.i0 < 0) g.i0 = i; }
     else { g = { key, t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, i0: i, i1: i }; D.g.push(g); }
     D.of[i] = D.g.length - 1;
     const p = D.g[D.g.length - 2], hc = (g.o + g.h + g.l + g.c) / 4, ho = p ? (p.ha.o + p.ha.c) / 2 : (g.o + g.c) / 2;
@@ -397,7 +399,35 @@
     g.ema = {}; for (const n of S.view.ema) g.ema[n] = p ? p.ema[n] + (g.c - p.ema[n]) * 2 / (n + 1) : g.c;
     return g;
   }
-  function dispBuild() { S.D = { g: [], of: [] }; for (let i = S.from; i <= S.i; i++) dispAdd(i); }
+  // daily & weekly charts get years of history before the replay (free daily candles), for the big picture
+  function dispBuild() {
+    S.D = { g: [], of: [], pre: 0 };
+    if (S.view.tf >= 1440 && S.hist && S.hist.length) {
+      const D = S.D;
+      for (const h of S.hist) {
+        const key = S.view.tf >= 10080 ? wk(h.cme) : h.cme;
+        let g = D.g[D.g.length - 1];
+        if (g && g.key === key) { g.h = Math.max(g.h, h.h); g.l = Math.min(g.l, h.l); g.c = h.c; continue; }
+        g = { key, t: h.t, o: h.o, h: h.h, l: h.l, c: h.c, i0: -1, i1: -1, hist: true }; D.g.push(g);
+      }
+      D.g.forEach((g, n) => {
+        const p = D.g[n - 1], hc = (g.o + g.h + g.l + g.c) / 4, ho = p ? (p.ha.o + p.ha.c) / 2 : (g.o + g.c) / 2;
+        g.ha = { o: ho, c: hc, h: Math.max(g.h, ho, hc), l: Math.min(g.l, ho, hc) };
+        g.ema = {}; for (const k of S.view.ema) g.ema[k] = p ? p.ema[k] + (g.c - p.ema[k]) * 2 / (k + 1) : g.c;
+      });
+      D.pre = D.g.length;
+    }
+    for (let i = S.from; i <= S.i; i++) dispAdd(i);
+  }
+  async function loadHist(market) {
+    try {
+      const raw = await getBars(`/api/candles?m=${market}&i=1d`);
+      if (!S || S.market !== market) return;
+      const t0 = S.bars[0].t;
+      S.hist = raw.filter(([t]) => t < t0 - 6 * 36e5).map(([t, o, h, l, c]) => ({ t, o, h, l, c, cme: nyInfo(t + 12 * 36e5).cme }));
+      if (S.view.tf >= 1440) paintAll();
+    } catch {}
+  }
   const barOf = (g) => {
     const t = g.t / 1000, ty = S.view.type;
     if (ty === "line" || ty === "area") return { time: t, value: g.c };
@@ -405,8 +435,8 @@
     return { time: t, open: g.o, high: g.h, low: g.l, close: g.c };
   };
   // base candle index ⇄ chart position (a 1-hour chart has one bar for twelve 5-minute candles)
-  const dIdx = (i) => { const D = S.D, last = D.g.length - 1; if (i > S.i) return last + (i - S.i) / kTF(); if (i < S.from) return (i - S.from) / kTF(); return D.of[i] ?? last; };
-  const bIdx = (l) => { const D = S.D, last = D.g.length - 1; if (l > last) return S.i + (l - last) * kTF(); if (l < 0) return S.from + l * kTF(); return D.g[Math.round(l)].i0; };
+  const dIdx = (i) => { const D = S.D, last = D.g.length - 1; if (i > S.i) return last + (i - S.i) / kTF(); if (i < S.from) return (D.pre || 0) + (i - S.from) / kTF(); return D.of[i] ?? last; };
+  const bIdx = (l) => { const D = S.D, last = D.g.length - 1, pre = D.pre || 0; if (l > last) return S.i + (l - last) * kTF(); if (l < pre) return S.from + (l - pre) * kTF(); return D.g[Math.round(l)].i0; };
   const idxOf = (t) => { let lo = 0, hi = S.bars.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (S.bars[m].t <= t) lo = m; else hi = m - 1; } return lo; };
   const gTime = (t) => { const i = idxOf(t), g = S.D.g[S.D.of[i]]; return (g ? g.t : t) / 1000; };
   function paintAll() {
@@ -435,7 +465,7 @@
     const V = S.view, r = btn.getBoundingClientRect(), base = baseMin();
     const check = (on) => `<i>${on ? "✓" : ""}</i>`;
     let html = "";
-    if (kind === "tf") html = `<div class="tv-mh">Timeframe</div>` + TFS.filter(([m]) => m >= base).map(([m, l]) => `<button data-s="vtf" data-a="${m}">${check(V.tf === m)}${l === "D" ? "1 day" : l.replace("m", " minutes").replace("h", " hour" + (l === "1h" ? "" : "s"))}</button>`).join("")
+    if (kind === "tf") html = `<div class="tv-mh">Timeframe</div>` + TFS.filter(([m]) => m >= base).map(([m, l]) => `<button data-s="vtf" data-a="${m}">${check(V.tf === m)}${l === "D" ? "1 day" : l === "W" ? "1 week" : l.replace("m", " minutes").replace("h", " hour" + (l === "1h" ? "" : "s"))}</button>`).join("")
       + `<p class="tv-mnote">The replay moves one ${base === 5 ? "5-minute" : "1-hour"} candle at a time; bigger candles build up as you go.</p>`;
     if (kind === "strat") html = `<div class="tv-mh">Strategy to practise</div>` + [["london", "London breakout", "The tested plan: the Asian box breaks in London"], ["sd", "Your zones (supply & demand)", "15m zones in the 15m trend · 5m break · limit at the 5m zone"]].map(([k, l, d]) => `<button data-s="vstrat" data-a="${k}">${check(S.P.strategy === k)}<span>${l}<small class="tv-msub">${d}</small></span></button>`).join("");
     if (kind === "type") html = `<div class="tv-mh">Chart type</div>` + TYPES.map(([k, l, ic]) => `<button data-s="vtype" data-a="${k}">${check(V.type === k)}<span class="ic">${ic}</span>${l}</button>`).join("");
@@ -884,9 +914,9 @@
     const idx = X2L(x), m = S.mode;
     if (!m) { if (S.sel) { S.sel = null; closeMenu(); } return; }
     if (m === "long" || m === "short") { addTool(m === "long" ? 1 : -1, price, Math.min(idx, S.i + 5)); S.mode = null; }
-    else if (m === "h") { S.draws.push({ type: "h", p: snap(price) }); S.sel = `dr:${S.draws.length - 1}`; S.mode = null; }
+    else if (m === "h") { S.draws.push({ type: "h", p: snap(price), tf: S.view.tf }); S.sel = `dr:${S.draws.length - 1}`; S.mode = null; }
     else if (!S.pend) S.pend = { i: idx, p: snap(price) };
-    else { S.draws.push({ type: m, i1: S.pend.i, p1: S.pend.p, i2: idx, p2: snap(price) }); S.sel = `dr:${S.draws.length - 1}`; S.pend = null; S.mode = null; }
+    else { S.draws.push({ type: m, i1: S.pend.i, p1: S.pend.p, i2: idx, p2: snap(price), tf: S.view.tf }); S.sel = `dr:${S.draws.length - 1}`; S.pend = null; S.mode = null; }
     modeUi();
   }
 
@@ -943,8 +973,26 @@
       if (o.side > 0 ? b.l <= o.sl : b.h >= o.sl) exit(o.sl, b, "stop");
     }
   }
+  // "Teach Edge": what you had on the chart when you took the trade — every zone and line you drew, on which timeframe
+  const tOfIdx = (i) => (i == null ? null : i >= 0 && i < S.bars.length ? S.bars[Math.round(i)].t : S.bars[0].t + Math.round(i) * baseMin() * 6e4);
+  const teachSnap = () => ({ viewTf: S.view.tf, draws: S.draws.map((d) => ({ type: d.type, tf: d.tf ?? null, p: d.p ?? null, p1: d.p1 ?? null, p2: d.p2 ?? null, t1: tOfIdx(d.i1), t2: tOfIdx(d.i2) })) });
+  function teachSave(tr) {
+    const api = window.Edge && window.Edge.api; if (!api) return;
+    const t = tr.teach || { draws: [] };
+    S.teachP = api({ action: "teachLog", example: { market: S.market, simDay: new Date(S.day * 864e5).toISOString().slice(0, 10), dir: tr.dir > 0 ? "long" : "short", tIn: tr.tIn, tOut: tr.tOut, e: tr.e, sl: tr.sl0, tp: tr.tp0, R: +tr.R.toFixed(2), usd: +tr.usd.toFixed(2), how: tr.how, viewTf: t.viewTf, draws: t.draws } })
+      .then((r) => { S.lastTeach = r.example.id; S.teachN = r.count; document.querySelectorAll(".sim-teach-n").forEach((n) => (n.textContent = `${r.count} example${r.count === 1 ? "" : "s"} saved`)); return r.example.id; }).catch(() => null);
+  }
+  async function teachDownload() {
+    const api = window.Edge && window.Edge.api; if (!api) return;
+    const r = await api({ action: "teachList" }).catch(() => null); if (!r) return toast("Couldn't load your examples — try again.");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(r.examples, null, 1)], { type: "application/json" }));
+    a.download = `edge-examples-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    toast(`${r.examples.length} examples downloaded — send the file to Claude so it can learn your setups.`);
+  }
   function openPos(dir, e, sl, tp, b, qty = null) {
     S.pos = { dir, e, sl, sl0: sl, tp, tp0: tp, tIn: b.t, mfe: 0, beAt: null, second: S.trades.length > 0, qty: qty || Math.max(1, contracts(Math.abs(e - sl))) };
+    S.pos.teach = teachSnap();
     S.sel = "pos";
     toast(`${dir > 0 ? "Bought" : "Sold"} ${S.pos.qty} ${S.P.sym} at ${fmt(e)}`);
   }
@@ -965,11 +1013,12 @@
     S.pos = null; S.trades.push(tr); if (S.sel === "pos") S.sel = null;
     tr.findings = review(S, tr);
     tr.rulesOk = !tr.findings.some((x) => x.rule);
-    save(tr);
+    save(tr); teachSave(tr);
     stop();
     const ban = $("#simBanner");
     ban.hidden = false;
     ban.innerHTML = `<b>${tr.R > 0.1 ? "🎯" : tr.R < -0.1 ? "✋" : "🛡️"} Trade closed ${tr.R > 0 ? "+" : ""}${tr.R.toFixed(2)}R · ${tr.usd < 0 ? "−" : "+"}${money(Math.abs(tr.usd))}</b><span class="muted">${esc(how)}</span>
+      <div class="teach"><b>📚 Teach Edge</b> · <span class="muted sim-teach-n">saving your drawings…</span><textarea class="sim-why" rows="2" placeholder="Why this trade? Big picture (W/D/4H zone, trend) → 15m zone → your entry"></textarea><div class="row"><button class="btn small" data-s="why">Save why</button><button class="btn small" data-s="teachdl">⬇ Download my examples</button></div></div>
       <div class="row"><button class="btn small primary" data-s="review" data-a="${S.trades.length - 1}">🔍 Review this trade</button><button class="btn small" data-s="dismiss">Keep going ›</button></div>`;
     paintPnl();
     if (!S.ruleExit) checkRules();
@@ -1252,7 +1301,7 @@
         ${common.length ? `<h3 style="margin:12px 0 6px">What to work on</h3>${common.slice(0, 3).map(([c, n]) => `<div class="insight bad"><span>🎯</span><div><b>${esc(S.trades.flatMap((t) => t.findings).find((f) => f.code === c).title)}${n > 1 ? ` (${n}×)` : ""}</b><p>${esc(ADVICE[c] || "")}</p></div></div>`).join("")}`
           : `<div class="insight good"><span>✅</span><div><b>Clean session — nothing to add.</b><p>Every trade followed the plan. Keep doing exactly this.</p></div></div>`}${missed}`;
     const list = S.trades.map((t, n) => `<div class="row between sim-tline"><span>${t.dir > 0 ? "▲ Buy" : "▼ Sell"} ${local(t.tIn)} · <b class="${t.R > 0.1 ? "good" : t.R < -0.1 ? "bad" : ""}">${t.R > 0 ? "+" : ""}${t.R.toFixed(2)}R</b> ${t.rulesOk ? "✅" : "⚠️"}</span><button class="btn small" data-s="review" data-a="${n}">🔍 Review</button></div>`).join("");
-    $("#simPanel").innerHTML = `<div class="sim-review good"><small class="muted">Session over · 16:40 New York</small><b>${P.name} — your session</b>${body}${list ? `<h3 style="margin:12px 0 6px">Your trades</h3>${list}` : ""}
+    $("#simPanel").innerHTML = `<div class="sim-review good"><small class="muted">Session over · 16:40 New York</small><b>${P.name} — your session</b>${S.trades.length ? `<div class="teach-sum"><b>📚 Teach Edge</b> <span class="muted sim-teach-n">${S.teachN ? `${S.teachN} examples saved` : "your trades are saved as examples"}</span><textarea class="sim-why" rows="2" placeholder="Why did you take your last trade? Big picture (W/D/4H zone, trend) → 15m zone → entry"></textarea><div class="row"><button class="btn small" data-s="why">Save why</button><button class="btn small" data-s="teachdl">⬇ Download my examples</button></div></div>` : ""}${body}${list ? `<h3 style="margin:12px 0 6px">Your trades</h3>${list}` : ""}
       <div class="row" style="margin-top:10px"><button class="btn primary" data-s="next">Next session ›</button><button class="btn" data-s="close">Done</button></div></div>`;
   }
 
@@ -1318,6 +1367,13 @@
       case "closepos": closeMenu(); if (S.pos) { const bar = S.bars[S.i]; exit(bar.c, bar, "closed by you"); panel(); } return;
       case "review": return startReview(Number(a));
       case "dismiss": $("#simBanner").hidden = true; return;
+      case "teachdl": teachDownload(); return;
+      case "why": {
+        const note = ([...document.querySelectorAll(".sim-why")].find((x) => x.offsetParent && x.value.trim()) || {}).value || "", api = window.Edge && window.Edge.api;
+        if (!note.trim() || !api) return;
+        Promise.resolve(S.lastTeach || S.teachP).then((id) => id && api({ action: "teachNote", id, note })).then((r) => r && toast("Saved — Edge will learn from this one.")).catch(() => toast("Couldn't save — try again."));
+        return;
+      }
       case "rnext": if (S.reviewing.k < S.reviewing.items.length - 1) { S.reviewing.k++; return showReview(); } return endReview();
       case "rprev": S.reviewing.k = Math.max(0, S.reviewing.k - 1); return showReview();
     }

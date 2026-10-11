@@ -733,6 +733,34 @@ async function action(store, broker, body, now = Date.now()) {
     await store.hset("journal", j.id, j);
     return { trade: j };
   }
+  if (a === "teachLog") {
+    // "Teach Edge": a practice trade with everything you saw — the zones you drew (and on which timeframe), where you
+    // entered, your stop and target, how it ended and why you took it. Edge learns your eye from these.
+    const ex = body.example || {};
+    const clean = (v, n) => String(v == null ? "" : v).slice(0, n);
+    const nums = (o, keys) => Object.fromEntries(keys.map((k) => [k, num(o[k])]));
+    const draws = (Array.isArray(ex.draws) ? ex.draws : []).slice(0, 60).map((d) => ({ type: clean(d.type, 4), tf: num(d.tf), ...nums(d, ["p", "p1", "p2", "t1", "t2"]), label: clean(d.label, 40) }));
+    const j = {
+      id: `teach:${id()}`, at: now, market: clean(ex.market, 12), dir: ex.dir === "short" ? "short" : "long", ...nums(ex, ["tIn", "tOut", "e", "sl", "tp", "R", "usd", "viewTf"]),
+      how: clean(ex.how, 40), draws, note: clean(ex.note, 1000), simDay: clean(ex.simDay, 12),
+    };
+    if (j.e == null || j.sl == null || !j.market) throw new Error("Missing the trade's entry or stop.");
+    await store.hset("teach", j.id, j);
+    const all = Object.values((await store.hgetall("teach")) || {}).sort((x, y) => y.at - x.at);
+    for (const old of all.slice(300)) await store.hdel("teach", old.id); // keep your last 300 examples
+    return { example: j, count: Math.min(all.length, 300) };
+  }
+  if (a === "teachNote") {
+    const id0 = String(body.id || ""), ex = id0.startsWith("teach:") ? await store.hget("teach", id0) : null;
+    if (!ex) throw new Error("That example isn't saved any more.");
+    ex.note = String(body.note || "").slice(0, 1000);
+    await store.hset("teach", ex.id, ex);
+    return { example: ex };
+  }
+  if (a === "teachList") {
+    const all = Object.values((await store.hgetall("teach")) || {}).sort((x, y) => y.at - x.at);
+    return { examples: all };
+  }
   if (a === "chartSetup") {
     // the free chart reader saw the script's ENTER signal (the script only shows it when every A+ step is done)
     const market = marketOf(body.symbol || "") || (MARKETS[body.market] ? body.market : null);
