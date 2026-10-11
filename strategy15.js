@@ -321,6 +321,7 @@
       states.push({ trend: h.trend, warn, m15: m.trend, inSess: inWin,
         dem: zones.filter((z) => z.valid && z.dir === 1).map((z) => ({ top: z.top, bot: z.bot, from: z.from, touches: z.touched ? 1 : 0 })),
         sup: zones.filter((z) => z.valid && z.dir === -1).map((z) => ({ top: z.top, bot: z.bot, from: z.from, touches: z.touched ? 1 : 0 })),
+        z4: zones4.filter((z) => z.valid).map((z) => ({ dir: z.dir, top: z.top, bot: z.bot, t: z.t })), // the 4H zones still standing (the big picture)
         setup: setup ? { dir: setup.dir, top: setup.zone.top, bot: setup.zone.bot } : null,
         order: order ? { dir: order.dir, entry: order.entry, sl: order.sl, tp: order.tp, grade: order.grade } : null,
         gDir: pos ? pos.dir : 0, gE: pos ? pos.entry : null, gSL: pos ? pos.sl : null, gTP: pos ? pos.tp : null, gBE: pos ? pos.beDone : false, gGrade: pos ? pos.grade : "", gSw: pos ? pos.swept : "" });

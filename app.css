@@ -694,3 +694,5 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 .connect p { margin: 10px 0 0; font-size: 12.5px; }
 .tv-connect { width: 100%; padding: 14px; font-size: 15px; font-weight: 700; color: #fff; border: 0; background: linear-gradient(135deg, #1f6bff, #0a3fb8); box-shadow: 0 10px 24px -12px #1f6bff; }
 .tv-envs { display: grid; gap: 8px; margin: 8px 0 4px; } .tv-envs .btn { padding: 14px; font-size: 15px; font-weight: 700; }
+.sim-sess { display: inline-flex; gap: 4px; padding-left: 6px; margin-left: 2px; border-left: 1px solid var(--line); }
+.sim-sess .btn[data-a="asia"] { box-shadow: inset 0 -2px 0 #ab47bc; } .sim-sess .btn[data-a="london"] { box-shadow: inset 0 -2px 0 #2962ff; } .sim-sess .btn[data-a="ny"] { box-shadow: inset 0 -2px 0 #f0b90b; }

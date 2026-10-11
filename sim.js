@@ -294,6 +294,23 @@
     return f;
   }
 
+  // ---------- session opens: Asia = Tokyo 09:00, London = 08:00 London, New York = 08:00 New York (each in its own time zone)
+  const SESS = [["asia", "Asia/Tokyo", 540], ["london", "Europe/London", 480], ["ny", "America/New_York", 480]];
+  const SESS_N = { asia: "Asia", london: "London", ny: "New York" }, SESS_C = { asia: "#ab47bc", london: "#2962ff", ny: "#f0b90b" };
+  const zFmt = {};
+  const locMin = (t, z) => { const f = zFmt[z] || (zFmt[z] = new Intl.DateTimeFormat("en-US", { timeZone: z, hour: "numeric", minute: "numeric", hourCycle: "h23" })); const p = f.formatToParts(new Date(t)); return (Number(p.find((x) => x.type === "hour").value) % 24) * 60 + Number(p.find((x) => x.type === "minute").value); };
+  function sessOpens() {
+    if (S.so) return S.so;
+    const out = [], from = Math.max(1, S.bars.findIndex((b) => b.cme >= S.day - 20)), last = {};
+    for (let i = from; i < S.bars.length && S.bars[i].cme <= S.day; i++) {
+      for (const [k, z, m] of SESS) {
+        const lm = locMin(S.bars[i].t, z), pm = last[k] ?? locMin(S.bars[i - 1].t, z); last[k] = lm;
+        if (pm <= lm ? pm < m && m <= lm : m > pm || m <= lm) out.push({ i, k }); // crossed the open (also across midnight)
+      }
+    }
+    return (S.so = out);
+  }
+
   // ---------- the simulator UI
   let S = null, chart = null, series = null, lines = [], overlay = null, timer = null;
 
@@ -314,7 +331,7 @@
         <button class="btn small" data-s="play" id="simPlay">▶ Play</button>
         <button class="btn small" data-s="step">Next candle ›</button>
         <button class="btn small" data-s="speed" id="simSpeed">1×</button>
-        <button class="btn small" data-s="skip" id="simSkip">⏩</button>
+        <span class="sim-sess"><button class="btn small" data-s="sess" data-a="asia" title="Jump to the Asian open (Tokyo 09:00)">Asia</button><button class="btn small" data-s="sess" data-a="london" title="Jump to the London open (08:00 London)">London</button><button class="btn small" data-s="sess" data-a="ny" title="Jump to the New York open (08:00 New York)">NY</button></span>
         <button class="btn small" data-s="end">End</button></div>
       <div class="sim-panel" id="simPanel"></div>`;
     document.body.appendChild(el);
@@ -366,7 +383,6 @@
     const d = new Date(day * 864e5); // the New York trading day
     const db = $("#simDate"); if (db) db.textContent = `📅 ${d.toLocaleDateString([], { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" })}`;
     $("#simInfo").innerHTML = `<b>${P.name}</b> · ${d.toLocaleDateString([], { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" })} · ${P.tf === "5m" ? "5-minute" : "1-hour Heikin Ashi"} candles · ${P.strategy === "ngzone" ? `windows ${winTxt(P)}` : `${P.strategy === "sd" ? "your zones · " : ""}orders live ${winTxt(P)}`}`;
-    $("#simSkip").textContent = P.strategy !== "ngzone" ? `⏩ to ${hm(P.win[0])} NY` : "⏩ to 06:00 NY";
     panel();
   }
 
@@ -422,12 +438,12 @@
       if (!S || !S.mode || (e.pointerType !== "mouse" && !down)) return;
       const p = rel(e);
       if (down && Math.hypot(p.x - down.x, p.y - down.y) > 8) down.moved = true;
-      S.aim = aimAt(p.x, p.y);
+      S.aim = level(aimAt(p.x, p.y), e);
     }, true);
     el.addEventListener("pointerup", (e) => {
       if (!down || !S || !S.mode) return;
       const d = down, p = rel(e); down = null; S.tapAt = Date.now();
-      S.aim = aimAt(p.x, p.y);
+      S.aim = level(aimAt(p.x, p.y), e);
       if (d.started && !d.moved) return; // tapped the first corner: now tap (or drag to) the second
       place(S.aim);
     }, true);
@@ -474,13 +490,14 @@
   // daily & weekly charts get years of history before the replay (free daily candles), for the big picture
   function dispBuild() {
     S.D = { g: [], of: [], pre: 0 };
-    if (S.view.tf >= 1440 && S.hist && S.hist.length) {
+    const H = S.view.tf >= 1440 ? S.hist : S.view.tf >= 60 ? S.histH : null; // older prices before the practice data: daily for D / W, hourly for 1h / 4h
+    if (H && H.length) {
       const D = S.D;
-      for (const h of S.hist) {
-        const key = S.view.tf >= 10080 ? wk(h.cme) : h.cme;
+      for (const h of H) {
+        const key = S.view.tf >= 10080 ? wk(h.cme) : S.view.tf >= 1440 ? h.cme : gKey(h);
         let g = D.g[D.g.length - 1];
         if (g && g.key === key) { g.h = Math.max(g.h, h.h); g.l = Math.min(g.l, h.l); g.c = h.c; continue; }
-        g = { key, t: h.t, o: h.o, h: h.h, l: h.l, c: h.c, i0: -1, i1: -1, hist: true }; D.g.push(g);
+        g = { key, t: h.t, o: h.o, h: h.h, l: h.l, c: h.c, i0: -1, i1: -1, hist: true, cme: h.cme }; D.g.push(g);
       }
       D.g.forEach((g, n) => {
         const p = D.g[n - 1], hc = (g.o + g.h + g.l + g.c) / 4, ho = p ? (p.ha.o + p.ha.c) / 2 : (g.o + g.c) / 2;
@@ -493,11 +510,13 @@
   }
   async function loadHist(market) {
     try {
-      const raw = await getBars(`/api/candles?m=${market}&i=1d`);
+      const [raw, rawH] = await Promise.all([getBars(`/api/candles?m=${market}&i=1d`), S.P.tf === "60m" ? Promise.resolve([]) : getBars(`/api/candles?m=${market}&i=60m`).catch(() => [])]);
       if (!S || S.market !== market) return;
       const t0 = S.bars[0].t;
       S.hist = raw.filter(([t]) => t < t0 - 6 * 36e5).map(([t, o, h, l, c]) => ({ t, o, h, l, c, cme: nyInfo(t + 12 * 36e5).cme }));
-      if (S.view.tf >= 1440) paintAll();
+      // hourly (about 2 years, free) up to the first practice candle — so the 1h and 4h charts show the trend that led here
+      S.histH = (rawH || []).filter(([t]) => t + 36e5 <= t0).map(([t, o, h, l, c]) => { const n = nyInfo(t); return { t, o, h, l, c, cme: n.cme, min: n.min }; });
+      if (S.view.tf >= 60) paintAll();
     } catch {}
   }
   const barOf = (g) => {
@@ -667,19 +686,34 @@
     if (S.reviewing) { if (svg.__last) { svg.__last = ""; svg.innerHTML = ""; tb.innerHTML = ""; tb.__last = ""; } return; }
     const W = (PW = chart.timeScale().width()), Y = (p) => series.priceToCoordinate(p), H = $("#simChart").clientHeight;
     let back = "", front = "", bar = "";
-    if (S.P.strategy === "sd" && S.sd && S.view.zones !== false) { // Edge's 15m zones as they stand right now (nothing from the future)
+    if (S.P.strategy === "sd" && S.sd && S.view.zones !== false) { // Edge's zones as they stand right now (nothing from the future)
       const st = S.sd.states[S.i];
-      if (st) for (const z of [...st.dem.map((z) => ({ ...z, d: 1 })), ...st.sup.map((z) => ({ ...z, d: -1 }))]) {
-        const x0 = L2X(z.from), y1 = Y(z.top), y2 = Y(z.bot); if (x0 == null || y1 == null || y2 == null) continue;
-        const c = z.d > 0 ? "#26a69a" : "#ef5350", xs = Math.max(0, x0);
-        back += `<rect x="${xs}" y="${Math.min(y1, y2)}" width="${Math.max(0, W - xs)}" height="${Math.max(2, Math.abs(y2 - y1))}" fill="${c}" fill-opacity=".13" stroke="${c}" stroke-opacity=".55" stroke-dasharray="4 3"/><text x="${xs + 4}" y="${Math.min(y1, y2) - 4}" class="tt" fill="${c}">15m ${z.d > 0 ? "demand" : "supply"}${z.touches ? " · touched" : ""}</text>`;
+      if (st) {
+        const tr = st.trend || 0, used = [];
+        const zone = (z, d, tf, x0) => {
+          const y1 = Y(z.top), y2 = Y(z.bot); if (x0 == null || y1 == null || y2 == null) return;
+          const withT = !tr || d === tr, c = d > 0 ? "#26a69a" : "#ef5350", xs = Math.max(0, x0), yt = Math.min(y1, y2), h = Math.max(2, Math.abs(y2 - y1));
+          const big = tf === "4H", op = withT ? 1 : 0.4;
+          back += `<rect x="${xs}" y="${yt}" width="${Math.max(0, W - xs)}" height="${h}" fill="${c}" fill-opacity="${(big ? 0.1 : 0.15) * op}" stroke="${c}" stroke-opacity="${0.6 * op}" ${big ? 'stroke-width="1.5"' : 'stroke-dasharray="4 3"'}/>`;
+          let ly = yt - 4; while (used.some((u) => Math.abs(u - ly) < 12)) ly -= 12; used.push(ly); // labels never stack on top of each other
+          back += `<text x="${xs + 4}" y="${ly}" class="tt" fill="${c}" fill-opacity="${withT ? 1 : 0.6}">${tf} ${d > 0 ? "demand" : "supply"}${z.touches ? " · touched" : ""}${withT ? "" : " · against 4H trend"}</text>`;
+        };
+        for (const z of st.z4 || []) zone(z, z.dir, "4H", L2X(idxOf(z.t)));
+        if (S.view.tf <= 240) for (const [list, d] of [[st.sup, -1], [st.dem, 1]].sort((a) => (a[1] === tr ? -1 : 1))) for (const z of list) zone(z, d, "15m", L2X(z.from));
       }
     }
     if (S.view.seps && S.view.tf < 1440 && S.D) { // a dashed line where each trading day starts (18:00 New York)
-      const ts = chart.timeScale(), vr = ts.getVisibleLogicalRange(), G = S.D.g;
+      const ts = chart.timeScale(), vr = ts.getVisibleLogicalRange(), G = S.D.g, cmeOf = (g) => (g.i0 >= 0 ? S.bars[g.i0].cme : g.cme);
       if (vr) for (let gi = Math.max(1, Math.floor(vr.from)); gi <= Math.min(G.length - 1, Math.ceil(vr.to)); gi++) {
-        if (S.bars[G[gi].i0].cme === S.bars[G[gi - 1].i0].cme) continue;
+        if (cmeOf(G[gi]) === cmeOf(G[gi - 1])) continue;
         const x = ts.logicalToCoordinate(gi - 0.5); if (x != null) back += `<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="#9598a1" stroke-opacity=".7" stroke-dasharray="4 4"/>`;
+      }
+      // where Asia (Tokyo 09:00), London (08:00) and New York (08:00) open — at their real local times, summer time included
+      if (S.view.tf <= 60) for (const o of sessOpens()) {
+        if (o.i > S.i) break;
+        const x = L2X(o.i), c = SESS_C[o.k];
+        if (x == null || x < 0 || x > W) continue;
+        back += `<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="${c}" stroke-opacity=".55" stroke-dasharray="2 3"/><text x="${x + 3}" y="12" class="tt" fill="${c}">${SESS_N[o.k]}</text>`;
       }
     }
     // your lines, zones (rectangles) and trend lines — styled like TradingView: border, background, middle line, text, extend
@@ -789,6 +823,8 @@
     if (bar !== tb.__last) { tb.__last = bar; tb.innerHTML = bar; }
   }
 
+  let soonId = 0, soonPanel = false;
+  function soon(withPanel) { soonPanel = soonPanel || withPanel; if (soonId) return; soonId = requestAnimationFrame(() => { soonId = 0; if (!S) return; drawLines(); if (soonPanel) panel(); soonPanel = false; }); }
   // tap = select · drag = move · press and hold (or right-click) = menu
   function pointerDown(ev) {
     const h = ev.target.closest("[data-k]"); if (!h || !S || S.reviewing || ev.button > 0) return; // right-click → the menu (onContext)
@@ -813,8 +849,8 @@
         const at = (i, pp) => ({ i, p: mag(pp, i) });
         let a = null;
         if (t.type === "h") { a = at(X2L(e.clientX - box.left), st.p + dp); t.p = a.p; }
-        else if (f === "a") { a = at(st.i1 + dl, st.p1 + dp); t.i1 = a.i; t.p1 = a.p; }
-        else if (f === "b") { a = at(st.i2 + dl, st.p2 + dp); t.i2 = a.i; t.p2 = a.p; }
+        else if (f === "a") { a = at(st.i1 + dl, st.p1 + dp); if (t.type === "t" && shiftOn(e)) a.p = t.p2; t.i1 = a.i; t.p1 = a.p; }
+        else if (f === "b") { a = at(st.i2 + dl, st.p2 + dp); if (t.type === "t" && shiftOn(e)) a.p = t.p1; t.i2 = a.i; t.p2 = a.p; }
         else if (f === "c") { a = at(st.i1 + dl, st.p2 + dp); t.i1 = a.i; t.p2 = a.p; }
         else if (f === "d") { a = at(st.i2 + dl, st.p1 + dp); t.i2 = a.i; t.p1 = a.p; }
         else if (f === "e1") { t.i1 = st.i1 + dl; a = { i: t.i1, p: (t.p1 + t.p2) / 2 }; } // one side only (left / right edge)
@@ -840,7 +876,7 @@
         const nv = snap(st.tp + dp, [1, 1.5, 2, 2.5, 3, 4, 5].map((m) => ee + dir * m * r));
         if (dir * (nv - ee) > 0) t.tp = nv;
       }
-      drawLines(); if (o.kind !== "tool") panel();
+      soon(o.kind !== "tool"); // price labels + panel once per frame, not on every pointer event — keeps dragging smooth
     };
     const up = () => {
       clearTimeout(timer);
@@ -1102,20 +1138,22 @@
     h: `<svg viewBox="0 0 24 24"><path d="M2 12h20" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>`,
     r: `<svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="4" cy="6" r="2" fill="currentColor"/><circle cx="20" cy="18" r="2" fill="currentColor"/></svg>`,
     t: `<svg viewBox="0 0 24 24"><path d="M5 19L19 5" stroke="currentColor" stroke-width="1.8"/><circle cx="5" cy="19" r="2.4" fill="currentColor"/><circle cx="19" cy="5" r="2.4" fill="currentColor"/></svg>`,
+    level: `<svg viewBox="0 0 24 24"><path d="M3 12h18" stroke="currentColor" stroke-width="1.9"/><circle cx="5" cy="12" r="2.2" fill="currentColor"/><circle cx="19" cy="12" r="2.2" fill="currentColor"/><path d="M9 7h6M9 17h6" stroke="currentColor" stroke-width="1.3" opacity=".55"/></svg>`,
     magnet: `<svg viewBox="0 0 24 24"><path d="M6 4v8a6 6 0 0 0 12 0V4h-4v8a2 2 0 0 1-4 0V4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M6 8h4M14 8h4" stroke="currentColor" stroke-width="1.7"/></svg>`,
     undo: `<svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12h10a6 6 0 0 1 0 12h-2" transform="translate(0 -5)" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`,
     redo: `<svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12H10a6 6 0 0 0 0 12h2" transform="translate(0 -5)" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`,
   };
   const toolbarHtml = () => `<div class="tv-tools" id="tvTools">
       <button data-s="mode" data-a="long" title="Long position (B)">${ICON.long}</button><button data-s="mode" data-a="short" title="Short position (S)">${ICON.short}</button><i></i>
-      <button data-s="mode" data-a="h" title="Horizontal line (H)">${ICON.h}</button><button data-s="mode" data-a="r" title="Rectangle — mark a zone (R)">${ICON.r}</button><button data-s="mode" data-a="t" title="Trend line (T)">${ICON.t}</button><i></i>
+      <button data-s="mode" data-a="h" title="Horizontal line (H)">${ICON.h}</button><button data-s="mode" data-a="r" title="Rectangle — mark a zone (R)">${ICON.r}</button><button data-s="mode" data-a="t" title="Trend line (T)">${ICON.t}</button><button data-s="levellock" title="Level lines — like holding Shift">${ICON.level}</button><i></i>
       <button data-s="magnet" title="Magnet — snap to the candle's high, low, open or close (M)">${ICON.magnet}</button><button data-s="undo" title="Undo (Ctrl+Z)">${ICON.undo}</button><button data-s="redo" title="Redo (Ctrl+Y)">${ICON.redo}</button><i></i>
       <button data-s="plan" id="simPlanBtn" title="Draw the London plan (P)" hidden>✨</button><button data-s="clearall" title="Remove all drawings">🗑</button></div><div class="tv-hint" id="tvHint" hidden></div>`;
   const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-  const HINT = { long: "Tap where you want to buy", short: "Tap where you want to sell", h: "Tap a price for the line", r: "Press and drag out the zone — or tap one corner, then the other", t: "Press and drag the line — or tap where it starts, then where it ends" };
+  const HINT = { long: "Tap where you want to buy", short: "Tap where you want to sell", h: "Tap a price for the line", r: "Press and drag out the zone — or tap one corner, then the other", t: "Press and drag the line — or tap where it starts, then where it ends. Hold Shift for a level line" };
   function modeUi() {
     document.querySelectorAll('#tvTools [data-s="mode"]').forEach((b) => b.classList.toggle("on", b.dataset.a === (S && S.mode)));
     const mg = $('#tvTools [data-s="magnet"]'); if (mg) mg.classList.toggle("on", !!(S && S.magnet));
+    const lv = $('#tvTools [data-s="levellock"]'); if (lv) lv.classList.toggle("on", !!(S && S.levelLock));
     histUi();
     const h = $("#tvHint"); if (!h) return;
     h.hidden = !(S && S.mode); if (S && S.mode) h.textContent = S.pend ? (S.mode === "r" ? "Drag to the opposite corner — or tap it" : "Drag to where it ends — or tap it") : HINT[S.mode];
@@ -1182,7 +1220,10 @@
     const w = s.length * 6.3 + 14, x0 = Math.max(2, Math.min(PW - w - 2, x - w / 2));
     return `<rect x="${x0}" y="${H - 27}" width="${w}" height="20" rx="3" fill="#2962ff"/><text x="${x0 + w / 2}" y="${H - 13}" text-anchor="middle" class="tl">${esc(s)}</text>`;
   }
-  function magnetPref() { try { return localStorage.getItem("edge.sim.magnet") !== "0"; } catch { return true; } }
+  function magnetPref() { try { return localStorage.getItem("edge.sim.magnet") === "1"; } catch { return false; } } // off by default: points go exactly where you put them
+  // Shift held while drawing a trend line (or a zone's second corner): the end stays at the first point's price — a perfectly level line
+  const shiftOn = (e) => !!(e && e.shiftKey) || !!(S && S.levelLock);
+  const level = (a, e) => (a && S.pend && S.mode === "t" && shiftOn(e) ? { ...a, p: S.pend.p } : a);
   // the chart candle a base candle belongs to (for the magnet: its open, high, low and close)
   function candleAt(i) {
     if (!S.D || i < S.from || i > S.i) return null;
@@ -1665,6 +1706,14 @@
       case "play": return play();
       case "step": stop(); return void step();
       case "speed": S.speed = S.speed >= 8 ? 1 : S.speed * 2; b.textContent = `${S.speed}×`; if (timer) { stop(); play(); } return;
+      case "sess": { // jump straight to a session open (the candles in between play out, nothing is skipped over)
+        stop();
+        const o = sessOpens().find((x) => x.k === a && S.bars[x.i].cme === S.day);
+        if (!o) return toast("That session isn't in today's data.");
+        if (o.i <= S.i) return toast(`${SESS_N[a]} opened at ${local(S.bars[o.i].t)} your time — already passed.`);
+        let n = 0; while (n++ < 3000 && S.i < o.i && step());
+        return toast(`${SESS_N[a]} open — ${local(S.bars[S.i].t)} your time.`);
+      }
       case "skip": { stop(); const target = S.P.strategy !== "ngzone" ? S.P.win[0] : 360; let n = 0; while (n++ < 600 && !(S.bars[S.i].min >= target && S.bars[S.i].min < 18 * 60) && step()); return; }
       case "end": return endSession();
       case "next": return nextSession().catch((e) => toast(e.message));
@@ -1681,6 +1730,7 @@
       case "undo": return undoRedo(true);
       case "redo": return undoRedo(false);
       case "magnet": return toggleMagnet();
+      case "levellock": S.levelLock = !S.levelLock; modeUi(); return toast(S.levelLock ? "Level lines on — trend lines stay perfectly flat (same as holding Shift)." : "Level lines off.");
       case "dsty": { // a drawing's colour / fill / line / extend
         const o = objOf(a); if (!o || o.kind !== "draw") return;
         hist();
