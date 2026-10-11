@@ -770,3 +770,46 @@ body.sim-on .tv-menu, body.sim-on .tv-sel, body.sim-on .tv-hint, body.sim-on .tv
 .themebtn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line2); background: var(--panel2); color: var(--text); display: grid; place-items: center; cursor: pointer; padding: 0; }
 .gameplan p { margin: 5px 0 0; font-size: 13.5px; color: var(--muted); }
 .gameplan p:first-of-type { color: var(--text); }
+
+/* ---------- home: the chart first */
+.shell { display: block; }
+.home { max-width: 760px; margin: 18px auto 0; padding: 12px 12px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow), var(--hi); display: flex; flex-direction: column; gap: 8px; }
+@media (max-width: 792px) { .home { margin: 14px 16px 0; } }
+body.home-on main#view { padding-top: 14px; }
+.hm-mk { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -2px; padding: 0 2px; }
+.hm-mk::-webkit-scrollbar { display: none; }
+.hm-mk button { position: relative; flex: 0 0 auto; border: 1px solid var(--line2); background: var(--panel2); color: var(--muted); border-radius: 999px; padding: 6px 12px; font: 600 13px var(--font); cursor: pointer; }
+.hm-mk button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+.hm-mk button i { position: absolute; top: 3px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--panel); }
+.hm-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.hm-px { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.hm-px b { font: 700 22px/1.1 var(--display); letter-spacing: -.02em; }
+.hm-px span { font-size: 13px; font-weight: 600; }
+.hm-chip { padding: 2px 8px; border-radius: 999px; font-size: 11.5px !important; background: var(--panel2); border: 1px solid var(--line2); color: var(--muted); align-self: center; }
+.hm-chip.up { color: var(--good); } .hm-chip.dn { color: var(--bad); } .hm-chip.zone { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.hm-tf { flex: 0 0 auto; }
+.hm-tf button { padding: 5px 10px; font-size: 12.5px; }
+.hm-chart { position: relative; height: max(300px, 46vh); border-radius: 12px; overflow: hidden; }
+.hm-ov { position: absolute; inset: 0 60px 26px 0; pointer-events: none; z-index: 2; overflow: hidden; }
+.hm-z { position: absolute; right: 0; border: 1px solid; border-radius: 2px; }
+.hm-z:not(.big) { border-style: dashed; }
+.hm-zl { position: absolute; font: 700 10px var(--font); white-space: nowrap; }
+.hm-msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; z-index: 3; }
+.hm-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.hm-act { display: flex; gap: 12px; }
+.hm-act .link, .hm-act a { font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: none; background: none; border: 0; padding: 0; cursor: pointer; }
+@media (min-width: 1100px) {
+  body.home-on .shell { display: grid; grid-template-columns: minmax(0, 1fr) 460px; gap: 18px; max-width: 1560px; margin: 0 auto; padding: 18px 20px 0; align-items: start; }
+  body.home-on .home { position: sticky; top: 76px; margin: 0; max-width: none; height: calc(100vh - 190px); }
+  body.home-on .hm-chart { flex: 1; height: auto; min-height: 360px; }
+  body.home-on main#view { max-width: none; margin: 0; padding: 0 0 calc(112px + env(safe-area-inset-bottom)); }
+}
+.hm-tf { grid-template-columns: repeat(4, auto); }
+.setup-steps .su-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.setup-steps .su-row:first-of-type { border-top: 0; }
+.setup-steps .su-row > i { flex: 0 0 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font: 700 13px var(--font); font-style: normal; background: var(--panel2); border: 1px solid var(--line2); }
+.setup-steps .su-row.ok > i { background: var(--good); color: #fff; border-color: transparent; }
+.setup-steps .su-row > div { flex: 1; min-width: 0; }
+.setup-steps .su-row p { margin: 2px 0 0; font-size: 12.5px; }
+.setup-steps .su-row.ok b { color: var(--muted); }
+.su-how { margin-top: 6px; font-size: 13px; } .su-how summary { cursor: pointer; color: var(--accent); font-weight: 600; }

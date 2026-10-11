@@ -61,6 +61,12 @@ module.exports = async (req, res) => {
       res.setHeader("Cache-Control", month < new Date().toISOString().slice(0, 7) ? "private, max-age=604800" : "private, max-age=1800"); // your browser keeps it; never a shared cache
       return res.status(200).json({ market, source: "databento", month, interval: tf, bars });
     }
+    // ?tail=1 — just the last day of 5-minute candles, refreshed every minute (the home chart's live edge)
+    if (url.searchParams.get("tail")) {
+      const bars = await load(market, 1, "5m");
+      res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=60");
+      return res.status(200).json({ market, symbol: SYMBOLS[market], interval: "5m", bars });
+    }
     const interval = INTERVALS[url.searchParams.get("i")] ? url.searchParams.get("i") : "5m";
     const bars = await load(market, INTERVALS[interval], interval);
     res.setHeader("Cache-Control", "public, s-maxage=1800, stale-while-revalidate=3600");

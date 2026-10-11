@@ -194,6 +194,7 @@
     $("#topStatus").innerHTML = `<span class="dot ${g.ok ? "live" : ""}"></span>${g.ok ? "Ready" : "Locked"}`;
     const coachTab = tab === "watch"; // the live chart coach (screen share) keeps running while you switch tabs
     $("#view").hidden = coachTab;
+    homeSync();
     if (window.EdgeCoach) window.EdgeCoach.show(coachTab);
     if (coachTab) return;
     setTimeout(maybeTour, 0);
@@ -206,6 +207,10 @@
     renderedTab = tab;
     bind();
   }
+
+  // the home chart (home.js): on Today it sits above your cards — beside them on a wide screen
+  function homeSync() { const on = tab === "now" && !!S; document.body.classList.toggle("home-on", on); if (window.EdgeHome && S) window.EdgeHome.update(S, on); }
+  window.Edge.homeSync = homeSync;
 
   // ---------- "What am I looking at?" — a guided tour, one thing at a time (auto the first time on each screen; ? in the top bar any time)
   const TOURS = {
@@ -490,6 +495,22 @@
     </div>`;
   }
 
+  // the three steps to get Edge working for you — ticks itself off as each one is done
+  function getSetCard() {
+    const prop = !!(S.prop && S.prop.cfg && S.prop.cfg.enabled);
+    const radar = Object.entries(S.prices || {}).filter(([, p]) => p && (p.swing15Low != null || p.trendD != null) && S.now - p.time < 3 * 864e5).map(([m]) => m);
+    const push = !!pushSub || (S.push && S.push.devices.length > 0);
+    let hide = false; try { hide = localStorage.getItem("edge.setupDone") === "1"; } catch {}
+    if (hide || (prop && radar.length >= 8 && push)) return "";
+    const row = (ok, n, title, text, btn) => `<div class="su-row ${ok ? "ok" : ""}"><i>${ok ? "✓" : n}</i><div><b>${title}</b><p class="muted">${text}</p></div>${ok ? "" : btn}</div>`;
+    return `<section class="card setup-steps" data-tour="getset"><div class="card-head"><h2>🚀 Get set up</h2><button type="button" class="link" data-suhide>Hide</button></div>
+      ${row(prop, 1, "Your prop account", prop ? "The autopilot sizes every trade." : "Pick your firm and plan, type where the account stands — Edge does the rest.", `<button class="btn small primary" data-propset>Set up</button>`)}
+      ${row(radar.length >= 8, 2, `Radar alerts in TradingView${radar.length ? ` · ${radar.length}/8 markets` : ""}`, radar.length ? `Watching: ${radar.map(mname).join(", ")}.` : "On a computer: copy the script, add it to a 5-minute chart, create one alert per market (paid TradingView plan).", `<button class="btn small" data-copypine="edge_playbook_radar">Copy script</button>`)}
+      ${row(push, 3, "Notifications on this phone", push ? "Setups, fills and your game plan reach you anywhere." : "So the radar can reach you when the app is closed.", pushCapable && Notification.permission !== "denied" ? `<button class="btn small" data-pushon>Turn on</button>` : "")}
+      ${!radar.length ? `<details class="su-how"><summary>How to add the radar alerts</summary><ol class="steps"><li>Tap <b>Copy script</b> (your secret is inside), open TradingView on a computer.</li><li>Pine Editor → select all, delete, paste → <b>Save</b> → <b>Add to chart</b> on a <b>5-minute</b> chart of <code>MNQ1!</code>.</li><li>Alert (⏰) → Condition: <b>Edge radar</b> → <b>Any alert() function call</b> → Notifications → <b>Webhook URL</b>: <code>${esc(location.origin)}/api/hook</code> → Create.</li><li>Switch the chart to <code>MES1! MYM1! MGC1! SIL1! MCL1! MHG1! MNG1!</code> and create the same alert on each — 8 in all.</li></ol></details>` : ""}
+    </section>`;
+  }
+
   function viewNow() {
     const g = S.guard, s = S.settings;
     const live = S.setups.filter((x) => x.status === "open" && x.g.take.ok && !(x.expires && S.now > x.expires));
@@ -529,7 +550,7 @@
     const news = nextNews.length ? `<section class="card slim" data-tour="news"><div class="card-head"><h2>📰 Big news</h2><span class="muted">no trades ${s.newsBeforeMin} min either side</span></div><div class="news">${nextNews.map((e) => { const liveN = S.now >= e.time - s.newsBeforeMin * 60e3 && S.now <= e.time + s.newsAfterMin * 60e3; return `<div class="ev ${liveN ? "live" : ""}"><span class="num">${day(e.time).split(",")[0]} ${time(e.time)}</span><span>${esc(e.title)}<br><small class="muted">${e.markets.map(mname).join(" · ")}</small></span><span class="pill ${liveN ? "bad" : "warn"}">${liveN ? "NO TRADES" : e.impact}</span></div>`; }).join("")}</div></section>` : "";
     const alerts = `<details class="card slim" data-tour="log" data-keep="alerts"><summary><b>Alerts</b> <span class="muted">${S.log.length ? `· last ${time(S.log[0].at)}` : ""}</span></summary><div class="log" style="margin-top:8px">${S.log.slice(0, 15).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></details>`;
     const gp = S.gameplan && S.now - S.gameplan.at < 10 * 3600e3 ? `<section class="card slim gameplan" data-tour="gameplan"><div class="row between"><b>${esc(S.gameplan.title)}</b><small class="muted">${time(S.gameplan.at)}</small></div>${S.gameplan.lines.map((l) => `<p>${esc(l)}</p>`).join("")}</section>` : "";
-    return `${ceBanner}${pend}${hero}${gp}${setups}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
+    return `${ceBanner}${pend}${getSetCard()}${hero}${gp}${setups}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -1144,6 +1165,7 @@
       e.stopPropagation(); const t = S.journal.find((x) => x.id === b.dataset.snap); if (!t || !window.EdgeSim) return toast("Simulator still loading — try again.");
       window.EdgeSim.open(t.market, { day: tradeDay(t.openedAt), at: Math.max(0, nyMinOf(t.openedAt) - 90), src: "free" });
     }));
+    v.querySelectorAll("[data-suhide]").forEach((b) => b.addEventListener("click", () => { try { localStorage.setItem("edge.setupDone", "1"); } catch {} render(); }));
     v.querySelectorAll("[data-propset]").forEach((b) => b.addEventListener("click", propDialog));
     v.querySelectorAll("[data-traildone]").forEach((b) => b.addEventListener("click", () => act({ action: "trailDone", tradeId: b.dataset.traildone }, "Stop trailed. Profit locked — hands off.")));
     v.querySelectorAll("[data-cancelord]").forEach((b) => b.addEventListener("click", () => act({ action: "cancelOrder", id: b.dataset.cancelord }, "Order cancelled — cancel it on your platform too if you placed it yourself.")));
