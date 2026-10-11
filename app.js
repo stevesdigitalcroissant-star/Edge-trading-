@@ -820,6 +820,32 @@
     $("#modal").showModal();
   }
 
+  // Settings → Connect Tradovate: one short form; Edge signs in to check it before saving anything
+  function tradovateDialog() {
+    const body = $("#modalBody");
+    body.innerHTML = `<h3>Connect Tradovate</h3>
+      <div class="seg two" id="tvEnv" style="margin:4px 0 10px"><button type="button" data-env="demo" class="on p1">Demo</button><button type="button" data-env="live">Live</button></div>
+      <label class="f">Username<input id="tvUser" autocomplete="username" autocapitalize="off" spellcheck="false"></label>
+      <label class="f">Password<input id="tvPw" type="password" autocomplete="current-password"></label>
+      <label class="f">API key ID (CID)<input id="tvCid" inputmode="numeric" autocomplete="off"></label>
+      <label class="f">API secret<input id="tvSec" type="password" autocomplete="off"></label>
+      <label class="f">Account name <small class="muted">(only if you have several)</small><input id="tvAcct" autocomplete="off" autocapitalize="characters"></label>
+      <p class="err" id="tvErr"></p>
+      <div class="row"><button class="btn primary" type="button" id="tvGo">Connect</button><button class="btn" value="cancel">Cancel</button></div>
+      <p class="muted" style="font-size:12.5px;margin:10px 0 0">Get the API key in Tradovate → Settings → API Access (your prop firm must allow it). Edge checks the details by signing in, then keeps them encrypted on your server — they never come back to this screen. Start on Demo and send one test trade.</p>`;
+    let env = "demo";
+    body.querySelectorAll("[data-env]").forEach((b) => b.addEventListener("click", () => { env = b.dataset.env; body.querySelectorAll("[data-env]").forEach((y) => (y.className = y === b ? `on ${env === "live" ? "m1" : "p1"}` : "")); }));
+    $("#tvGo").addEventListener("click", async () => {
+      const go = $("#tvGo"); go.disabled = true; go.textContent = "Connecting…"; $("#tvErr").textContent = "";
+      try {
+        const r = await api("POST", { action: "tradovateConnect", env, username: $("#tvUser").value, password: $("#tvPw").value, cid: $("#tvCid").value, secret: $("#tvSec").value, account: $("#tvAcct").value });
+        $("#modal").close(); toast(`Connected to Tradovate ${env} · ${r.account && r.account.name ? r.account.name : ""}`); refresh();
+      } catch (e) { $("#tvErr").textContent = e.message; go.disabled = false; go.textContent = "Connect"; }
+    });
+    $("#modal").showModal();
+    setTimeout(() => $("#tvUser").focus(), 50);
+  }
+
   function logTradeDialog() {
     const body = $("#modalBody");
     body.innerHTML = `<h3>Log a trade you opened yourself</h3>
@@ -882,11 +908,9 @@
           <div class="stat"><small>Phone notifications</small><b style="font-size:15px">${S.push.devices.length ? `<span class="pill good">${S.push.devices.length} device${S.push.devices.length > 1 ? "s" : ""}</span>` : `<span class="pill warn">off</span>`}</b></div>
           <div class="stat"><small>Storage</small><b style="font-size:15px">${S.storage === "memory" ? `<span class="pill bad">not saved</span>` : esc(S.storage)}</b></div>
         </div>
-        ${S.broker.kind === "manual" ? `<div class="connect"><b>🔌 Connect Tradovate — Edge places your trades for you</b>
-          <ol class="steps"><li>In Tradovate: <b>Settings → API Access</b> → generate a key. Note the <b>CID</b> and the <b>secret</b>. (API access must be allowed on your account — check with your prop firm.)</li>
-          <li>In Vercel → project <b>edge-trading</b> → Settings → <b>Environment Variables</b>, add: <code>TRADOVATE_USERNAME</code>, <code>TRADOVATE_PASSWORD</code>, <code>TRADOVATE_CID</code>, <code>TRADOVATE_SECRET</code>, and <code>TRADOVATE_ENV</code> = <code>demo</code> (practice) or <code>live</code>. Several accounts? Add <code>TRADOVATE_ACCOUNT</code> with the account's name.</li>
-          <li>Redeploy. This card turns into your account name and balance — then "Send to Tradovate" places the order with its stop and target, and Edge moves the stop and sees fills by itself.</li></ol>
-          <p class="muted" style="margin:0;font-size:12.5px">Start on <b>demo</b> and send one test trade before switching to live.</p></div>` : ""}
+        ${S.broker.kind === "manual" ? `<div class="connect"><button class="btn tv-connect" data-tvconnect>Connect Tradovate</button>
+          <p class="muted">Edge places your trades on your Tradovate account — entry, stop and target — and sees the fills itself. You'll need your Tradovate login and an API key (Tradovate → Settings → API Access).</p></div>`
+          : S.broker.kind === "tradovate" ? `<div class="connect ok"><b>✅ Tradovate connected</b>${S.broker.account && S.broker.account.name ? ` <span class="muted">· ${esc(S.broker.account.name)}</span>` : ""}${S.broker.account && S.broker.account.error ? `<p class="err" style="margin:6px 0 0">${esc(S.broker.account.error)}</p>` : ""}${S.tradovateApp ? `<button class="btn small" data-tvdisconnect style="margin-left:auto">Disconnect</button>` : ""}</div>` : ""}
         <p class="muted">Webhook URL for your TradingView alert: <code>${esc(hook)}</code></p>
         <div class="row"><button class="btn small" data-testalert>Send a test alert</button></div>
       </section>
@@ -995,6 +1019,8 @@
     }));
     const chk = $("#copyHook"); if (chk) chk.addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.origin + "/api/hook"); toast("Webhook URL copied."); } catch { toast(location.origin + "/api/hook", 8000); } });
     const lt = $("#logTrade"); if (lt) lt.addEventListener("click", logTradeDialog);
+    v.querySelectorAll("[data-tvconnect]").forEach((b) => b.addEventListener("click", tradovateDialog));
+    v.querySelectorAll("[data-tvdisconnect]").forEach((b) => b.addEventListener("click", async () => { if (confirm("Disconnect Tradovate? Edge stops placing orders for you (open positions stay on Tradovate).")) act({ action: "tradovateDisconnect" }, "Tradovate disconnected."); }));
     v.querySelectorAll("[data-testalert]").forEach((b) => b.addEventListener("click", async () => { const r = await act({ action: "testAlert" }); if (r) toast(r.sent ? "Sent — check your phone." : "No device has notifications on yet — tap Turn on first."); }));
     const so = $("#signOut"); if (so) so.addEventListener("click", () => { try { localStorage.removeItem("edge.token"); } catch {} token = ""; authView = "signin"; showLogin(); });
     const cp = $("#cpSave"); if (cp) cp.addEventListener("click", async () => {

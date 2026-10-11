@@ -1,7 +1,7 @@
 // /api/app — the dashboard. Account actions work signed-out; everything else needs a session.
 // GET → everything the page shows; POST {action, …} → do something.
 const { getStore } = require("./_store");
-const { getBroker } = require("./_broker");
+const { brokerFor, connectTradovate, disconnectTradovate } = require("./_broker");
 const { state, action } = require("./_core");
 const auth = require("./_auth");
 
@@ -20,10 +20,12 @@ module.exports = async (req, res) => {
     if (req.method === "POST" && OPEN[body.action]) return res.status(200).json(await OPEN[body.action](store, body));
     const acct = await auth.authorized(store, req.headers);
     if (!acct) return res.status(401).json({ error: "Sign in" });
-    if (req.method === "GET") return res.status(200).json({ ...(await state(store, getBroker())), account: { email: acct.email, created: acct.created } });
+    if (req.method === "GET") return res.status(200).json({ ...(await state(store, await brokerFor(store))), account: { email: acct.email, created: acct.created } });
+    if (req.method === "POST" && body.action === "tradovateConnect") return res.status(200).json(await connectTradovate(store, body));
+    if (req.method === "POST" && body.action === "tradovateDisconnect") return res.status(200).json(await disconnectTradovate(store));
     if (req.method === "POST" && body.action === "changePassword") return res.status(200).json(await auth.changePassword(store, acct, body));
     if (req.method === "POST" && body.action === "newRecoveryCode") return res.status(200).json(await auth.newRecoveryCode(store, acct));
-    if (req.method === "POST") return res.status(200).json(await action(store, getBroker(), body));
+    if (req.method === "POST") return res.status(200).json(await action(store, await brokerFor(store), body));
     res.status(405).json({ error: "GET or POST" });
   } catch (e) {
     res.status(400).json({ error: e.message });

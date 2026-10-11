@@ -690,3 +690,6 @@ details.adv > summary h2 { margin: 0; } details.adv > .card { margin-top: 12px; 
 a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-items: center; }
 .connect { margin: 12px 0; padding: 14px; border-radius: 14px; background: color-mix(in srgb, var(--info) 8%, var(--panel2)); border: 1px solid color-mix(in srgb, var(--info) 30%, transparent); }
 .connect .steps { margin: 8px 0; padding-left: 18px; font-size: 13.5px; line-height: 1.5; } .connect code { font-size: 12px; }
+.connect.ok { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; background: color-mix(in srgb, var(--good) 8%, var(--panel2)); border-color: color-mix(in srgb, var(--good) 30%, transparent); }
+.connect p { margin: 10px 0 0; font-size: 12.5px; }
+.tv-connect { width: 100%; padding: 14px; font-size: 15px; font-weight: 700; color: #fff; border: 0; background: linear-gradient(135deg, #1f6bff, #0a3fb8); box-shadow: 0 10px 24px -12px #1f6bff; }

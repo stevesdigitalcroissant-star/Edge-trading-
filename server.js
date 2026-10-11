@@ -19,7 +19,7 @@ const coachApi = require("./api/coach");
 const candles = require("./api/candles");
 const history = require("./api/history");
 const { getStore } = require("./api/_store");
-const { getBroker } = require("./api/_broker");
+const { getBroker, brokerFor } = require("./api/_broker");
 const { syncTrades } = require("./api/_core");
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png" };
@@ -53,6 +53,4 @@ http.createServer((req, res) => {
   console.log(`Edge running on http://localhost:${process.env.PORT || 3000}  (broker: ${getBroker().label}, storage: ${getStore().kind})`);
 });
 
-if (getBroker().kind !== "manual") {
-  setInterval(() => syncTrades(getStore(), getBroker(), { force: true }).catch((e) => console.error(e.message)), 10000);
-}
+setInterval(async () => { const b = await brokerFor(getStore()).catch(() => getBroker()); if (b.kind !== "manual") syncTrades(getStore(), b, { force: true }).catch((e) => console.error(e.message)); }, 10000);

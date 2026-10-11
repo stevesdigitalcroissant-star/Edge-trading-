@@ -144,16 +144,20 @@ function traderspost() {
 // account (Tradovate → Application Settings → API Access → generate a key: that gives the CID and secret).
 // Env: TRADOVATE_USERNAME, TRADOVATE_PASSWORD, TRADOVATE_CID, TRADOVATE_SECRET, TRADOVATE_ENV = demo | live (default demo),
 //      TRADOVATE_ACCOUNT (the account name, if you have several), TRADOVATE_CONTRACTS ("MGC=MGCZ6,MCL=MCLF7" to pin a month).
-const TV = { token: null, exp: 0, acct: null, contracts: {} }; // kept while the server instance lives
-function tradovate() {
-  const base = process.env.TRADOVATE_ENV === "live" ? "https://live.tradovateapi.com/v1" : "https://demo.tradovateapi.com/v1";
-  const env = process.env.TRADOVATE_ENV === "live" ? "live" : "demo";
+// Or connect it from the app (Settings → Connect Tradovate): the same details, saved encrypted in Edge's storage.
+const TVS = {}; // per login, kept while the server instance lives: { token, exp, acct, contracts }
+const fromEnv = () => ({ username: process.env.TRADOVATE_USERNAME, password: process.env.TRADOVATE_PASSWORD, cid: process.env.TRADOVATE_CID, secret: process.env.TRADOVATE_SECRET,
+  env: process.env.TRADOVATE_ENV, account: process.env.TRADOVATE_ACCOUNT, contracts: process.env.TRADOVATE_CONTRACTS });
+function tradovate(cfg = fromEnv()) {
+  const env = cfg.env === "live" ? "live" : "demo";
+  const base = env === "live" ? "https://live.tradovateapi.com/v1" : "https://demo.tradovateapi.com/v1";
+  const TV = (TVS[`${env}:${cfg.username}`] = TVS[`${env}:${cfg.username}`] || { token: null, exp: 0, acct: null, contracts: {} });
   async function auth(force = false) {
     if (!force && TV.token && Date.now() < TV.exp - 120e3) return TV.token;
-    const r = await fetch(`${base}/auth/accesstokenrequest`, {
+    const r = await net(`${base}/auth/accesstokenrequest`, {
       method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, signal: AbortSignal.timeout(10000),
-      body: JSON.stringify({ name: process.env.TRADOVATE_USERNAME, password: process.env.TRADOVATE_PASSWORD, appId: "Edge", appVersion: "1.0",
-        cid: Number(process.env.TRADOVATE_CID) || process.env.TRADOVATE_CID, sec: process.env.TRADOVATE_SECRET, deviceId: process.env.TRADOVATE_DEVICE_ID || "edge-trading-copilot" }),
+      body: JSON.stringify({ name: cfg.username, password: cfg.password, appId: "Edge", appVersion: "1.0",
+        cid: Number(cfg.cid) || cfg.cid, sec: cfg.secret, deviceId: process.env.TRADOVATE_DEVICE_ID || "edge-trading-copilot" }),
     });
     const j = await r.json().catch(() => ({}));
     if (j["p-ticket"]) throw new Error(`Tradovate asked to wait ${j["p-time"] || "a few"} seconds before signing in again — try again shortly.`);
@@ -161,8 +165,9 @@ function tradovate() {
     TV.token = j.accessToken; TV.exp = Date.parse(j.expirationTime) || Date.now() + 60 * 60e3;
     return TV.token;
   }
+  const net = (url, opts) => fetch(url, opts).catch(() => { throw new Error(`Couldn't reach Tradovate (${env}) — check the connection and try again.`); });
   async function call(method, path, body, retry = true) {
-    const r = await fetch(`${base}${path}`, {
+    const r = await net(`${base}${path}`, {
       method, headers: { Authorization: `Bearer ${await auth()}`, "Content-Type": "application/json", Accept: "application/json" },
       body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(10000),
     });
@@ -175,7 +180,7 @@ function tradovate() {
   async function acct() {
     if (TV.acct) return TV.acct;
     const list = await call("GET", "/account/list");
-    const want = process.env.TRADOVATE_ACCOUNT;
+    const want = cfg.account;
     const a = (list || []).find((x) => (want ? x.name === want : x.active !== false && !x.archived));
     if (!a) throw new Error(want ? `Tradovate: no account called ${want}` : "Tradovate: no active account");
     return (TV.acct = { id: a.id, name: a.name });
@@ -183,7 +188,7 @@ function tradovate() {
   // "MGC1!" → the contract to trade now, e.g. "MGCZ6" (Tradovate's front month, unless you pinned one)
   async function contract(ticker) {
     const root = String(ticker || "").replace(/^[A-Z_]+:/i, "").toUpperCase().replace(/(\d!|[FGHJKMNQUVXZ]\d{1,2})$/, "");
-    const pinned = Object.fromEntries(String(process.env.TRADOVATE_CONTRACTS || "").split(",").map((x) => x.split("=").map((y) => y.trim().toUpperCase())).filter((x) => x[1]));
+    const pinned = Object.fromEntries(String(cfg.contracts || "").split(",").map((x) => x.split("=").map((y) => y.trim().toUpperCase())).filter((x) => x[1]));
     if (pinned[root]) return pinned[root];
     const hit = TV.contracts[root];
     if (hit && Date.now() - hit.at < 6 * 3600e3) return hit.name;
@@ -235,9 +240,47 @@ function tradovate() {
 
 function getBroker() {
   if (process.env.OANDA_TOKEN && process.env.OANDA_ACCOUNT_ID) return oanda();
-  if (process.env.TRADOVATE_USERNAME && process.env.TRADOVATE_PASSWORD && process.env.TRADOVATE_CID && process.env.TRADOVATE_SECRET) return tradovate();
+  if (process.env.TRADOVATE_USERNAME && process.env.TRADOVATE_PASSWORD && process.env.TRADOVATE_CID && process.env.TRADOVATE_SECRET) return tradovate(fromEnv());
   if (process.env.TRADERSPOST_WEBHOOK_URL) return traderspost();
   return { kind: "manual", label: "Manual (no broker connected)" };
 }
 
-module.exports = { getBroker };
+// ---------- Tradovate connected from the app: the details are encrypted (AES-256-GCM) before they're stored,
+// and never sent back to the browser.
+const crypto = require("crypto");
+async function vaultKey(store) {
+  let k = await store.get("vaultKey");
+  if (!k) { k = crypto.randomBytes(32).toString("hex"); await store.set("vaultKey", k); }
+  return crypto.createHash("sha256").update(`${process.env.EDGE_SECRET_KEY || ""}:${k}`).digest();
+}
+async function seal(store, obj) {
+  const iv = crypto.randomBytes(12), c = crypto.createCipheriv("aes-256-gcm", await vaultKey(store), iv);
+  const data = Buffer.concat([c.update(JSON.stringify(obj), "utf8"), c.final()]);
+  return { iv: iv.toString("base64"), tag: c.getAuthTag().toString("base64"), data: data.toString("base64") };
+}
+async function unseal(store, box) {
+  const d = crypto.createDecipheriv("aes-256-gcm", await vaultKey(store), Buffer.from(box.iv, "base64"));
+  d.setAuthTag(Buffer.from(box.tag, "base64"));
+  return JSON.parse(Buffer.concat([d.update(Buffer.from(box.data, "base64")), d.final()]).toString("utf8"));
+}
+// the broker to use for this request: one set in Vercel wins; otherwise the Tradovate account you connected in the app
+async function brokerFor(store) {
+  const b = getBroker();
+  if (b.kind !== "manual" || !store) return b;
+  const box = await store.get("tradovateConn").catch(() => null);
+  if (!box) return b;
+  try { return tradovate(await unseal(store, box)); } catch { return b; }
+}
+// Settings → Connect Tradovate: sign in once to check the details, then save them (sealed)
+async function connectTradovate(store, body) {
+  const cfg = { username: String(body.username || "").trim(), password: String(body.password || ""), cid: String(body.cid || "").trim(), secret: String(body.secret || "").trim(),
+    env: body.env === "live" ? "live" : "demo", account: String(body.account || "").trim() || undefined };
+  if (!cfg.username || !cfg.password || !cfg.cid || !cfg.secret) throw new Error("Fill in all four: username, password, API key ID and secret.");
+  delete TVS[`${cfg.env}:${cfg.username}`];
+  const a = await tradovate(cfg).account(); // throws with Tradovate's own message if anything's wrong
+  await store.set("tradovateConn", await seal(store, cfg));
+  return { ok: true, account: a };
+}
+async function disconnectTradovate(store) { await store.del("tradovateConn"); return { ok: true }; }
+
+module.exports = { getBroker, brokerFor, connectTradovate, disconnectTradovate };

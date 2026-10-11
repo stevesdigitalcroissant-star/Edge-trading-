@@ -545,7 +545,7 @@ async function state(store, broker, now = Date.now()) {
     fundamentals: await store.get("fundamentals"),
     closeOut: R.closeOut(now, ctx.settings),
     push: { publicKey: (await vapid(store).catch(() => null) || {}).publicKey || null, devices: Object.values(await store.hgetall("push")).map((d) => ({ label: d.label, added: d.added })) },
-    storage: store.kind, hookReady: !!process.env.EDGE_HOOK_SECRET, telegram: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
+    tradovateApp: !!(await store.get("tradovateConn").catch(() => null)), storage: store.kind, hookReady: !!process.env.EDGE_HOOK_SECRET, telegram: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
   };
 }
 
