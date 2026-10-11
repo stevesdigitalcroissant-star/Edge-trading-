@@ -257,7 +257,7 @@
         <button class="sim-pnl" data-s="acct" title="Your practice account"><small>Balance</small><b id="simBal">—</b><em id="simPnl">0.00R</em></button></div>
       <div class="sim-info" id="simInfo">Loading prices…</div>
       <div class="tv-bar" id="tvBar"></div>
-      <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><div id="simTB"></div>${toolbarHtml()}<div class="sim-banner" id="simBanner" hidden></div></div>
+      <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><svg class="sim-aim" id="simAim"></svg><div id="simTB"></div>${toolbarHtml()}<div class="sim-banner" id="simBanner" hidden></div></div>
       <div class="sim-ctl">
         <button class="btn small" data-s="play" id="simPlay">▶ Play</button>
         <button class="btn small" data-s="step">Next candle ›</button>
@@ -303,7 +303,7 @@
     let startI = P.strategy !== "ngzone" ? first : Math.max(first, all.findIndex((b) => b.cme === day && b.min >= 180 && b.min < 18 * 60));
     const at = o.at ?? startAt(market);
     if (at != null && at !== 18 * 60) { const j = all.findIndex((b, k) => k >= startI && b.cme === day && b.min >= at && b.min < 18 * 60); if (j > 0) startI = j; } // your chosen start time
-    S = { market, P, day, bars: all, sess, i: startI, from: 0, view: viewPrefs(market), speed: 1, orders: [], pos: null, trades: [], plan: P.strategy === "london" ? londonPlan(sess, P) : null, reviewing: null, tools: [], draws: [], mode: null, pend: null, sel: null, tk: null, tkLines: null, src: useDb ? "db" : "free", month, days: data.days, seq: !!o.seq,
+    S = { market, P, day, bars: all, sess, i: startI, from: 0, view: viewPrefs(market), speed: 1, orders: [], pos: null, trades: [], plan: P.strategy === "london" ? londonPlan(sess, P) : null, reviewing: null, tools: [], draws: [], undo: [], redo: [], aim: null, magnet: magnetPref(), mode: null, pend: null, sel: null, tk: null, tkLines: null, src: useDb ? "db" : "free", month, days: data.days, seq: !!o.seq,
       sd: P.strategy === "sd" ? window.EdgeStrategy2.run(all, market, SD_RULES) : null }; // only ever read up to the current candle (no peeking)
     closeTicket(); closeMenu(); if (S) modeUi();
     { const a = acct(); S.dayStart = a.balance; S.dayLock = null; }
@@ -352,22 +352,40 @@
     } });
     chart.subscribeClick((p) => { if (!p.point || !S || S.reviewing || S.justDragged || S.mode || Date.now() - (S.tapAt || 0) < 400) return; chartTap(p.point.x, p.point.y); });
     // while a drawing tool is picked, our own tap detection places it (sturdier than the chart's click on touch screens)
+    // drawing: a crosshair shows exactly where the tool will land. Mouse: it follows the pointer — click to place.
+    // Touch: press and drag — the crosshair sits above your finger so you can see it; lift to place. A quick tap places it right there.
     let down = null;
     if (!el.__wired) { el.__wired = true; // once per simulator (the chart itself is rebuilt when you change the view)
-    el.addEventListener("pointerdown", (e) => { down = S && S.mode && !e.target.closest("[data-k],.tv-tools,.tv-sel,.sim-banner") ? { x: e.clientX, y: e.clientY, t: Date.now() } : null; }, true);
+    const rel = (e) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    el.addEventListener("pointerdown", (e) => {
+      down = null;
+      if (!S || !S.mode || S.reviewing || e.target.closest("[data-k],.tv-tools,.tv-sel,.sim-banner,button")) return;
+      const p = rel(e), touch = e.pointerType !== "mouse";
+      down = { ...p, t: Date.now(), touch, moved: false, ax: p.x, ay: touch ? p.y - AIM_UP : p.y };
+      if (touch) { e.preventDefault(); S.aim = aimAt(down.ax, down.ay); }
+    }, true);
+    el.addEventListener("pointermove", (e) => {
+      if (!S || !S.mode) return;
+      const p = rel(e);
+      if (down && down.touch) { if (Math.hypot(p.x - down.x, p.y - down.y) > 6) down.moved = true; S.aim = aimAt(down.ax + p.x - down.x, down.ay + p.y - down.y); }
+      else if (e.pointerType === "mouse") S.aim = aimAt(p.x, p.y);
+    }, true);
     el.addEventListener("pointerup", (e) => {
       if (!down || !S || !S.mode) return;
-      const d = down; down = null;
-      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10 || Date.now() - d.t > 800) return;
-      S.tapAt = Date.now(); const r = el.getBoundingClientRect(); chartTap(e.clientX - r.left, e.clientY - r.top);
+      const d = down, p = rel(e); down = null; S.tapAt = Date.now();
+      if (d.touch) return place(d.moved || Date.now() - d.t > 350 ? S.aim : aimAt(d.x, d.y));
+      if (Math.hypot(p.x - d.x, p.y - d.y) > 10 || Date.now() - d.t > 800) return;
+      place(aimAt(p.x, p.y));
     }, true);
+    el.addEventListener("pointercancel", () => { down = null; }, true);
+    el.addEventListener("pointerleave", (e) => { if (S && !down && e.pointerType === "mouse" && !S.pend) S.aim = null; });
     new ResizeObserver(() => drawOverlay()).observe(el);
     $("#simTools").addEventListener("pointerdown", pointerDown);
     $("#simTools").addEventListener("contextmenu", onContext);
     }
     chart.subscribeCrosshairMove((p) => { if (S) S.hover = p.point && S.pend ? { x: p.point.x, y: p.point.y } : null; });
     chart.timeScale().subscribeVisibleLogicalRangeChange(() => drawOverlay());
-    const loop = () => { if (!S || !chart || gen !== chartGen) return; drawTools(); requestAnimationFrame(loop); };
+    const loop = () => { if (!S || !chart || gen !== chartGen) return; drawTools(); drawAim(); requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
   }
   // ---------- what the chart shows: your timeframe, chart type, indicators and clock (the replay itself always runs on
@@ -536,8 +554,8 @@
     for (const d of S.draws) { if (d.type === "h") mine.push(d.p); if (d.type === "r") mine.push(d.p1, d.p2); }
     return [...S.lv.list, ...mine];
   }
-  function snap(price, extra = []) {
-    let best = null, bd = 9;
+  function snap(price, extra = [], bd = 9) {
+    let best = null;
     const y0 = series.priceToCoordinate(price);
     if (y0 == null) return onTick(price);
     for (const c of [...levels(), ...extra]) { const y = series.priceToCoordinate(c); if (y != null && Math.abs(y - y0) < bd) { bd = Math.abs(y - y0); best = c; } }
@@ -549,8 +567,8 @@
   // keep a new box inside the visible chart (it starts where you tapped, unless that would run off the right edge)
   const fit = (t0, w = boxW()) => Math.min(t0, X2L(chart.timeScale().width() - 8) - w);
   const hourAtr = () => { const b = S.bars[S.i]; return S.P.tf === "60m" ? b.atr : b.atr * Math.sqrt(12); };
-  function addTool(dir, price, t0 = S.i) {
-    const e = snap(price, [S.bars[S.i].c]);
+  function addTool(dir, price, t0 = S.i, exact = false) {
+    const e = exact ? price : snap(price, [S.bars[S.i].c]);
     levels();
     let sl = null;
     if (S.P.strategy === "london" && S.box) { const other = dir > 0 ? S.box.lo : S.box.hi; if (dir * (e - other) > tick()) sl = other; }
@@ -564,6 +582,7 @@
     levels();
     if (S.P.strategy !== "london" || !S.box) return toast("The plan needs the Asian box first (from 02:00 New York).");
     const { hi, lo } = S.box, r = hi - lo;
+    hist();
     S.tools = [{ dir: 1, e: hi, sl: lo, tp: onTick(hi + S.P.tpR * r), t0: fit(S.i), w: boxW() }, { dir: -1, e: lo, sl: hi, tp: onTick(lo - S.P.tpR * r), t0: fit(S.i), w: boxW() }];
     S.sel = null; S.mode = null; modeUi();
     drawLines(); panel();
@@ -609,32 +628,38 @@
         const x = ts.logicalToCoordinate(gi - 0.5); if (x != null) back += `<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="#9598a1" stroke-opacity=".7" stroke-dasharray="4 4"/>`;
       }
     }
-    // your lines, rectangles and trend lines
+    // your lines, rectangles and trend lines (in your colours; zones and lines can stretch left / right like TradingView)
     S.draws.forEach((d, n) => {
-      const k = `dr:${n}`, sel = S.sel === k;
+      const k = `dr:${n}`, sel = S.sel === k, st = { ...DEF[d.type], ...d }, dash = st.dash ? 'stroke-dasharray="6 4"' : "", lw = st.lw + (sel ? 0.75 : 0);
       if (d.type === "h") {
         const y = Y(d.p); if (y == null) return;
-        back += `<line x1="0" x2="${W}" y1="${y}" y2="${y}" stroke="#f0b90b" stroke-width="${sel ? 2 : 1.5}"/><text x="${W - 6}" y="${y - 5}" text-anchor="end" class="tt" fill="#f0b90b">${fmt(d.p)}</text>`;
+        back += `<line x1="0" x2="${W}" y1="${y}" y2="${y}" stroke="${st.color}" stroke-width="${lw}" ${dash}/><text x="${W - 6}" y="${y - 5}" text-anchor="end" class="tt" fill="${st.color}">${fmt(d.p)}</text>`;
         front += `<line x1="0" x2="${W}" y1="${y}" y2="${y}" class="hit" data-k="${k}" data-f="body"/>`;
         if (sel) front += `<rect x="${W / 2 - 6}" y="${y - 6}" width="12" height="12" class="h" data-k="${k}" data-f="body"/>`;
       } else {
         const x1 = L2X(d.i1), x2 = L2X(d.i2), y1 = Y(d.p1), y2 = Y(d.p2);
         if ([x1, x2, y1, y2].some((v) => v == null)) return;
         if (d.type === "r") {
-          back += `<rect x="${Math.min(x1, x2)}" y="${Math.min(y1, y2)}" width="${Math.abs(x2 - x1)}" height="${Math.abs(y2 - y1)}" fill="#9598a1" fill-opacity=".18" stroke="#9598a1" stroke-width="${sel ? 2 : 1}"/>`;
-          front += `<rect x="${Math.min(x1, x2)}" y="${Math.min(y1, y2)}" width="${Math.abs(x2 - x1)}" height="${Math.abs(y2 - y1)}" class="body" data-k="${k}" data-f="body"/>`;
+          const xa = st.xl ? 0 : Math.min(x1, x2), xb = st.xr ? W : Math.max(x1, x2), ya = Math.min(y1, y2), hh = Math.abs(y2 - y1);
+          back += `<rect x="${xa}" y="${ya}" width="${Math.max(1, xb - xa)}" height="${hh}" fill="${st.color}" fill-opacity="${st.fill}" stroke="${st.color}" stroke-width="${lw}" ${dash}/>`;
+          front += `<rect x="${xa}" y="${ya}" width="${Math.max(1, xb - xa)}" height="${hh}" class="body" data-k="${k}" data-f="body"/>`;
+          if (sel) front += `<circle cx="${x1}" cy="${y2}" r="6" class="h" data-k="${k}" data-f="c"/><circle cx="${x2}" cy="${y1}" r="6" class="h" data-k="${k}" data-f="d"/>`;
         } else {
-          back += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#2962ff" stroke-width="${sel ? 2.5 : 2}"/>`;
-          front += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="hit" data-k="${k}" data-f="body"/>`;
+          let [ax, ay, bx, by] = x1 <= x2 ? [x1, y1, x2, y2] : [x2, y2, x1, y1];
+          const m = bx !== ax ? (by - ay) / (bx - ax) : 0;
+          if (st.xl && bx !== ax) { ay -= m * ax; ax = 0; }
+          if (st.xr && bx !== ax) { by += m * (W - bx); bx = W; }
+          back += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="${st.color}" stroke-width="${lw}" ${dash}/>`;
+          front += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" class="hit" data-k="${k}" data-f="body"/>`;
         }
         if (sel) front += `<circle cx="${x1}" cy="${y1}" r="6" class="h" data-k="${k}" data-f="a"/><circle cx="${x2}" cy="${y2}" r="6" class="h" data-k="${k}" data-f="b"/>`;
       }
     });
-    if (S.pend) { // first corner of a rectangle / trend line, waiting for the second tap
-      const x = L2X(S.pend.i), y = Y(S.pend.p), c = S.hover;
+    if (S.pend) { // first corner of a rectangle / trend line, waiting for the second point
+      const x = L2X(S.pend.i), y = Y(S.pend.p), c = S.aim ? { x: L2X(S.aim.i), y: Y(S.aim.p) } : S.hover, st = styleOf(S.mode);
       if (x != null && y != null) {
-        back += `<circle cx="${x}" cy="${y}" r="4" fill="#2962ff"/>`;
-        if (c) back += S.mode === "r" ? `<rect x="${Math.min(x, c.x)}" y="${Math.min(y, c.y)}" width="${Math.abs(c.x - x)}" height="${Math.abs(c.y - y)}" fill="#9598a1" fill-opacity=".15" stroke="#9598a1" stroke-dasharray="4 3"/>` : `<line x1="${x}" y1="${y}" x2="${c.x}" y2="${c.y}" stroke="#2962ff" stroke-width="2" stroke-dasharray="4 3"/>`;
+        back += `<circle cx="${x}" cy="${y}" r="4" fill="${st.color}"/>`;
+        if (c && c.x != null && c.y != null) back += S.mode === "r" ? `<rect x="${Math.min(x, c.x)}" y="${Math.min(y, c.y)}" width="${Math.abs(c.x - x)}" height="${Math.abs(c.y - y)}" fill="${st.color}" fill-opacity="${st.fill ?? 0.15}" stroke="${st.color}" stroke-dasharray="4 3"/>` : `<line x1="${x}" y1="${y}" x2="${c.x}" y2="${c.y}" stroke="${st.color}" stroke-width="2" stroke-dasharray="4 3"/>`;
       }
     }
     // long / short positions, pending orders and the open trade
@@ -677,7 +702,8 @@
       const cw = $("#simChart").clientWidth, btns = so.kind === "tool"
         ? `<button data-s="tk" data-a="${so.k}" class="go ${so.dir > 0 ? "buy" : "sell"}">${kindOf(so.t) === "market" ? (so.dir > 0 ? "Buy" : "Sell") : `${kindOf(so.t) === "limit" ? "Limit" : "Stop"} order`}…</button><button data-s="clone" data-a="${so.k}" title="Clone">⧉</button><button data-s="rev" data-a="${so.k}" title="Reverse">⇅</button>`
         : so.kind === "ord" ? `<button data-s="tk" data-a="${so.k}" class="go">Edit order…</button>`
-        : so.kind === "pos" ? `<button data-s="be" ${so.t.beAt != null ? "disabled" : ""}>🛡️ Stop to entry</button><button data-s="closepos" class="go sell">Close</button>` : "";
+        : so.kind === "pos" ? `<button data-s="be" ${so.t.beAt != null ? "disabled" : ""}>🛡️ Stop to entry</button><button data-s="closepos" class="go sell">Close</button>`
+        : `<button data-s="menu" data-a="${so.k}" title="Colour, fill, extend"><span class="tv-dot" style="background:${({ ...DEF[so.t.type], ...so.t }).color}"></span></button>${so.t.type !== "h" ? `<button data-s="dsty" data-a="${so.k}" data-f="xr" data-v="${so.t.xr ? 0 : 1}" class="${so.t.xr ? "on" : ""}" title="Extend right">⇥</button>` : ""}`;
       bar = `<div class="tv-sel" style="left:${Math.max(4, Math.min(x, cw - 230))}px;top:${Math.max(48, Math.min(y - 64, H - 90))}px">${btns}<button data-s="menu" data-a="${so.k}" title="More">⋯</button>${so.kind === "pos" ? "" : `<button data-s="del" data-a="${so.k}" title="${so.kind === "ord" ? "Cancel order" : "Remove"}">🗑</button>`}</div>`;
     }
     const html = back + front;
@@ -701,15 +727,20 @@
     const move = (e) => {
       if (held) return;
       if (!moved && Math.hypot(e.clientX - x0, e.clientY - y0) < 6) return;
-      if (!moved) { moved = true; clearTimeout(timer); S.sel = k; closeMenu(); if (t0.lock) return; freeze(); }
+      if (!moved) { moved = true; clearTimeout(timer); S.sel = k; closeMenu(); if (t0.lock) return; if (o.kind === "tool" || o.kind === "draw") hist(); freeze(); }
       if (t0.lock) return;
       const p = series.coordinateToPrice(e.clientY - box.top); if (p == null || p0 == null) return;
       const dp = p - p0, dl = X2L(e.clientX - box.left) - l0, t = o.t;
-      if (o.kind === "draw") {
-        if (t.type === "h") t.p = snap(st.p + dp);
-        else if (f === "a") { t.i1 = st.i1 + dl; t.p1 = snap(st.p1 + dp); }
-        else if (f === "b") { t.i2 = st.i2 + dl; t.p2 = snap(st.p2 + dp); }
+      if (o.kind === "draw") { // the point you're moving gets the crosshair and its price, and the magnet pulls it onto wicks and bodies
+        const at = (i, pp) => ({ i, p: mag(pp, i) });
+        let a = null;
+        if (t.type === "h") { a = at(X2L(e.clientX - box.left), st.p + dp); t.p = a.p; }
+        else if (f === "a") { a = at(st.i1 + dl, st.p1 + dp); t.i1 = a.i; t.p1 = a.p; }
+        else if (f === "b") { a = at(st.i2 + dl, st.p2 + dp); t.i2 = a.i; t.p2 = a.p; }
+        else if (f === "c") { a = at(st.i1 + dl, st.p2 + dp); t.i1 = a.i; t.p2 = a.p; }
+        else if (f === "d") { a = at(st.i2 + dl, st.p1 + dp); t.i2 = a.i; t.p1 = a.p; }
         else { t.i1 = st.i1 + dl; t.i2 = st.i2 + dl; t.p1 = onTick(st.p1 + dp); t.p2 = onTick(st.p2 + dp); }
+        S.dragAim = a;
         return;
       }
       const dir = o.dir, e0 = o.kind === "ord" ? st.price : st.e;
@@ -733,7 +764,7 @@
       clearTimeout(timer);
       window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
       chart.applyOptions({ handleScroll: true, handleScale: true });
-      S.freeze = null;
+      S.freeze = null; S.dragAim = null;
       S.justDragged = true; setTimeout(() => { if (S) S.justDragged = false; }, 250);
       if (!moved && !held) { S.sel = k; closeMenu(); }
       if (held) { S.keepMenu = true; setTimeout(() => { if (S) S.keepMenu = false; }, 150); }
@@ -755,10 +786,11 @@
   }
 
   // ---------- the press-and-hold menu
-  function openMenu(k, cx, cy) {
+  function openMenu(k, cx, cy, again = false) {
     closeMenu();
     const o = objOf(k); if (!o || !o.t) return;
-    if (navigator.vibrate) try { navigator.vibrate(12); } catch {}
+    S.menuAt = { x: cx, y: cy };
+    if (navigator.vibrate && !again) try { navigator.vibrate(12); } catch {}
     S.keepMenu = true; setTimeout(() => { if (S) S.keepMenu = false; }, 700); // the click that ends the long press mustn't close it
     const it = (s, label, icon = "", cls = "") => `<button data-s="${s}" data-a="${k}" class="${cls}"><i>${icon}</i>${label}</button>`, hr = "<hr>";
     let html = "";
@@ -768,7 +800,16 @@
         + it("clone", "Clone", "⧉") + it("rev", "Reverse", "⇅") + it("lock", o.t.lock ? "Unlock" : "Lock", o.t.lock ? "🔓" : "🔒") + hr + it("del", "Remove", "🗑", "bad");
     } else if (o.kind === "ord") html = it("tk", "Edit order…", "✎", "strong") + it("del", "Cancel order", "✕", "bad");
     else if (o.kind === "pos") html = (o.t.beAt == null ? it("be", "Move stop to entry", "🛡️") : "") + it("closepos", "Close position", "✕", "bad");
-    else html = it("del", "Remove", "🗑", "bad") + it("delall", "Remove all drawings", "🧹", "bad");
+    else { // a drawing: its look (remembered for the next one you draw, like TradingView)
+      const d = o.t, st = { ...DEF[d.type], ...d };
+      const opt = (f, v, label, on, extra = "") => `<button data-s="dsty" data-a="${k}" data-f="${f}" data-v="${v}" class="${on ? "on" : ""}" ${extra}>${label}</button>`;
+      const row = (name, h) => `<div class="tv-sty-r"><span>${name}</span><div>${h}</div></div>`;
+      html = `<div class="tv-sty"><div class="tv-sw">${COLORS.map((c) => opt("color", c, "", st.color === c, `style="background:${c}" title="${c}"`)).join("")}</div>`
+        + (d.type === "r" ? row("Fill", [0, 0.1, 0.18, 0.3, 0.5].map((v) => opt("fill", v, v ? `${Math.round(v * 100)}%` : "None", st.fill === v)).join("")) : "")
+        + row("Line", [1, 2, 3].map((v) => opt("lw", v, `${v}px`, Math.round(st.lw) === v)).join("") + opt("dash", st.dash ? 0 : 1, "┄ Dashed", st.dash))
+        + (d.type !== "h" ? row("Extend", opt("xl", st.xl ? 0 : 1, "← Left", st.xl) + opt("xr", st.xr ? 0 : 1, "Right →", st.xr)) : "") + "</div>" + hr
+        + it("clone", "Clone", "⧉") + it("lock", d.lock ? "Unlock" : "Lock", d.lock ? "🔓" : "🔒") + hr + it("del", "Remove", "🗑", "bad") + it("delall", "Remove all drawings", "🧹", "bad");
+    }
     const m = document.createElement("div");
     m.id = "tvMenu"; m.className = "tv-menu"; m.innerHTML = html;
     $("#sim").appendChild(m);
@@ -871,18 +912,21 @@
   }
   function clone(k) {
     const o = objOf(k); if (!o || !o.t) return;
+    if (o.kind === "draw" || o.kind === "tool") hist();
     if (o.kind === "draw") { const d = { ...o.t }; if (d.type === "h") d.p = onTick(d.p + hourAtr() / 2); else { d.i1 += 6; d.i2 += 6; } S.draws.push(d); S.sel = `dr:${S.draws.length - 1}`; return; }
     if (o.kind !== "tool") return;
     S.tools.push({ ...o.t, lock: false, t0: fit(o.t.t0 + o.t.w + 2, o.t.w) }); S.sel = `tool:${S.tools.length - 1}`; panel();
   }
   function reverse(k) { // flip a long into a short (stop and target swap sides)
     const o = objOf(k); if (!o || o.kind !== "tool") return;
+    hist();
     const t = o.t, r = t.e - t.sl, rw = t.tp - t.e;
     t.dir = -t.dir; t.sl = onTick(t.e + r); t.tp = onTick(t.e - rw);
     panel();
   }
   function remove(k) {
     if (!k) return;
+    if (k.startsWith("tool:") || k.startsWith("dr:")) hist();
     if (k.startsWith("tool:")) S.tools.splice(Number(k.slice(5)), 1);
     else if (k.startsWith("ord:")) { S.orders.splice(Number(k.slice(4)), 1); toast("Order cancelled."); }
     else if (k.startsWith("dr:")) S.draws.splice(Number(k.slice(3)), 1);
@@ -895,29 +939,118 @@
     h: `<svg viewBox="0 0 24 24"><path d="M2 12h20" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>`,
     r: `<svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="4" cy="6" r="2" fill="currentColor"/><circle cx="20" cy="18" r="2" fill="currentColor"/></svg>`,
     t: `<svg viewBox="0 0 24 24"><path d="M5 19L19 5" stroke="currentColor" stroke-width="1.8"/><circle cx="5" cy="19" r="2.4" fill="currentColor"/><circle cx="19" cy="5" r="2.4" fill="currentColor"/></svg>`,
+    magnet: `<svg viewBox="0 0 24 24"><path d="M6 4v8a6 6 0 0 0 12 0V4h-4v8a2 2 0 0 1-4 0V4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M6 8h4M14 8h4" stroke="currentColor" stroke-width="1.7"/></svg>`,
+    undo: `<svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12h10a6 6 0 0 1 0 12h-2" transform="translate(0 -5)" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`,
+    redo: `<svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12H10a6 6 0 0 0 0 12h2" transform="translate(0 -5)" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`,
   };
   const toolbarHtml = () => `<div class="tv-tools" id="tvTools">
       <button data-s="mode" data-a="long" title="Long position (B)">${ICON.long}</button><button data-s="mode" data-a="short" title="Short position (S)">${ICON.short}</button><i></i>
       <button data-s="mode" data-a="h" title="Horizontal line (H)">${ICON.h}</button><button data-s="mode" data-a="r" title="Rectangle — mark a zone (R)">${ICON.r}</button><button data-s="mode" data-a="t" title="Trend line (T)">${ICON.t}</button><i></i>
+      <button data-s="magnet" title="Magnet — snap to the candle's high, low, open or close (M)">${ICON.magnet}</button><button data-s="undo" title="Undo (Ctrl+Z)">${ICON.undo}</button><button data-s="redo" title="Redo (Ctrl+Y)">${ICON.redo}</button><i></i>
       <button data-s="plan" id="simPlanBtn" title="Draw the London plan (P)" hidden>✨</button><button data-s="clearall" title="Remove all drawings">🗑</button></div><div class="tv-hint" id="tvHint" hidden></div>`;
-  const HINT = { long: "Tap where you want to buy", short: "Tap where you want to sell", h: "Tap a price for the line", r: "Tap one corner of the zone", t: "Tap where the line starts" };
+  const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  const HINT = COARSE
+    ? { long: "Press and drag to aim the crosshair — lift to buy there", short: "Press and drag to aim the crosshair — lift to sell there", h: "Press and drag to aim — lift to place the line", r: "Drag to aim at the first corner — lift to set it", t: "Drag to aim where the line starts — lift to set it" }
+    : { long: "Click where you want to buy", short: "Click where you want to sell", h: "Click a price for the line", r: "Click one corner of the zone", t: "Click where the line starts" };
   function modeUi() {
     document.querySelectorAll('#tvTools [data-s="mode"]').forEach((b) => b.classList.toggle("on", b.dataset.a === (S && S.mode)));
+    const mg = $('#tvTools [data-s="magnet"]'); if (mg) mg.classList.toggle("on", !!(S && S.magnet));
+    histUi();
     const h = $("#tvHint"); if (!h) return;
-    h.hidden = !(S && S.mode); if (S && S.mode) h.textContent = S.pend ? (S.mode === "r" ? "Now tap the opposite corner" : "Now tap where it ends") : HINT[S.mode];
-    const c = $("#simChart"); if (c) c.classList.toggle("arming", !!(S && S.mode));
+    h.hidden = !(S && S.mode); if (S && S.mode) h.textContent = S.pend ? (S.mode === "r" ? `Now aim at the opposite corner${COARSE ? " — lift to finish" : ""}` : `Now aim where it ends${COARSE ? " — lift to finish" : ""}`) : HINT[S.mode];
+    const arming = !!(S && S.mode), c = $("#simChart"); if (c) c.classList.toggle("arming", arming);
+    if (!arming && S) S.aim = null;
+    // on a touch screen the chart holds still while you aim (pan and zoom come back when the tool is placed)
+    if (chart && COARSE) chart.applyOptions({ handleScroll: !arming, handleScale: !arming });
+    if (chart) { const v = { visible: !arming, labelVisible: !arming }; chart.applyOptions({ crosshair: { vertLine: v, horzLine: v } }); }
   }
   function setMode(m) { S.mode = S.mode === m ? null : m; S.pend = null; S.sel = null; closeMenu(); modeUi(); }
   // a tap on the chart: draw with the chosen tool, otherwise deselect
   function chartTap(x, y) {
-    const price = series.coordinateToPrice(y); if (price == null) return;
-    const idx = X2L(x), m = S.mode;
-    if (!m) { if (S.sel) { S.sel = null; closeMenu(); } return; }
-    if (m === "long" || m === "short") { addTool(m === "long" ? 1 : -1, price, Math.min(idx, S.i + 5)); S.mode = null; }
-    else if (m === "h") { S.draws.push({ type: "h", p: snap(price), tf: S.view.tf }); S.sel = `dr:${S.draws.length - 1}`; S.mode = null; }
-    else if (!S.pend) S.pend = { i: idx, p: snap(price) };
-    else { S.draws.push({ type: m, i1: S.pend.i, p1: S.pend.p, i2: idx, p2: snap(price), tf: S.view.tf }); S.sel = `dr:${S.draws.length - 1}`; S.pend = null; S.mode = null; }
+    if (!S.mode) { if (S.sel) { S.sel = null; closeMenu(); } return; }
+    place(aimAt(x, y));
+  }
+  // put the chosen tool where the crosshair is
+  function place(a) {
+    const m = S.mode; if (!a || !m) return;
+    const { i: idx, p: price } = a;
+    if (m === "long" || m === "short") { hist(); addTool(m === "long" ? 1 : -1, price, Math.min(idx, S.i + 5), true); S.mode = null; }
+    else if (m === "h") { hist(); S.draws.push({ type: "h", p: price, tf: S.view.tf, ...styleOf("h") }); S.sel = `dr:${S.draws.length - 1}`; S.mode = null; }
+    else if (!S.pend) S.pend = { i: idx, p: price };
+    else { hist(); S.draws.push({ type: m, i1: S.pend.i, p1: S.pend.p, i2: idx, p2: price, tf: S.view.tf, ...styleOf(m) }); S.sel = `dr:${S.draws.length - 1}`; S.pend = null; S.mode = null; }
+    if (navigator.vibrate && COARSE) try { navigator.vibrate(8); } catch {}
     modeUi();
+  }
+
+  // ---------- precision: the crosshair you aim with, the magnet, and the look of each drawing
+  const AIM_UP = 64; // on touch, the crosshair floats this far above your finger
+  const DEF = { h: { color: "#f0b90b", lw: 1.5, dash: false }, r: { color: "#9598a1", fill: 0.18, lw: 1, dash: false, xl: false, xr: false }, t: { color: "#2962ff", lw: 2, dash: false, xl: false, xr: false } };
+  const COLORS = ["#f0b90b", "#ff9800", "#ef5350", "#e91e63", "#9c27b0", "#2962ff", "#00bcd4", "#26a69a", "#4caf50", "#9598a1", "#ffffff", "#000000"];
+  const STY = {};
+  function styleOf(type) {
+    if (!DEF[type]) return {};
+    if (!STY[type]) { let v = {}; try { v = JSON.parse(localStorage.getItem(`edge.sim.style.${type}`) || "{}"); } catch {} STY[type] = { ...DEF[type], ...v }; }
+    return { ...STY[type] };
+  }
+  function saveStyle(d) {
+    const v = {}; for (const f of Object.keys(DEF[d.type] || {})) if (d[f] !== undefined) v[f] = d[f];
+    STY[d.type] = { ...DEF[d.type], ...v };
+    try { localStorage.setItem(`edge.sim.style.${d.type}`, JSON.stringify(v)); } catch {}
+  }
+  function magnetPref() { try { return localStorage.getItem("edge.sim.magnet") !== "0"; } catch { return true; } }
+  // the chart candle a base candle belongs to (for the magnet: its open, high, low and close)
+  function candleAt(i) {
+    if (!S.D || i < S.from || i > S.i) return null;
+    const g = S.D.g[Math.round(dIdx(i))];
+    return g && g.h != null ? [g.o, g.h, g.l, g.c] : null;
+  }
+  // magnet on: pull the price onto the candle's wick / body ends (or your lines) when close; off: exactly where you point
+  const mag = (p, i) => onTick(S.magnet ? snap(p, candleAt(i) || [], 14) : p);
+  function aimAt(x, y) {
+    if (!chart || !series) return null;
+    const W = chart.timeScale().width(), H = $("#simChart").clientHeight - 30;
+    x = Math.max(0, Math.min(W - 1, x)); y = Math.max(0, Math.min(H, y));
+    const raw = series.coordinateToPrice(y); if (raw == null) return null;
+    const i = X2L(x);
+    return { i, p: mag(raw, i) };
+  }
+  function drawAim() {
+    const svg = $("#simAim"); if (!svg) return;
+    const a = S && !S.reviewing ? S.dragAim || (S.mode ? S.aim : null) : null;
+    let html = "";
+    if (a) {
+      const x = L2X(a.i), y = series.priceToCoordinate(a.p), W = chart.timeScale().width(), H = $("#simChart").clientHeight;
+      if (x != null && y != null) {
+        const t = tOfIdx(a.i), ny = S.view.clock === "ny";
+        const when = new Date(t).toLocaleString([], { timeZone: ny ? NYZ : undefined, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+        const tw = when.length * 6.3 + 14, tx = Math.max(2, Math.min(W - tw - 2, x - tw / 2)), pw = fmt(a.p).length * 7 + 14;
+        html = `<line x1="0" x2="${W}" y1="${y}" y2="${y}" class="ax"/><line x1="${x}" x2="${x}" y1="0" y2="${H}" class="ax"/>`
+          + `<circle cx="${x}" cy="${y}" r="9" class="ar"/><circle cx="${x}" cy="${y}" r="2.2" class="ad"/>`
+          + `<rect x="${W}" y="${y - 10}" width="${pw}" height="20" rx="3" class="ap"/><text x="${W + 7}" y="${y + 4}" class="at">${fmt(a.p)}</text>`
+          + `<rect x="${tx}" y="${H - 27}" width="${tw}" height="20" rx="3" class="ap"/><text x="${tx + tw / 2}" y="${H - 13}" text-anchor="middle" class="at">${esc(when)}</text>`;
+      }
+    }
+    if (html !== svg.__last) { svg.__last = html; svg.innerHTML = html; }
+  }
+  // ---------- undo / redo for what you draw (lines, zones, trend lines, position tools — not orders or trades)
+  const drawState = () => JSON.stringify({ draws: S.draws, tools: S.tools });
+  function hist() { S.undo.push(drawState()); if (S.undo.length > 100) S.undo.shift(); S.redo = []; histUi(); }
+  function undoRedo(back) {
+    if (S.pend) { S.pend = null; return modeUi(); } // first: drop a half-drawn zone or line
+    const from = back ? S.undo : S.redo, to = back ? S.redo : S.undo;
+    if (!from.length) return toast(back ? "Nothing to undo." : "Nothing to redo.");
+    to.push(drawState());
+    const st = JSON.parse(from.pop());
+    S.draws = st.draws; S.tools = st.tools; S.sel = null; closeMenu();
+    histUi(); drawLines(); panel();
+  }
+  function toggleMagnet() {
+    S.magnet = !S.magnet; try { localStorage.setItem("edge.sim.magnet", S.magnet ? "1" : "0"); } catch {}
+    modeUi(); toast(S.magnet ? "Magnet on — points snap to the candle's high, low, open or close." : "Magnet off — points go exactly where you aim.");
+  }
+  function histUi() {
+    const u = $('#tvTools [data-s="undo"]'), r = $('#tvTools [data-s="redo"]');
+    if (u) u.disabled = !(S && (S.undo.length || S.pend)); if (r) r.disabled = !(S && S.redo.length);
   }
 
   // annotations drawn over the chart (boxes, levels, markers) during a review
@@ -1348,13 +1481,25 @@
       case "next": return nextSession().catch((e) => toast(e.message));
       case "mode": return setMode(a);
       case "plan": return planTools();
-      case "clearall": case "delall": S.draws = []; S.tools = []; S.sel = null; closeMenu(); drawLines(); return panel();
+      case "clearall": case "delall": if (S.draws.length || S.tools.length) hist(); S.draws = []; S.tools = []; S.sel = null; closeMenu(); drawLines(); return panel();
+      case "undo": return undoRedo(true);
+      case "redo": return undoRedo(false);
+      case "magnet": return toggleMagnet();
+      case "dsty": { // a drawing's colour / fill / line / extend
+        const o = objOf(a); if (!o || o.kind !== "draw") return;
+        hist();
+        const f = b.dataset.f, v = b.dataset.v;
+        o.t[f] = f === "color" ? v : ["dash", "xl", "xr"].includes(f) ? v === "1" : Number(v);
+        saveStyle(o.t);
+        if (b.closest("#tvMenu") && S.menuAt) openMenu(a, S.menuAt.x, S.menuAt.y, true);
+        return;
+      }
       case "menu": { const r = b.getBoundingClientRect(); return openMenu(a, r.left, r.bottom + 4); }
       case "tk": return openTicket(a || null);
       case "tkm": return openTicket(a, true);
       case "clone": closeMenu(); return clone(a);
       case "rev": closeMenu(); return reverse(a);
-      case "lock": { closeMenu(); const o = objOf(a); if (o && o.t) { o.t.lock = !o.t.lock; toast(o.t.lock ? "Locked — it won't move when you touch it." : "Unlocked."); } return; }
+      case "lock": { closeMenu(); const o = objOf(a); if (o && o.t) { if (o.kind === "tool" || o.kind === "draw") hist(); o.t.lock = !o.t.lock; toast(o.t.lock ? "Locked — it won't move when you touch it." : "Unlocked."); } return; }
       case "del": return remove(a);
       case "tkclose": S.tkLines = null; closeTicket(); return drawLines();
       case "tkdir": { const d = Number(a), k = S.tk; if (d === k.dir) return; const ee = Number(k.price), r = Math.abs(ee - Number(k.sl)), rw = k.tp != null ? Math.abs(Number(k.tp) - ee) : r * S.P.tpR; k.dir = d; k.sl = onTick(ee - d * r); k.tp = onTick(ee + d * rw); if (k.type !== "market") k.type = kindOf({ dir: d, e: ee }) === "stop" ? "stop" : "limit"; return renderTicket(); }
@@ -1386,6 +1531,10 @@
     const k = e.key.toLowerCase(), go = (fn) => { e.preventDefault(); fn(); };
     if (k === "escape") return go(() => { if ($("#tvMenu")) return closeMenu(); if (S.tk) { S.tkLines = null; closeTicket(); return drawLines(); } if (S.mode) return setMode(S.mode); if (S.reviewing) return endReview(); S.sel = null; });
     if (S.tk) { if (k === "enter") go(submitTicket); return; }
+    if ((e.ctrlKey || e.metaKey) && k === "z") return go(() => undoRedo(!e.shiftKey));
+    if ((e.ctrlKey || e.metaKey) && k === "y") return go(() => undoRedo(false));
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (k === "m") return go(toggleMagnet);
     if (k === " ") return go(play);
     if (k === "arrowright") return go(() => { stop(); step(); });
     if (k === "b") return go(() => setMode("long"));

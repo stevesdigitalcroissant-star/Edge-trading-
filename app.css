@@ -449,7 +449,27 @@ body.sim-on .tabs { display: none; }
 .sim-tools .tl { font: 600 11px var(--font); fill: #fff; pointer-events: none; }
 .sim-tools .tt { font: 700 11px var(--font); paint-order: stroke; stroke: var(--panel); stroke-width: 3px; pointer-events: none; }
 #simTB { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
-.sim-chart.arming { cursor: crosshair; }
+.sim-chart.arming { cursor: none; touch-action: none; }
+.sim-chart.arming .sim-tools * { pointer-events: none; }
+.sim-chart.arming .tv-tools, .sim-chart.arming #simTB { cursor: default; }
+.sim-aim { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; overflow: visible; }
+.sim-aim .ax { stroke: var(--text); stroke-opacity: .75; stroke-width: 1; stroke-dasharray: 4 3; shape-rendering: crispEdges; }
+.sim-aim .ar { fill: none; stroke: #2962ff; stroke-width: 1.5; }
+.sim-aim .ad { fill: #2962ff; }
+.sim-aim .ap { fill: #2962ff; }
+.sim-aim .at { font: 600 11px var(--font); fill: #fff; }
+.tv-tools button:disabled { opacity: .35; cursor: default; background: none; }
+.tv-sel button.on { background: color-mix(in srgb, #2962ff 28%, var(--panel2)); }
+.tv-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; box-shadow: 0 0 0 1px var(--line2); }
+.tv-sty { padding: 6px 12px 4px; display: grid; gap: 8px; }
+.tv-sw { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.tv-menu .tv-sw button { width: 100%; aspect-ratio: 1; min-height: 26px; padding: 0; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(127, 127, 127, .35); }
+.tv-menu .tv-sw button.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px #2962ff; }
+.tv-sty-r { display: flex; align-items: center; gap: 8px; }
+.tv-sty-r > span { width: 52px; font: 600 12px var(--font); color: var(--muted); }
+.tv-sty-r > div { display: flex; flex-wrap: wrap; gap: 4px; }
+.tv-menu .tv-sty-r button { width: auto; padding: 6px 9px; border-radius: 6px; font: 600 12px var(--font); background: var(--panel2); }
+.tv-menu .tv-sty-r button.on { background: #2962ff; color: #fff; }
 .tv-tools { position: absolute; left: 8px; top: 8px; z-index: 6; display: flex; flex-direction: column; gap: 2px; padding: 4px; background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; box-shadow: 0 8px 22px -8px rgba(0, 0, 0, .55); }
 .tv-tools button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 7px; background: none; color: var(--text); cursor: pointer; font-size: 15px; padding: 0; }
 .tv-tools button svg { width: 22px; height: 22px; }
