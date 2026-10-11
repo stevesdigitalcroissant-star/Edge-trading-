@@ -846,7 +846,7 @@
     }
     // the little toolbar over whatever is selected (like TradingView's)
     const so = S.sel && objOf(S.sel);
-    if (so && so.t) {
+    if (so && so.t && so.kind !== "tool") { // position tools get no floating bar — they stay out of your way (hold / right-click / double-tap for actions)
       let y = 8, x = 8;
       if (so.kind === "draw") { const d = so.t, yy = Y(d.type === "h" ? d.p : Math.min(d.p1, d.p2)); y = yy; x = d.type === "h" ? W / 2 - 60 : L2X(Math.min(d.i1, d.i2)) ?? 8; }
       else { y = Math.min(Y(so.sl) ?? 0, so.tp != null ? Y(so.tp) ?? 0 : 1e9, Y(so.e) ?? 0); x = L2X(so.i0) ?? 8; }
@@ -933,7 +933,13 @@
       chart.applyOptions({ handleScroll: true, handleScale: true });
       S.freeze = null; S.dragAim = null;
       S.justDragged = true; setTimeout(() => { if (S) S.justDragged = false; }, 250);
-      if (!moved && !held) { S.sel = k; closeMenu(); }
+      if (!moved && !held) {
+        S.sel = k; closeMenu();
+        // double-tap (or double-click) a tool = its settings
+        const now = Date.now(), dbl = S.lastTap && S.lastTap.k === k && now - S.lastTap.t < 450;
+        S.lastTap = dbl ? null : { k, t: now };
+        if (dbl) setTimeout(() => toolSettings(k), 0);
+      }
       if (held) { S.keepMenu = true; setTimeout(() => { if (S) S.keepMenu = false; }, 150); }
       if (moved && o.kind === "pos") { // stop to entry (or past it) = break-even; further away = a rule break the review will flag
         const p = S.pos; if (!p) return;
@@ -945,6 +951,12 @@
       panel(); drawLines();
     };
     window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", up);
+  }
+  function toolSettings(k) {
+    const o = objOf(k); if (!o || !o.t) return;
+    if (o.kind === "draw") return openDlg(k, "style");
+    if (o.kind === "tool" || o.kind === "ord") return openTicket(k); // entry, stop, target and size — nothing is placed until you press the button
+    if (o.kind === "pos") { const r = $("#simChart").getBoundingClientRect(); openMenu(k, r.left + r.width / 2, r.top + 80); }
   }
   function onContext(ev) {
     const h = ev.target.closest("[data-k]"); if (!h || !S) return;
@@ -1610,7 +1622,7 @@
     }
     const toolsHtml = S.tools.map((t, i) => { const r = Math.abs(t.e - t.sl), type = kindOf(t), n = contracts(r); return `<div class="sim-toolrow ${t.dir > 0 ? "long" : "short"}"><span><b>${t.dir > 0 ? "▲ Long" : "▼ Short"}</b> ${fmt(t.e)} <small class="muted">SL ${fmt(t.sl)} · TP ${fmt(t.tp)} · ${(Math.abs(t.tp - t.e) / r).toFixed(1)}R · ${n ? `${n} ${P.sym} for ${money(riskUSD())}` : `1 ${P.sym} risks ${money(r * P.pv)}`}</small></span><button class="btn small primary" data-s="tk" data-a="tool:${i}">${type === "market" ? (t.dir > 0 ? "Buy…" : "Sell…") : `${type === "limit" ? "Limit" : "Stop"} order…`}</button></div>`; }).join("");
     const coach = P.strategy === "sd" && S.sd && S.view.hints !== false ? (() => { const c = window.EdgeStrategy2.panel(S.sd, S.i); return `<div class="sd-coach"><div class="sd-steps">${c.steps.map(([t, ok, d]) => `<div class="${ok ? "ok" : ""}"><i>${ok ? "✓" : "○"}</i><span><b>${esc(t)}</b><small>${esc(d)}</small></span></div>`).join("")}</div><p>${esc(c.doNow)}</p></div>`; })() : "";
-    const hint = S.tools.length || S.orders.length ? coach : (P.strategy === "sd" ? `<p class="sim-hint" style="margin:4px 0 8px">Your playbook: switch to <b>W · D · 4H</b> and mark the zones → find the fresh <b>15m</b> zone in the trend → back on the <b>5m</b>, wait for the change of character and put your limit at the start of the gap, stop behind the swing, 3R or more. Edge scores the trade when it closes.</p>${coach}` : `<p class="sim-hint" style="margin:4px 0 8px">Pick <b>Long</b> or <b>Short</b> on the chart's toolbar and tap where you want in${P.strategy === "london" ? " — or <b>✨</b> to draw the plan once the box is set" : ""}. Drag to adjust (turn on 🧲 if you want it to snap to candles and your lines). <b>Press and hold</b> a position → <b>Create order…</b></p>${coach}`);
+    const hint = S.tools.length || S.orders.length ? coach : (P.strategy === "sd" ? `<p class="sim-hint" style="margin:4px 0 8px">Your playbook: switch to <b>W · D · 4H</b> and mark the zones → find the fresh <b>15m</b> zone in the trend → back on the <b>5m</b>, wait for the change of character and put your limit at the start of the gap, stop behind the swing, 3R or more. Edge scores the trade when it closes.</p>${coach}` : `<p class="sim-hint" style="margin:4px 0 8px">Pick <b>Long</b> or <b>Short</b> on the chart's toolbar and tap where you want in${P.strategy === "london" ? " — or <b>✨</b> to draw the plan once the box is set" : ""}. Drag to adjust (turn on 🧲 if you want it to snap to candles and your lines). <b>Double-tap</b> any tool for its settings · <b>press and hold</b> (or right-click) a position → <b>Create order…</b> when you're ready.</p>${coach}`);
     el.innerHTML = `${clock}${hint}${toolsHtml}${S.orders.length ? `<div class="sim-orders">${orderRows()}</div>` : ""}<button class="btn small" data-s="tk" style="margin-top:8px">＋ New order (type prices)</button>`;
   }
   const orderRows = () => S.orders.map((o, i) => `<div class="row between"><span>${o.side > 0 ? "▲ BUY" : "▼ SELL"} ${o.type.toUpperCase()} ${o.qty || ""} <b>${fmt(o.price)}</b> <small class="muted">SL ${fmt(o.sl)} · TP ${o.tp != null ? fmt(o.tp) : "—"}</small></span><span class="row"><button class="btn small" data-s="tk" data-a="ord:${i}">Edit</button><button class="btn small" data-s="del" data-a="ord:${i}">Cancel</button></span></div>`).join("");
