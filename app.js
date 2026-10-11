@@ -6,7 +6,7 @@
   const rs = (r) => (r == null ? "—" : `${r > 0 ? "+" : ""}${Number(r).toFixed(2)}R`);
   const cls = (r) => (r > 0.1 ? "pos" : r < -0.1 ? "neg" : "");
   let token = ""; try { token = localStorage.getItem("edge.token") || ""; } catch {}
-  let S = null, tab = "now", busy = false;
+  let S = null, tab = "now", busy = false, lastSig = "", renderedTab = "";
   try { tab = localStorage.getItem("edge.tab") || "now"; } catch {}
   if (!["now", "coach", "journal", "rules", "watch", "bias"].includes(tab)) tab = { learn: "coach" }[tab] || "now";
 
@@ -139,7 +139,14 @@
   async function refresh() {
     if (busy) return;
     busy = true;
-    try { S = await api("GET"); $("#app").hidden = false; render(); }
+    try {
+      const next = await api("GET");
+      // only redraw when something actually changed — a background refresh must never wipe what you opened, typed or scrolled to
+      const sig = JSON.stringify({ ...next, now: 0, closeOut: next.closeOut && { warn: next.closeOut.warn, due: next.closeOut.due, minutesLeft: next.closeOut.minutesLeft } });
+      const same = S && sig === lastSig && renderedTab === tab;
+      S = next; lastSig = sig; $("#app").hidden = false;
+      if (!same) render();
+    }
     catch (e) { if (e.message !== "Sign in") toast(e.message); }
     finally { busy = false; }
   }
@@ -175,7 +182,13 @@
     if (window.EdgeCoach) window.EdgeCoach.show(coachTab);
     if (coachTab) return;
     setTimeout(maybeTour, 0);
-    $("#view").innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias })[tab]();
+    const view = $("#view"), fresh = renderedTab !== tab;
+    // keep what you had open (alerts, advanced settings, playbook steps) and where you were in the page
+    const open = new Set([...view.querySelectorAll("details[open]")].map((d, i) => d.dataset.keep || `#${i}`)), y = scrollY;
+    view.innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias })[tab]();
+    if (!fresh) { [...view.querySelectorAll("details")].forEach((d, i) => { if (open.has(d.dataset.keep || `#${i}`)) d.open = true; }); if (Math.abs(scrollY - y) > 1) scrollTo(0, y); }
+    view.classList.toggle("enter", fresh); if (fresh) setTimeout(() => view.classList.remove("enter"), 700);
+    renderedTab = tab;
     bind();
   }
 
@@ -373,7 +386,7 @@
       <div class="ring" data-tour="ring" title="Planned trades out of your last ${S.share.taken || 0}">
         <svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="7"/>
           <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="url(#goldGrad)" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - share / 100)}"/></svg>
-        <div class="lbl"><b>${share}%</b><small>by the plan</small></div></div>
+        <div class="lbl"><b>${share}%</b><small>planned</small></div></div>
     </section>`;
     const stats = `<div class="kpis" data-tour="kpis">
       <div><small>Trades</small><b>${g.tradesToday}<small class="muted"> / ${s.maxTradesPerDay}</small></b><em>taken today</em></div>
@@ -392,7 +405,7 @@
     const nextNews = S.news.events.filter((e) => e.block && e.time > S.now - s.newsAfterMin * 60e3).slice(0, 3);
     const news = nextNews.length ? `<section class="card slim" data-tour="news"><div class="card-head"><h2>📰 Big news</h2><span class="muted">no trades ${s.newsBeforeMin} min either side</span></div><div class="news">${nextNews.map((e) => { const liveN = S.now >= e.time - s.newsBeforeMin * 60e3 && S.now <= e.time + s.newsAfterMin * 60e3; return `<div class="ev ${liveN ? "live" : ""}"><span class="num">${day(e.time).split(",")[0]} ${time(e.time)}</span><span>${esc(e.title)}<br><small class="muted">${e.markets.map(mname).join(" · ")}</small></span><span class="pill ${liveN ? "bad" : "warn"}">${liveN ? "NO TRADES" : e.impact}</span></div>`; }).join("")}</div></section>` : "";
     const watch = `<section class="card slim"><div class="row between"><div><b>🎥 Live chart coach</b><p class="muted" style="margin:4px 0 0">Share your TradingView window — Edge talks you through it.</p></div><a class="btn small" href="#watch">Open</a></div></section>`;
-    const alerts = `<details class="card slim" data-tour="log"><summary><b>Alerts</b> <span class="muted">${S.log.length ? `· last ${time(S.log[0].at)}` : ""}</span></summary><div class="log" style="margin-top:8px">${S.log.slice(0, 15).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></details>`;
+    const alerts = `<details class="card slim" data-tour="log" data-keep="alerts"><summary><b>Alerts</b> <span class="muted">${S.log.length ? `· last ${time(S.log[0].at)}` : ""}</span></summary><div class="log" style="margin-top:8px">${S.log.slice(0, 15).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></details>`;
     return `${ceBanner}${pend}${hero}${setups}${openCard}${ordersCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${watch}${alerts}`;
   }
 
@@ -499,7 +512,13 @@
       .finally(() => { CO.loading = false; if (tab === "coach") coachSwap(); });
   }
   window.Edge.examplesChanged = () => { CO.at = 0; }; // a new practice trade was saved → reload on the next visit
-  function coachSwap() { const el = $("#coachBody"); if (el) { el.innerHTML = coachBody(); bindCoach(); } }
+  function coachSwap() {
+    const el = $("#coachBody"); if (!el) return;
+    const open = new Set([...el.querySelectorAll("details[open][data-keep]")].map((d) => d.dataset.keep));
+    el.innerHTML = coachBody();
+    el.querySelectorAll("details[data-keep]").forEach((d) => { if (open.has(d.dataset.keep)) d.open = true; });
+    bindCoach();
+  }
   function viewCoach() { loadExamples(); return `<div id="coachBody">${coachBody()}</div>`; }
   function coachBody() {
     const P = PB(), ex = (CO.ex || []).filter((x) => x.score && x.score.length), last = ex.slice(0, 20);
@@ -538,7 +557,7 @@
     })() : "";
     const book = P ? `<section class="card" data-tour="playbook"><div class="card-head"><h2>📘 Your playbook</h2><button class="btn small" data-qz="${CO.quiz ? "hide" : "start"}">${CO.quiz ? "Hide quiz" : "🧠 Quiz me"}</button></div>
       ${quiz}
-      <div class="pb-book">${P.STEPS.map((st, i) => `<details><summary><i>${i + 1}</i><span><b>${st.icon} ${esc(st.title)}</b><small>${esc(st.short)}${st.req ? "" : " · bonus"}</small></span></summary><p>${esc(st.text)}</p></details>`).join("")}</div>
+      <div class="pb-book">${P.STEPS.map((st, i) => `<details data-keep="pb-${st.id}"><summary><i>${i + 1}</i><span><b>${st.icon} ${esc(st.title)}</b><small>${esc(st.short)}${st.req ? "" : " · bonus"}</small></span></summary><p>${esc(st.text)}</p></details>`).join("")}</div>
       <div class="pb-manage"><b>In the trade</b>${P.MANAGE.map((m) => `<span>${esc(m)}</span>`).join("")}</div></section>` : "";
     return `${hero}${practice}${progress}${trades}${book}`;
   }
@@ -865,7 +884,7 @@
         <p class="muted">Webhook URL for your TradingView alert: <code>${esc(hook)}</code></p>
         <div class="row"><button class="btn small" data-testalert>Send a test alert</button></div>
       </section>
-      <details class="card adv"><summary><h2>Advanced</h2><span class="muted">TradingView alerts, exits, hours, AI coach</span></summary>
+      <details class="card adv" data-keep="adv"><summary><h2>Advanced</h2><span class="muted">TradingView alerts, exits, hours, AI coach</span></summary>
       ${tvCard}
       <section class="card"><h2>Exits</h2><div class="grid2">
         ${n("beAtR", "Supply & demand: stop to break-even at (R)", "0.1")}${n("tpAtR", "Supply & demand: take profit at (R)", "0.1")}${n("beOffsetR", "Break-even buffer (R)", "0.01")}
@@ -1001,5 +1020,7 @@
   if (token) refresh(); else showLogin();
   // no auto-refresh on Bias / Rules: it would wipe what you are typing
   setInterval(() => { if (token && !document.hidden && !$("#modal").open && !["bias", "rules", "coach", "watch"].includes(tab) && !(document.activeElement && document.activeElement.closest && document.activeElement.closest("#view input, #view textarea, #view select"))) refresh(); }, 15000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden && token) refresh(); });
+  // back from the lock screen / another app: refresh, unless you're in the middle of something (a dialog, typing, the simulator)
+  const typing = () => document.activeElement && document.activeElement.closest && document.activeElement.closest("#view input, #view textarea, #view select");
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && token && !$("#modal").open && !typing() && !document.body.classList.contains("sim-on")) refresh(); });
 })();
