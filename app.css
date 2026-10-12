@@ -939,3 +939,5 @@ body.home-on main#view { padding-top: 14px; }
 .tv-bar button svg, .sim-date svg { width: 17px; height: 17px; vertical-align: -3px; margin-right: 5px; opacity: .85; }
 .sim-date { display: inline-flex; align-items: center; }
 .tv-bar button.strat { color: var(--accent); }
+.sim-stepsz { height: 30px; min-width: 38px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 999px; background: none; color: var(--text); font: 600 12px var(--font); cursor: pointer; }
+.sim-stepsz:hover { background: var(--panel2); }

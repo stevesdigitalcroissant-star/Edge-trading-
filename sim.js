@@ -352,7 +352,7 @@
         <span class="sim-play">
           <span class="sim-sess"><button data-s="sess" data-a="asia" title="Jump to the Asian open (Tokyo 09:00)">Asia</button><button data-s="sess" data-a="london" title="Jump to the London open (08:00 London)">London</button><button data-s="sess" data-a="ny" title="Jump to the New York open (08:00 New York)">NY</button></span>
           <button class="sim-ib big" data-s="play" id="simPlay" title="Play / pause (Space)">${ICON.play}</button>
-          <button class="sim-ib" data-s="step" title="Next candle (→)">${ICON.step}</button>
+          <button class="sim-ib" data-s="step" title="Next candle (→)">${ICON.step}</button><button class="sim-stepsz" data-s="vmenu" data-a="step" id="simStepSz" title="Move forward by…">5m</button>
           <button class="sim-spd" data-s="speed" id="simSpeed" title="Speed">1×</button>
           <button class="sim-ib" data-s="end" title="End the day — your summary">${ICON.endd}</button></span>
         <button class="sim-pnl" data-s="acct" title="Your practice account"><b id="simBal">—</b><em id="simPnl">today: —</em></button></div>
@@ -405,12 +405,22 @@
     paintAll();
     loadHist(market);
     const d = new Date(day * 864e5); // the New York trading day
-    const db = $("#simDate"); if (db) db.innerHTML = `${ICON.cal}<span>${d.toLocaleDateString([], { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" })}</span>`;
+    dayLabel(); { const sb = $("#simStepSz"); if (sb) sb.textContent = TF_SHORT(Math.max(stepPref(), baseMin())); }
     $("#simInfo").hidden = true; // the day is on the 📅 button; the rest is in the panel
     $("#simInfo").innerHTML = `<b>${P.name}</b> · ${d.toLocaleDateString([], { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" })} · ${P.tf === "5m" ? "5-minute" : "1-hour Heikin Ashi"} candles · ${P.strategy === "free" ? "no strategy — just the chart" : P.strategy === "ngzone" ? `windows ${winTxt(P)}` : `${P.strategy === "sd" ? "your zones · " : ""}orders live ${winTxt(P)}`}`;
     panel();
   }
 
+  // drag a tool (or draw one) to the edge of the chart and the chart scrolls with you — stretch it as far as you like
+  let panX = null, panFn = null, panRaf = 0;
+  function panTick() {
+    panRaf = 0; if (panX == null || !chart) return;
+    const ts = chart.timeScale(), W = ts.width(), d = panX > W - 30 ? 0.6 : panX < 30 ? -0.6 : 0;
+    if (d) { ts.scrollToPosition(ts.scrollPosition() + d, false); if (panFn) panFn(); }
+    panRaf = requestAnimationFrame(panTick);
+  }
+  function panAt(x, fn) { panX = x; panFn = fn; if (!panRaf) panRaf = requestAnimationFrame(panTick); }
+  function panStop() { panX = null; panFn = null; if (panRaf) cancelAnimationFrame(panRaf); panRaf = 0; }
   function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888"; }
   let chartGen = 0, emaSeries = [];
   function buildChart() {
@@ -424,7 +434,7 @@
       layout: { background: { type: "solid", color: css("--panel") }, textColor: css("--muted"), fontFamily: "Inter, sans-serif" },
       grid: { vertLines: { color: css("--line") }, horzLines: { color: css("--line") } },
       rightPriceScale: { borderColor: css("--line2") },
-      timeScale: { borderColor: css("--line2"), timeVisible: true, secondsVisible: false, rightOffset: 12, tickMarkFormatter: tmf },
+      timeScale: { borderColor: css("--line2"), timeVisible: true, secondsVisible: false, rightOffset: 12, minBarSpacing: 0.6, tickMarkFormatter: tmf },
       localization: { locale: "en-US", timeFormatter: (t) => V.clock === "ny" ? `${new Date(t * 1000).toLocaleString([], { timeZone: NYZ, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} NY` : `${new Date(t * 1000).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · NY ${hm(nyInfo(t * 1000).min)}` },
       crosshair: { mode: LW.CrosshairMode.Normal },
     });
@@ -464,15 +474,16 @@
       const p = rel(e);
       if (down && Math.hypot(p.x - down.x, p.y - down.y) > 8) down.moved = true;
       S.aim = level(aimAt(p.x, p.y), e);
+      if (down || S.pend) panAt(p.x, () => { if (S) S.aim = level(aimAt(p.x, p.y), e); });
     }, true);
     el.addEventListener("pointerup", (e) => {
       if (!down || !S || !S.mode) return;
-      const d = down, p = rel(e); down = null; S.tapAt = Date.now();
+      const d = down, p = rel(e); down = null; S.tapAt = Date.now(); panStop();
       S.aim = level(aimAt(p.x, p.y), e);
       if (d.started && !d.moved) return; // tapped the first corner: now tap (or drag to) the second
       place(S.aim);
     }, true);
-    el.addEventListener("pointercancel", () => { down = null; }, true);
+    el.addEventListener("pointercancel", () => { down = null; panStop(); }, true);
     el.addEventListener("contextmenu", (e) => { if (!e.target.closest("[data-k]")) onContext(e); }, true); // right-click on the chart itself
     el.addEventListener("pointerleave", (e) => { if (S && !down && e.pointerType === "mouse" && !S.pend) S.aim = null; });
     new ResizeObserver(() => drawOverlay()).observe(el);
@@ -579,7 +590,7 @@
     series.setData(S.D.g.map(barOf));
     for (const e of emaSeries) e.s.setData(S.D.g.map((g) => ({ time: g.t / 1000, value: g.ema[e.p] })));
     const last = S.D.g.length - 1;
-    chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, last - 90), to: last + 12 });
+    chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, last - 160), to: last + 12 }); // start a little zoomed out: the bigger picture, candles still readable
     markers(); drawLines(); drawOverlay(); viewBar();
   }
   function setView(patch, keepMenu = false) {
@@ -633,6 +644,7 @@
       ...(MK[S.market].strategy === "london" && window.EdgeStrategy2 ? [["sd", "Your zones (supply & demand)", "Your playbook: zones, 4H trend, scorecard on every trade"]] : []),
       ...(MK[S.market].noLondon ? [] : MK[S.market].strategy === "london" ? [["london", "London breakout", "The tested plan: the Asian box breaks in London"]] : [["ngzone", "Gas zones", "The tested natural gas zone plan"]]),
       ["free", "No strategy", "Just the chart — no zones, no hints, no trading windows"]].map(([k, l, d]) => `<button data-s="vstrat" data-a="${k}">${check(S.P.strategy === k)}<span>${l}<small class="tv-msub">${d}</small></span></button>`).join("");
+    if (kind === "step") html = `<div class="tv-mh">Move forward by</div>` + [5, 15, 60, 240].filter((m) => m >= baseMin()).map((m) => `<button data-s="stepsz" data-a="${m}">${check(Math.max(stepPref(), baseMin()) === m)}${TF_NAME(m)}</button>`).join("") + `<p class="tv-mnote">Each press of ▶︎| (and Play) moves on by one candle of this size — whatever timeframe the chart shows.</p>`;
     if (kind === "mk") html = `<div class="tv-mh">Market</div>` + Object.keys(MK).map((k) => `<button data-s="mk" data-a="${k}">${check(S.market === k)}${MKN[k]}<small class="tv-msub" style="display:inline;margin-left:6px">${MK[k].sym || ""}</small></button>`).join("");
     if (kind === "type") html = `<div class="tv-mh">Chart type</div>` + TYPES.map(([k, l, ic]) => `<button data-s="vtype" data-a="${k}">${check(V.type === k)}<span class="ic">${ic}</span>${l}</button>`).join("");
     if (kind === "ind") html = `<div class="tv-mh">Indicators</div>` + EMAS.map((n) => `<button data-s="vema" data-a="${n}">${check(V.ema.includes(n))}<span class="sw" style="background:${EMA_C[n]}"></span>EMA ${n}</button>`).join("")
@@ -642,7 +654,7 @@
     m.id = "tvMenu"; m.className = "tv-menu"; m.innerHTML = html;
     $("#sim").appendChild(m);
     const mr = m.getBoundingClientRect();
-    m.style.left = `${Math.max(6, Math.min(r.left, innerWidth - mr.width - 6))}px`; m.style.top = `${r.bottom + 4}px`;
+    m.style.left = `${Math.max(6, Math.min(r.left, innerWidth - mr.width - 6))}px`; m.style.top = `${r.bottom + 4 + mr.height > innerHeight - 6 ? Math.max(6, r.top - mr.height - 4) : r.bottom + 4}px`; // opens upward from the bottom bar
     S.keepMenu = true; setTimeout(() => { if (S) S.keepMenu = false; }, 50);
   }
   function markers() {
@@ -967,10 +979,11 @@
         if (dir * (nv - ee) > 0) t.tp = nv;
       }
       soon(o.kind !== "tool"); // price labels + panel once per frame, not on every pointer event — keeps dragging smooth
+      panAt(e.clientX - box.left, () => move(e));
     };
     const up = () => {
       clearTimeout(timer);
-      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
+      panStop(); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
       chart.applyOptions({ handleScroll: true, handleScale: true });
       S.freeze = null; S.dragAim = null;
       S.justDragged = true; setTimeout(() => { if (S) S.justDragged = false; }, 250);
@@ -1007,7 +1020,8 @@
     if (S.mode) return setMode(S.mode); // placing a tool: right-click cancels it
     if (!h) { S.sel = null; closeMenu(); return; }
     const k = h.dataset.k;
-    if (k.startsWith("dr:") || k.startsWith("tool:")) { remove(k); return toast("Removed — Ctrl+Z (or ↶ above the chart) brings it back."); }
+    // a drawing or position tool that's already on the chart: right-click opens its settings (remove is in there, or Delete)
+    if (k.startsWith("dr:") || k.startsWith("tool:")) { S.sel = k.split(":").slice(0, 2).join(":"); return toolSettings(S.sel); }
     S.sel = k; openMenu(k, ev.clientX, ev.clientY); // orders and the open trade: the menu (cancel / close are deliberate)
   }
 
@@ -1431,7 +1445,9 @@
   function step() {
     if (!S || S.reviewing) return false;
     const nx = S.i + 1, b = S.bars[nx];
-    if (!b || b.cme !== S.day || (b.min >= FLAT && b.min < 18 * 60)) { endSession(true); return false; }
+    // the replay runs on, day after day, up to the latest data — a new day just starts a new day
+    if (!b) { if (!S.extending) moreBars(); return false; }
+    if (b.cme !== S.day) newDay(b.cme);
     S.i = nx;
     const g = dispAdd(nx); series.update(barOf(g));
     for (const e of emaSeries) e.s.update({ time: g.t / 1000, value: g.ema[e.p] });
@@ -1443,6 +1459,33 @@
     paintPnl(); checkRules();
     panel(); markers(); drawLines(); legend();
     return true;
+  }
+  function dayLabel() { const db = $("#simDate"); if (db) db.innerHTML = `${ICON.cal}<span>${new Date(S.day * 864e5).toLocaleDateString([], { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" })}</span>`; }
+  function newDay(day) {
+    endOfDay();
+    S.pastTrades = [...(S.pastTrades || []), ...S.trades]; S.trades = []; // today's scorecards start fresh; every trade is still in your log
+    S.day = day; S.sess = S.bars.filter((x) => x.cme === day); S.pd = null;
+    S.plan = S.P.strategy === "london" ? londonPlan(S.sess, S.P) : null;
+    const a = acct(); S.dayStart = a.balance; S.dayLock = null;
+    dayLabel(); toast(`New day — ${new Date(day * 864e5).toLocaleDateString([], { timeZone: "UTC", weekday: "long", day: "numeric", month: "short" })}`);
+  }
+  // out of candles: fetch the next month (Databento), or stop at today's data
+  async function moreBars() {
+    stop();
+    if (S.src !== "db" || !S.month) { toast("That's the latest data — you've caught up to today."); return; }
+    S.extending = true;
+    const [y, m] = S.month.split("-").map(Number), next = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7);
+    if (next > new Date().toISOString().slice(0, 7)) { S.extending = false; toast("That's the latest data — you've caught up to today."); return; }
+    toast(`Loading ${new Date(Date.UTC(y, m, 1)).toLocaleDateString([], { timeZone: "UTC", month: "long", year: "numeric" })}…`);
+    try {
+      const d = await load(S.market, "db", next), lastT = S.bars[S.bars.length - 1].t, add = d.bars.filter((x) => x.t > lastT);
+      if (!add.length) { toast("That's the latest data — you've caught up to today."); return; }
+      const keep = chart.timeScale().getVisibleLogicalRange();
+      S.bars.push(...add); S.month = next; S.days = [...S.days, ...d.days];
+      if (S.P.strategy === "sd") S.sd = window.EdgeStrategy2.run(S.bars, S.market, SD_RULES);
+      paintAll(); if (keep) chart.timeScale().setVisibleLogicalRange(keep);
+    } catch (e) { toast(`Couldn't load the next month: ${e.message}`); }
+    finally { S.extending = false; }
   }
   function fills(b) {
     if (S.orders.length && locked()) { S.orders = []; toast("Orders cancelled — " + locked()); }
@@ -1660,10 +1703,20 @@
     toast(fresh ? `Fresh start: ${money(s)}.` : "Saved.");
   }
 
+  const TF_SHORT = (m) => (m >= 60 ? `${m / 60}h` : `${m}m`);
+  const stepPref = () => { try { return Number(localStorage.getItem("edge.sim.step")) || 0; } catch { return 0; } };
+  // one press = one candle of your step size (5m, 15m, 1h, 4h — 4h candles start at 18:00 New York like the CME day)
+  function stepN() {
+    const want = Math.max(stepPref(), baseMin()), base = baseMin();
+    if (want <= base) return step();
+    let n = 0, ok = false;
+    while (n++ < 200 && (ok = step())) { const end = S.bars[S.i].min + base; if (((want === 240 ? end - 1080 + 1440 : end) % want) === 0) break; }
+    return ok;
+  }
   function play() {
     if (timer) return stop();
     $("#simPlay").innerHTML = ICON.pause;
-    timer = setInterval(() => { if (!step()) stop(); }, 700 / S.speed);
+    timer = setInterval(() => { if (!stepN()) stop(); }, 700 / S.speed);
   }
   function stop() { if (timer) { clearInterval(timer); timer = null; } const b = $("#simPlay"); if (b) b.innerHTML = ICON.play; }
   function toast(t) { if (window.Edge && window.Edge.toast) window.Edge.toast(t, 3500); }
@@ -1839,7 +1892,8 @@
       case "mk": { closeMenu(); const mb = $("#simMk"); if (mb) mb.innerHTML = `${MKN[a] || a} <span>▾</span>`; return start(a, S && S.seq ? { day: S.day, src: S.src, seq: true } : {}).catch((e) => toast(e.message)); }
       case "quick": return openTicket(null, false, Number(a)); // Buy / Sell: the order ticket, that side, ready to send
       case "play": return play();
-      case "step": stop(); return void step();
+      case "step": stop(); return void stepN();
+      case "stepsz": { try { localStorage.setItem("edge.sim.step", a); } catch {} closeMenu(); const sb = $("#simStepSz"); if (sb) sb.textContent = TF_SHORT(Math.max(Number(a), baseMin())); return; }
       case "speed": S.speed = S.speed >= 8 ? 1 : S.speed * 2; b.textContent = `${S.speed}×`; if (timer) { stop(); play(); } return;
       case "sess": { // jump straight to a session open (the candles in between play out, nothing is skipped over)
         stop();
@@ -1941,7 +1995,7 @@
     if (/^[0-9]$/.test(k) || k === ",") return go(() => tfType(k === "," ? "" : k));
     if (k === "m") return go(toggleMagnet);
     if (k === " ") return go(play);
-    if (k === "arrowright") return go(() => { stop(); step(); });
+    if (k === "arrowright") return go(() => { stop(); stepN(); });
     if (k === "b") return go(() => setMode("long"));
     if (k === "s") return go(() => setMode("short"));
     if (["h", "r", "t"].includes(k)) return go(() => setMode(k));
