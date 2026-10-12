@@ -321,13 +321,17 @@
   let S = null, chart = null, series = null, lines = [], overlay = null, timer = null;
 
   // the side panel (hints, checklist, reviews) can be hidden for a full-width chart; it comes back by itself for a review
-  const panelHidden = () => { try { return localStorage.getItem("edge.sim.panel") === "off"; } catch { return false; } };
+  const panelHidden = () => { try { return localStorage.getItem("edge.sim.panel2") !== "on"; } catch { return true; } }; // closed until you open it
   const ICON_PANEL = `<svg viewBox="0 0 24 24" width="18" height="18"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M15 5v14" stroke="currentColor" stroke-width="1.7"/></svg>`;
   function showPanel(on, remember = true) {
     const el = $("#sim"); if (!el) return;
     el.classList.toggle("nopanel", !on);
-    if (remember) try { localStorage.setItem("edge.sim.panel", on ? "on" : "off"); } catch {}
+    const top = el.querySelector(".sim-top"); if (top) el.style.setProperty("--simTop", `${top.offsetHeight}px`); // the drawer starts under the top bar
+    if (on) { const n = $("#simNudge"); if (n) n.hidden = true; }
+    if (remember) try { localStorage.setItem("edge.sim.panel2", on ? "on" : "off"); } catch {}
+    if (chart) requestAnimationFrame(() => { try { drawOverlay(); } catch {} });
   }
+  function nudge(text) { const n = $("#simNudge"); if (!n || !$("#sim").classList.contains("nopanel")) return; n.textContent = text; n.hidden = false; }
   function open(market = "gold", day = null) {
     close();
     const el = document.createElement("div");
@@ -341,19 +345,19 @@
         <button class="sim-pnl" data-s="acct" title="Your practice account"><small>Balance</small><b id="simBal">—</b><em id="simPnl">0.00R</em></button></div>
       <div class="sim-info" id="simInfo">Loading prices…</div>
       <div class="tv-bar" id="tvBar"></div>
-      <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><svg class="sim-aim" id="simAim"></svg><div class="sim-legend" id="simLegend"></div><button class="sim-latest" data-s="latest" id="simLatest" hidden title="Back to the latest candle">»</button><div id="simTB"></div>${toolbarHtml()}<div class="sim-banner" id="simBanner" hidden></div></div>
+      <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><svg class="sim-aim" id="simAim"></svg><div class="sim-legend" id="simLegend"></div><button class="sim-latest" data-s="latest" id="simLatest" hidden title="Back to the latest candle">»</button><div id="simTB"></div>${toolbarHtml()}<div class="sim-banner" id="simBanner" hidden></div><button class="sim-nudge" id="simNudge" data-s="panelopen" hidden></button></div>
       <div class="sim-ctl">
         <button class="btn small" data-s="play" id="simPlay">▶ Play</button>
         <button class="btn small" data-s="step">Next candle ›</button>
         <button class="btn small" data-s="speed" id="simSpeed">1×</button>
         <span class="sim-sess"><button class="btn small" data-s="sess" data-a="asia" title="Jump to the Asian open (Tokyo 09:00)">Asia</button><button class="btn small" data-s="sess" data-a="london" title="Jump to the London open (08:00 London)">London</button><button class="btn small" data-s="sess" data-a="ny" title="Jump to the New York open (08:00 New York)">NY</button></span>
         <button class="btn small" data-s="end">End</button></div>
-      <div class="sim-panel" id="simPanel"></div>`;
+      <aside class="sim-panel"><div class="sim-phead"><b>Coach</b><button class="sim-x" data-s="panel" aria-label="Close the panel" title="Close the panel">✕</button></div><div id="simPanel"></div></aside>`;
     document.body.appendChild(el);
     document.body.classList.add("sim-on");
     el.addEventListener("click", onClick);
     document.addEventListener("keydown", onKey);
-    start(market, day).catch((e) => { $("#simInfo").textContent = e.message; });
+    start(market, day).catch((e) => { const i = $("#simInfo"); i.hidden = false; i.textContent = e.message; });
   }
   function close() {
     stop();
@@ -372,7 +376,7 @@
     stop();
     const useDb = (o.src || srcPref()) === "db" && (await dbReady());
     const month = useDb ? o.month || (o.day != null ? new Date(o.day * 864e5).toISOString().slice(0, 7) : randomMonth()) : null;
-    $("#simInfo").textContent = useDb ? "Loading a month from Databento…" : "Loading prices…";
+    $("#simInfo").hidden = false; $("#simInfo").textContent = useDb ? "Loading a month from Databento…" : "Loading prices…";
     const P = planOf(market), data = await load(market, useDb ? "db" : "free", month);
     const dayPick = o.day;
     if (!data.days.length) throw new Error("No complete sessions in the data yet.");
@@ -398,6 +402,7 @@
     loadHist(market);
     const d = new Date(day * 864e5); // the New York trading day
     const db = $("#simDate"); if (db) db.textContent = `📅 ${d.toLocaleDateString([], { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" })}`;
+    $("#simInfo").hidden = true; // the day is on the 📅 button; the rest is in the panel
     $("#simInfo").innerHTML = `<b>${P.name}</b> · ${d.toLocaleDateString([], { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" })} · ${P.tf === "5m" ? "5-minute" : "1-hour Heikin Ashi"} candles · ${P.strategy === "free" ? "no strategy — just the chart" : P.strategy === "ngzone" ? `windows ${winTxt(P)}` : `${P.strategy === "sd" ? "your zones · " : ""}orders live ${winTxt(P)}`}`;
     panel();
   }
@@ -409,13 +414,13 @@
     lines = []; emaSeries = [];
     const el = $("#simChart"), LW = window.LightweightCharts, V = S.view, gen = ++chartGen;
     const tz = V.clock === "ny" ? NYZ : undefined;
-    const tick = (t, type) => new Date(t * 1000).toLocaleString([], type < 3 ? { timeZone: tz, day: "numeric", month: "short" } : { timeZone: tz, hour: "2-digit", minute: "2-digit" });
+    const tmf = (t, type) => new Date(t * 1000).toLocaleString([], type < 3 ? { timeZone: tz, day: "numeric", month: "short" } : { timeZone: tz, hour: "2-digit", minute: "2-digit" });
     chart = LW.createChart(el, {
       autoSize: true,
       layout: { background: { type: "solid", color: css("--panel") }, textColor: css("--muted"), fontFamily: "Inter, sans-serif" },
       grid: { vertLines: { color: css("--line") }, horzLines: { color: css("--line") } },
       rightPriceScale: { borderColor: css("--line2") },
-      timeScale: { borderColor: css("--line2"), timeVisible: true, secondsVisible: false, rightOffset: 12, tickMarkFormatter: tick },
+      timeScale: { borderColor: css("--line2"), timeVisible: true, secondsVisible: false, rightOffset: 12, tickMarkFormatter: tmf },
       localization: { locale: "en-US", timeFormatter: (t) => V.clock === "ny" ? `${new Date(t * 1000).toLocaleString([], { timeZone: NYZ, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} NY` : `${new Date(t * 1000).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · NY ${hm(nyInfo(t * 1000).min)}` },
       crosshair: { mode: LW.CrosshairMode.Normal },
     });
@@ -1406,7 +1411,7 @@
   function step() {
     if (!S || S.reviewing) return false;
     const nx = S.i + 1, b = S.bars[nx];
-    if (!b || b.cme !== S.day || (b.min >= FLAT && b.min < 18 * 60)) { endSession(); return false; }
+    if (!b || b.cme !== S.day || (b.min >= FLAT && b.min < 18 * 60)) { endSession(true); return false; }
     S.i = nx;
     const g = dispAdd(nx); series.update(barOf(g));
     for (const e of emaSeries) e.s.update({ time: g.t / 1000, value: g.ema[e.p] });
@@ -1477,6 +1482,7 @@
     S.pos = null; S.trades.push(tr); if (S.sel === "pos") S.sel = null;
     tr.nth = S.trades.length;
     tr.findings = review(S, tr);
+    nudge(`📋 ${tr.R >= 0 ? "+" : ""}${tr.R.toFixed(1)}R — see your scorecard`);
     tr.rulesOk = !tr.findings.some((x) => x.rule);
     save(tr); teachSave(tr);
     stop();
@@ -1743,8 +1749,8 @@
   function endReview() { S.reviewing = null; drawOverlay(); if (S.ended) return endSession(); panel(); drawLines(); }
 
   // ---------- end of the session: what went well, common mistakes, what to do
-  function endSession() {
-    showPanel(true, false);
+  function endSession(auto = false) {
+    if (auto) nudge("🏁 Day over — see your summary"); else showPanel(true, false);
     stop();
     if (!S.ended) { S.ended = true; S.orders = []; if (S.pos) { const b = S.bars[S.i]; exit(b.c, b, "16:40 close-out"); } $("#simBanner").hidden = true; drawLines(); endOfDay(); }
     const P = S.P, tot = S.trades.reduce((x, t) => x + t.R, 0), counts = {};
@@ -1843,6 +1849,7 @@
         if (f === "candles") { const [u, d] = v.split("|"); c.up = u; c.dn = d; } else if (f === "bg") c.bg = v; else if (f === "margin") c.margin = Number(v); else c[f] = v === "1";
         setView({ cs: c }, true); return settingsMenu($('#tvBar [data-s="vsettings"]')); }
       case "panel": return showPanel($("#sim").classList.contains("nopanel"));
+      case "panelopen": return showPanel(true);
       case "alert": { closeMenu(); const o = objOf(a); if (!o || o.kind !== "draw") return; hist(); o.t.alert = !o.t.alert; o.t.alertFired = false; return toast(o.t.alert ? "🔔 Alert set — the replay pauses with a sound when price gets there." : "Alert removed."); }
       case "alerthere": return alertHere();
       case "latest": chart.timeScale().scrollToRealTime(); return;
@@ -2123,5 +2130,5 @@
     }
   }
 
-  window.EdgeSim = { open, close, openLab, _prep: prep, _labRun: labRun, _state: () => S, _review: review, _londonPlan: londonPlan, _gasZones: gasZones, MK };
+  window.EdgeSim = { open, close, openLab, _chart: () => ({ chart, series }), _prep: prep, _labRun: labRun, _state: () => S, _review: review, _londonPlan: londonPlan, _gasZones: gasZones, MK };
 })();

@@ -852,3 +852,17 @@ body.home-on main#view { padding-top: 14px; }
 }
 @media (min-width: 1600px) { main#view { max-width: 1440px; } }
 @media (min-width: 760px) { #coachBody > .readiness:not(:has(+ [data-tour="progress"])) { column-span: all; } }
+
+/* ---------- simulator: the chart first; the coach panel opens when you ask for it */
+.sim-phead { display: flex; align-items: center; justify-content: space-between; position: sticky; top: -8px; margin: -8px -12px 6px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); z-index: 2; }
+.sim-phead b { font: 700 12px var(--font); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.sim-phead .sim-x { width: 32px; height: 32px; }
+.sim-nudge { position: absolute; top: 44px; right: 76px; z-index: 6; border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); background: var(--panel); color: var(--text); font: 600 13px var(--font); padding: 8px 14px; border-radius: 999px; box-shadow: var(--shadow); cursor: pointer; }
+.sim.nopanel .sim-ptog { color: var(--text); }
+.sim:not(.nopanel) .sim-ptog { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+/* iPad and small laptops: the panel slides over the chart instead of squeezing it */
+@media (min-width: 900px) and (max-width: 1279px) {
+  .sim { grid-template-columns: 1fr; }
+  .sim .sim-panel { position: absolute; z-index: 30; right: 0; top: var(--simTop, 60px); bottom: 0; width: min(380px, 92vw); grid-column: auto; grid-row: auto; box-shadow: -18px 0 40px -18px rgba(0, 0, 0, .35); border-left: 1px solid var(--line2); }
+}
+@media (max-width: 899px) { .sim .sim-panel { position: relative; } }
