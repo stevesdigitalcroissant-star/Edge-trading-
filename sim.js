@@ -336,22 +336,26 @@
     close();
     const el = document.createElement("div");
     el.id = "sim"; el.className = `sim${panelHidden() ? " nopanel" : ""}`;
+    // like FX Replay: one slim bar on top, the drawing tools down the left, trade + replay controls at the bottom
     el.innerHTML = `<div class="sim-top">
-        <button class="sim-x" data-s="close" aria-label="Close">✕</button>
-        <div class="sim-mk">${Object.entries(MK).map(([k, v]) => `<button data-s="mk" data-a="${k}" class="${k === market ? "on" : ""}">${{ gold: "Gold", crude: "Crude", silver: "Silver", natgas: "Gas", nq: "NQ", es: "ES", ym: "YM", copper: "Copper" }[k]}</button>`).join("")}</div>
-        <button class="sim-date" data-s="pick" id="simDate" title="Pick the day to train on">📅</button>
-        <button class="sim-x" data-s="fs" title="Full screen (F)">⛶</button>
-        <button class="sim-x sim-ptog" data-s="panel" title="Show / hide the side panel">${ICON_PANEL}</button>
-        <button class="sim-pnl" data-s="acct" title="Your practice account"><small>Balance</small><b id="simBal">—</b><em id="simPnl">0.00R</em></button></div>
+        <button class="sim-ib" data-s="close" aria-label="Close" title="Back">${ICON.back}</button>
+        <button class="sim-mkb" data-s="vmenu" data-a="mk" id="simMk" title="Market">${MKN[market] || market} <span>▾</span></button>
+        <div class="tv-bar" id="tvBar"></div>
+        <span class="sim-right"><span class="tv-ur"><button data-s="undo" title="Undo (Ctrl+Z)">${ICON.undo}</button><button data-s="redo" title="Redo (Ctrl+Y)">${ICON.redo}</button><button data-s="vsettings" title="Chart settings">${ICON.gear}</button></span><button class="sim-date" data-s="pick" id="simDate" title="Pick the day to train on">📅</button>
+        <button class="sim-ib" data-s="fs" title="Full screen (F)">${ICON.full}</button>
+        <button class="sim-ib sim-ptog" data-s="panel" title="Coach panel — checklist, hints, scorecards">${ICON_PANEL}</button></span></div>
       <div class="sim-info" id="simInfo">Loading prices…</div>
-      <div class="tv-bar" id="tvBar"></div>
-      <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><svg class="sim-aim" id="simAim"></svg><div class="sim-legend" id="simLegend"></div><button class="sim-latest" data-s="latest" id="simLatest" hidden title="Back to the latest candle">»</button><div id="simTB"></div>${toolbarHtml()}<div class="sim-banner" id="simBanner" hidden></div><button class="sim-nudge" id="simNudge" data-s="panelopen" hidden></button></div>
+      <div class="sim-mid">${toolbarHtml()}
+      <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><svg class="sim-aim" id="simAim"></svg><div class="sim-legend" id="simLegend"></div><button class="sim-latest" data-s="latest" id="simLatest" hidden title="Back to the latest candle">»</button><div id="simTB"></div><div class="tv-hint" id="tvHint" hidden></div><div class="sim-banner" id="simBanner" hidden></div><button class="sim-nudge" id="simNudge" data-s="panelopen" hidden></button></div></div>
       <div class="sim-ctl">
-        <button class="btn small" data-s="play" id="simPlay">▶ Play</button>
-        <button class="btn small" data-s="step">Next candle ›</button>
-        <button class="btn small" data-s="speed" id="simSpeed">1×</button>
-        <span class="sim-sess"><button class="btn small" data-s="sess" data-a="asia" title="Jump to the Asian open (Tokyo 09:00)">Asia</button><button class="btn small" data-s="sess" data-a="london" title="Jump to the London open (08:00 London)">London</button><button class="btn small" data-s="sess" data-a="ny" title="Jump to the New York open (08:00 New York)">NY</button></span>
-        <button class="btn small" data-s="end">End</button></div>
+        <span class="sim-trade"><button class="sim-buy" data-s="quick" data-a="1">${ICON.up} Buy</button><button class="sim-sell" data-s="quick" data-a="-1">${ICON.down} Sell</button></span>
+        <span class="sim-play">
+          <span class="sim-sess"><button data-s="sess" data-a="asia" title="Jump to the Asian open (Tokyo 09:00)">Asia</button><button data-s="sess" data-a="london" title="Jump to the London open (08:00 London)">London</button><button data-s="sess" data-a="ny" title="Jump to the New York open (08:00 New York)">NY</button></span>
+          <button class="sim-ib big" data-s="play" id="simPlay" title="Play / pause (Space)">${ICON.play}</button>
+          <button class="sim-ib" data-s="step" title="Next candle (→)">${ICON.step}</button>
+          <button class="sim-spd" data-s="speed" id="simSpeed" title="Speed">1×</button>
+          <button class="sim-ib" data-s="end" title="End the day — your summary">${ICON.endd}</button></span>
+        <button class="sim-pnl" data-s="acct" title="Your practice account"><b id="simBal">—</b><em id="simPnl">today: —</em></button></div>
       <aside class="sim-panel"><div class="sim-phead"><b>Coach</b><button class="sim-x" data-s="panel" aria-label="Close the panel" title="Close the panel">✕</button></div><div id="simPanel"></div></aside>`;
     document.body.appendChild(el);
     document.body.classList.add("sim-on");
@@ -616,7 +620,7 @@
       <button data-s="vmenu" data-a="strat" class="strat">📐 <span>${({ sd: "Your zones", london: "London breakout", ngzone: "Gas zones", free: "No strategy" })[S.P.strategy]}</span> ▾</button>
       ${S.P.strategy === "sd" ? `<button data-s="vzones" title="Show Edge's 15m zones">${S.view.zones === false ? "◻ Zones off" : "▦ Zones"}</button><button data-s="vhints" title="Edge's checklist in the panel">${S.view.hints === false ? "💬 Hints off" : "💬 Hints"}</button>` : ""}
       <button data-s="vclock" title="Time on the chart">🕐 ${V.clock === "ny" ? "New York" : "Your time"}</button>
-      <span class="tv-ur"><button data-s="undo" title="Undo (Ctrl+Z)">${ICON.undo}</button><button data-s="redo" title="Redo (Ctrl+Y)">${ICON.redo}</button><button data-s="vsettings" title="Chart settings">⚙︎</button></span>`;
+`;
     setTimeout(histUi, 0);
   }
   function viewMenu(kind, btn) {
@@ -629,6 +633,7 @@
       ...(MK[S.market].strategy === "london" && window.EdgeStrategy2 ? [["sd", "Your zones (supply & demand)", "Your playbook: zones, 4H trend, scorecard on every trade"]] : []),
       ...(MK[S.market].noLondon ? [] : MK[S.market].strategy === "london" ? [["london", "London breakout", "The tested plan: the Asian box breaks in London"]] : [["ngzone", "Gas zones", "The tested natural gas zone plan"]]),
       ["free", "No strategy", "Just the chart — no zones, no hints, no trading windows"]].map(([k, l, d]) => `<button data-s="vstrat" data-a="${k}">${check(S.P.strategy === k)}<span>${l}<small class="tv-msub">${d}</small></span></button>`).join("");
+    if (kind === "mk") html = `<div class="tv-mh">Market</div>` + Object.keys(MK).map((k) => `<button data-s="mk" data-a="${k}">${check(S.market === k)}${MKN[k]}<small class="tv-msub" style="display:inline;margin-left:6px">${MK[k].sym || ""}</small></button>`).join("");
     if (kind === "type") html = `<div class="tv-mh">Chart type</div>` + TYPES.map(([k, l, ic]) => `<button data-s="vtype" data-a="${k}">${check(V.type === k)}<span class="ic">${ic}</span>${l}</button>`).join("");
     if (kind === "ind") html = `<div class="tv-mh">Indicators</div>` + EMAS.map((n) => `<button data-s="vema" data-a="${n}">${check(V.ema.includes(n))}<span class="sw" style="background:${EMA_C[n]}"></span>EMA ${n}</button>`).join("")
       + `<hr><button data-s="vpdhl">${check(V.pdhl)}Previous day high / low</button><button data-s="vseps">${check(V.seps)}New-day lines (18:00 New York)</button>`;
@@ -1122,13 +1127,13 @@
   }
 
   // ---------- order ticket (like TradingView's): Market / Limit / Stop · risk in $ ⇄ contracts · take profit and stop loss
-  function openTicket(k, market = false) {
+  function openTicket(k, market = false, side = 1) {
     closeMenu();
     const o = k ? objOf(k) : null, b = S.bars[S.i];
     let t;
     if (o && o.kind === "tool") t = { from: k, dir: o.dir, type: market ? "market" : kindOf(o.t), price: o.e, sl: o.sl, tp: o.tp, t0: o.t.t0, w: o.t.w };
     else if (o && o.kind === "ord") t = { edit: Number(k.split(":")[1]), dir: o.dir, type: o.t.type, price: o.t.price, sl: o.sl, tp: o.tp, qty: o.t.qty, t0: o.t.t0, w: o.t.w };
-    else { const e = b.c, dir = 1, sl = onTick(e - hourAtr()); t = { dir, type: "market", price: onTick(e), sl, tp: onTick(e + S.P.tpR * (e - sl)), t0: S.i, w: boxW() }; }
+    else { const e = b.c, dir = side < 0 ? -1 : 1, sl = onTick(e - dir * hourAtr()); t = { dir, type: "market", price: onTick(e), sl, tp: onTick(e + S.P.tpR * (e - sl)), t0: S.i, w: boxW() }; }
     const fx = (v) => (v == null || !Number.isFinite(Number(v)) ? v : Number(v).toFixed(S.P.dec));
     t.price = fx(t.price); t.sl = fx(t.sl); t.tp = fx(t.tp);
     S.tk = { ...t, slOn: true, tpOn: t.tp != null, by: "usd", usd: riskUSD() };
@@ -1235,7 +1240,15 @@
     S.sel = null; closeMenu(); panel(); drawLines();
   }
   // the floating drawing toolbar
+  const MKN = { gold: "Gold", crude: "Crude", silver: "Silver", natgas: "Gas", nq: "NQ", es: "ES", ym: "YM", copper: "Copper" };
+  const sv = (d, f = false) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="${f ? "currentColor" : "none"}" stroke="${f ? "none" : "currentColor"}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
   const ICON = {
+    back: sv('<path d="M19 12H5M11 6l-6 6 6 6"/>'), full: sv('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
+    play: sv('<path d="M8 5.5v13l11-6.5z"/>', true), pause: sv('<rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/>', true),
+    step: sv('<path d="M6 6l7 6-7 6zM16 6v12"/>'), endd: sv('<path d="M5 6l6 6-6 6M12 6l6 6-6 6"/>'),
+    up: sv('<path d="M7 17L17 7M9 7h8v8"/>'), down: sv('<path d="M7 7l10 10M17 9v8H9"/>'),
+    gear: sv('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
+    trash: sv('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>'),
     long: `<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="9" fill="${PROFIT}" opacity=".55"/><rect x="4" y="13" width="16" height="7" fill="${LOSS}" opacity=".6"/><path d="M4 13h16" stroke="currentColor" stroke-width="1.6"/></svg>`,
     short: `<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" fill="${LOSS}" opacity=".6"/><rect x="4" y="11" width="16" height="9" fill="${PROFIT}" opacity=".55"/><path d="M4 11h16" stroke="currentColor" stroke-width="1.6"/></svg>`,
     f: `<svg viewBox="0 0 24 24"><path d="M3 5h18M3 10h18M3 14h18M3 19h18" stroke="currentColor" stroke-width="1.5"/><path d="M5 19L19 5" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 2"/></svg>`,
@@ -1253,7 +1266,7 @@
       <button data-s="mode" data-a="long" title="Long position (B)">${ICON.long}</button><button data-s="mode" data-a="short" title="Short position (S)">${ICON.short}</button><i></i>
       <button data-s="mode" data-a="h" title="Horizontal line (H)">${ICON.h}</button><button data-s="mode" data-a="r" title="Rectangle — mark a zone (R)">${ICON.r}</button><button data-s="mode" data-a="t" title="Trend line (T · Alt+T)">${ICON.t}</button><button data-s="mode" data-a="f" title="Fib retracement — premium / discount (Alt+F)">${ICON.f}</button><button data-s="mode" data-a="m" title="Measure (or Shift + drag)">${ICON.ruler}</button><button data-s="alerthere" title="Price alert at the crosshair (Alt+A)">${ICON.bell}</button><button data-s="levellock" title="Level lines — like holding Shift">${ICON.level}</button><i></i>
       <button data-s="magnet" title="Magnet — snap to the candle's high, low, open or close (M)">${ICON.magnet}</button><i></i>
-      <button data-s="plan" id="simPlanBtn" title="Draw the London plan (P)" hidden>✨</button><button data-s="clearall" title="Remove all drawings">🗑</button></div><div class="tv-hint" id="tvHint" hidden></div>`;
+      <button data-s="plan" id="simPlanBtn" title="Draw the London plan (P)" hidden>✨</button><button data-s="clearall" title="Remove all drawings">${ICON.trash}</button></div>`;
   const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
   const HINT = { long: "Tap where you want to buy", short: "Tap where you want to sell", h: "Tap a price for the line", r: "Press and drag out the zone — or tap one corner, then the other", t: "Press and drag the line — or tap where it starts, then where it ends. Hold Shift for a level line", f: "Drag from the start of the swing to its end — 0.5 is equilibrium, the gold band is 0.618–0.79", m: "Drag to measure — price, ticks, %, $, bars and time" };
   function modeUi() {
@@ -1384,7 +1397,7 @@
     modeUi(); toast(S.magnet ? "Magnet on — points snap to the candle's high, low, open or close." : "Magnet off — points go exactly where you aim.");
   }
   function histUi() {
-    const u = $('#tvBar [data-s="undo"]'), r = $('#tvBar [data-s="redo"]');
+    const u = $('#sim .tv-ur [data-s="undo"]'), r = $('#sim .tv-ur [data-s="redo"]');
     if (u) u.disabled = !(S && (S.undo.length || S.pend)); if (r) r.disabled = !(S && S.redo.length);
   }
 
@@ -1642,10 +1655,10 @@
 
   function play() {
     if (timer) return stop();
-    $("#simPlay").textContent = "⏸ Pause";
+    $("#simPlay").innerHTML = ICON.pause;
     timer = setInterval(() => { if (!step()) stop(); }, 700 / S.speed);
   }
-  function stop() { if (timer) { clearInterval(timer); timer = null; } const b = $("#simPlay"); if (b) b.textContent = "▶ Play"; }
+  function stop() { if (timer) { clearInterval(timer); timer = null; } const b = $("#simPlay"); if (b) b.innerHTML = ICON.play; }
   function toast(t) { if (window.Edge && window.Edge.toast) window.Edge.toast(t, 3500); }
 
   // ---------- order panel
@@ -1816,7 +1829,8 @@
       case "pkseq": PK.seq = !PK.seq; return pkRender();
       case "pkday": case "pkrand": { const day = b.dataset.s === "pkday" ? Number(a) : PK.days[Math.floor(Math.random() * PK.days.length)]; if (day == null) return; const { market, src: s, at, seq } = PK, month = s === "db" ? pkMonthStr() : null; closePicker(); return start(market, { day, src: s, month, at, seq: b.dataset.s === "pkday" && seq }).catch((e) => toast(e.message)); }
       case "fs": return fullScreen();
-      case "mk": return document.querySelectorAll(".sim-mk button").forEach((x) => x.classList.toggle("on", x === b)), start(a, S && S.seq ? { day: S.day, src: S.src, seq: true } : {}).catch((e) => toast(e.message));
+      case "mk": { closeMenu(); const mb = $("#simMk"); if (mb) mb.innerHTML = `${MKN[a] || a} <span>▾</span>`; return start(a, S && S.seq ? { day: S.day, src: S.src, seq: true } : {}).catch((e) => toast(e.message)); }
+      case "quick": return openTicket(null, false, Number(a)); // Buy / Sell: the order ticket, that side, ready to send
       case "play": return play();
       case "step": stop(); return void step();
       case "speed": S.speed = S.speed >= 8 ? 1 : S.speed * 2; b.textContent = `${S.speed}×`; if (timer) { stop(); play(); } return;
@@ -1847,7 +1861,7 @@
       case "vsettings": return settingsMenu(b);
       case "vcs": { const f = b.dataset.f, v = b.dataset.v, c = { ...chartSet() };
         if (f === "candles") { const [u, d] = v.split("|"); c.up = u; c.dn = d; } else if (f === "bg") c.bg = v; else if (f === "margin") c.margin = Number(v); else c[f] = v === "1";
-        setView({ cs: c }, true); return settingsMenu($('#tvBar [data-s="vsettings"]')); }
+        setView({ cs: c }, true); return settingsMenu($('#sim .tv-ur [data-s="vsettings"]')); }
       case "panel": return showPanel($("#sim").classList.contains("nopanel"));
       case "panelopen": return showPanel(true);
       case "alert": { closeMenu(); const o = objOf(a); if (!o || o.kind !== "draw") return; hist(); o.t.alert = !o.t.alert; o.t.alertFired = false; return toast(o.t.alert ? "🔔 Alert set — the replay pauses with a sound when price gets there." : "Alert removed."); }
