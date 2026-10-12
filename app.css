@@ -923,3 +923,19 @@ body.home-on main#view { padding-top: 14px; }
 @media (min-width: 900px) and (max-width: 1279px) { .sim { grid-template-columns: minmax(0, 1fr); } }
 .sim-top, .sim-ctl, .sim-mid { min-width: 0; max-width: 100vw; }
 .tv-bar [data-s="vmenu"][data-a="type"] span { display: none; } /* chart type: icon only, like FX Replay */
+/* smooth, quiet controls */
+.sim button { -webkit-tap-highlight-color: transparent; }
+.sim button:focus { outline: none; }
+.sim button:focus-visible { outline: 2px solid color-mix(in srgb, #2962ff 60%, transparent); outline-offset: 1px; }
+.sim-ib, .tv-ur button, .sim-mid .tv-tools button, .sim-spd, .sim-sess button, .tv-bar button, .sim-mkb, .sim-date { transition: background-color .16s ease, color .16s ease, transform .12s ease, opacity .16s ease; }
+.sim-ib:active, .tv-ur button:active:not(:disabled), .sim-mid .tv-tools button:active { transform: scale(.92); }
+.tv-ur button, .sim-ib { color: color-mix(in srgb, var(--text) 82%, transparent); }
+.tv-ur button:hover:not(:disabled), .sim-ib:hover { color: var(--text); }
+.tv-ur button:disabled { opacity: .28; cursor: default; }
+.sim-mid .tv-tools button svg, .tv-ur button svg, .sim-ib svg { width: 21px; height: 21px; }
+.sim-mid .tv-tools button.on { background: color-mix(in srgb, #2962ff 22%, transparent); color: #6c9bff; }
+.sim-mid .tv-tools button.on svg [stroke="#26a69a"], .sim-mid .tv-tools button.on svg [stroke="#ef5350"] { stroke-width: 2; }
+.sim-mid .tv-tools i { background: var(--line); }
+.tv-bar button svg, .sim-date svg { width: 17px; height: 17px; vertical-align: -3px; margin-right: 5px; opacity: .85; }
+.sim-date { display: inline-flex; align-items: center; }
+.tv-bar button.strat { color: var(--accent); }

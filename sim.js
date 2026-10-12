@@ -341,7 +341,7 @@
         <button class="sim-ib" data-s="close" aria-label="Close" title="Back">${ICON.back}</button>
         <button class="sim-mkb" data-s="vmenu" data-a="mk" id="simMk" title="Market">${MKN[market] || market} <span>▾</span></button>
         <div class="tv-bar" id="tvBar"></div>
-        <span class="sim-right"><span class="tv-ur"><button data-s="undo" title="Undo (Ctrl+Z)">${ICON.undo}</button><button data-s="redo" title="Redo (Ctrl+Y)">${ICON.redo}</button><button data-s="vsettings" title="Chart settings">${ICON.gear}</button></span><button class="sim-date" data-s="pick" id="simDate" title="Pick the day to train on">📅</button>
+        <span class="sim-right"><span class="tv-ur"><button data-s="undo" title="Undo (Ctrl+Z)">${ICON.undo}</button><button data-s="redo" title="Redo (Ctrl+Y)">${ICON.redo}</button><button data-s="vsettings" title="Chart settings">${ICON.gear}</button></span><button class="sim-date" data-s="pick" id="simDate" title="Pick the day to train on">${ICON.cal}</button>
         <button class="sim-ib" data-s="fs" title="Full screen (F)">${ICON.full}</button>
         <button class="sim-ib sim-ptog" data-s="panel" title="Coach panel — checklist, hints, scorecards">${ICON_PANEL}</button></span></div>
       <div class="sim-info" id="simInfo">Loading prices…</div>
@@ -405,7 +405,7 @@
     paintAll();
     loadHist(market);
     const d = new Date(day * 864e5); // the New York trading day
-    const db = $("#simDate"); if (db) db.textContent = `📅 ${d.toLocaleDateString([], { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" })}`;
+    const db = $("#simDate"); if (db) db.innerHTML = `${ICON.cal}<span>${d.toLocaleDateString([], { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" })}</span>`;
     $("#simInfo").hidden = true; // the day is on the 📅 button; the rest is in the panel
     $("#simInfo").innerHTML = `<b>${P.name}</b> · ${d.toLocaleDateString([], { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" })} · ${P.tf === "5m" ? "5-minute" : "1-hour Heikin Ashi"} candles · ${P.strategy === "free" ? "no strategy — just the chart" : P.strategy === "ngzone" ? `windows ${winTxt(P)}` : `${P.strategy === "sd" ? "your zones · " : ""}orders live ${winTxt(P)}`}`;
     panel();
@@ -617,9 +617,9 @@
     el.innerHTML = `<span class="tv-favs">${favs.map((m) => `<button data-s="vtf" data-a="${m}" class="fav ${V.tf === m ? "on" : ""}">${lab(m)}</button>`).join("")}${favs.includes(V.tf) ? "" : `<button data-s="vtf" data-a="${V.tf}" class="fav on">${lab(V.tf)}</button>`}<button data-s="vmenu" data-a="tf" class="tf-more" title="All timeframes (or just type one: 15, 2h, D…)">▾</button></span>
       <button data-s="vmenu" data-a="type" title="Chart type">${ty[2]} <span>${ty[1]}</span> ▾</button>
       <button data-s="vmenu" data-a="ind" title="Indicators">ƒx <span>Indicators</span>${V.ema.length + (V.pdhl ? 1 : 0) + (V.seps ? 1 : 0) ? ` <i>${V.ema.length + (V.pdhl ? 1 : 0) + (V.seps ? 1 : 0)}</i>` : ""}</button>
-      <button data-s="vmenu" data-a="strat" class="strat">📐 <span>${({ sd: "Your zones", london: "London breakout", ngzone: "Gas zones", free: "No strategy" })[S.P.strategy]}</span> ▾</button>
-      ${S.P.strategy === "sd" ? `<button data-s="vzones" title="Show Edge's 15m zones">${S.view.zones === false ? "◻ Zones off" : "▦ Zones"}</button><button data-s="vhints" title="Edge's checklist in the panel">${S.view.hints === false ? "💬 Hints off" : "💬 Hints"}</button>` : ""}
-      <button data-s="vclock" title="Time on the chart">🕐 ${V.clock === "ny" ? "New York" : "Your time"}</button>
+      <button data-s="vmenu" data-a="strat" class="strat">${ICON.plan}<span>${({ sd: "Your zones", london: "London breakout", ngzone: "Gas zones", free: "No strategy" })[S.P.strategy]}</span> ▾</button>
+      ${S.P.strategy === "sd" ? `<button data-s="vzones" title="Show Edge's 15m zones">${ICON.zone}<span>${S.view.zones === false ? "Zones off" : "Zones"}</span></button><button data-s="vhints" title="Edge's checklist in the panel">${ICON.hint}<span>${S.view.hints === false ? "Hints off" : "Hints"}</span></button>` : ""}
+      <button data-s="vclock" title="Time on the chart">${ICON.clock}<span>${V.clock === "ny" ? "New York" : "Your time"}</span></button>
 `;
     setTimeout(histUi, 0);
   }
@@ -1247,20 +1247,27 @@
     play: sv('<path d="M8 5.5v13l11-6.5z"/>', true), pause: sv('<rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/>', true),
     step: sv('<path d="M6 6l7 6-7 6zM16 6v12"/>'), endd: sv('<path d="M5 6l6 6-6 6M12 6l6 6-6 6"/>'),
     up: sv('<path d="M7 17L17 7M9 7h8v8"/>'), down: sv('<path d="M7 7l10 10M17 9v8H9"/>'),
-    gear: sv('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
+    gear: sv('<path d="M20 7h-8.5M7.5 7H4M20 17h-3.5M12.5 17H4"/><circle cx="9.5" cy="7" r="2.3"/><circle cx="14.5" cy="17" r="2.3"/>'),
+    gearOld: sv('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
     trash: sv('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>'),
-    long: `<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="9" fill="${PROFIT}" opacity=".55"/><rect x="4" y="13" width="16" height="7" fill="${LOSS}" opacity=".6"/><path d="M4 13h16" stroke="currentColor" stroke-width="1.6"/></svg>`,
-    short: `<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" fill="${LOSS}" opacity=".6"/><rect x="4" y="11" width="16" height="9" fill="${PROFIT}" opacity=".55"/><path d="M4 11h16" stroke="currentColor" stroke-width="1.6"/></svg>`,
-    f: `<svg viewBox="0 0 24 24"><path d="M3 5h18M3 10h18M3 14h18M3 19h18" stroke="currentColor" stroke-width="1.5"/><path d="M5 19L19 5" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 2"/></svg>`,
-    ruler: `<svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2" stroke="currentColor" stroke-width="1.4"/></svg>`,
-    bell: `<svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z M10 20a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
-    h: `<svg viewBox="0 0 24 24"><path d="M2 12h20" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>`,
-    r: `<svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="4" cy="6" r="2" fill="currentColor"/><circle cx="20" cy="18" r="2" fill="currentColor"/></svg>`,
-    t: `<svg viewBox="0 0 24 24"><path d="M5 19L19 5" stroke="currentColor" stroke-width="1.8"/><circle cx="5" cy="19" r="2.4" fill="currentColor"/><circle cx="19" cy="5" r="2.4" fill="currentColor"/></svg>`,
-    level: `<svg viewBox="0 0 24 24"><path d="M3 12h18" stroke="currentColor" stroke-width="1.9"/><circle cx="5" cy="12" r="2.2" fill="currentColor"/><circle cx="19" cy="12" r="2.2" fill="currentColor"/><path d="M9 7h6M9 17h6" stroke="currentColor" stroke-width="1.3" opacity=".55"/></svg>`,
-    magnet: `<svg viewBox="0 0 24 24"><path d="M6 4v8a6 6 0 0 0 12 0V4h-4v8a2 2 0 0 1-4 0V4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M6 8h4M14 8h4" stroke="currentColor" stroke-width="1.7"/></svg>`,
-    undo: `<svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12h10a6 6 0 0 1 0 12h-2" transform="translate(0 -5)" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`,
-    redo: `<svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12H10a6 6 0 0 0 0 12h2" transform="translate(0 -5)" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`,
+    // one icon family (clean 1.7px line icons, like FX Replay / TradingView) — colour only where it means something
+    long: sv('<path d="M3 17l6-6 4 4 8-8" stroke="#26a69a"/><path d="M15 7h6v6" stroke="#26a69a"/>'),
+    short: sv('<path d="M3 7l6 6 4-4 8 8" stroke="#ef5350"/><path d="M15 17h6v-6" stroke="#ef5350"/>'),
+    cal: sv('<rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'),
+    clock: sv('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
+    zone: sv('<rect x="3.5" y="7" width="17" height="10" rx="2"/><path d="M3.5 12h17" opacity=".5"/>'),
+    hint: sv('<path d="M20 15.5a2 2 0 0 1-2 2H8l-4 3.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/>'),
+    plan: sv('<path d="M4 19L10 7l4 7 2-3 4 8z"/>'),
+    h: sv('<path d="M3 12h18"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/>'),
+    r: sv('<rect x="4" y="6.5" width="16" height="11" rx="2"/><circle cx="4" cy="6.5" r="1.6" fill="currentColor" stroke="none"/><circle cx="20" cy="17.5" r="1.6" fill="currentColor" stroke="none"/>'),
+    t: sv('<path d="M5.5 18.5l13-13"/><circle cx="5" cy="19" r="1.9" fill="currentColor" stroke="none"/><circle cx="19" cy="5" r="1.9" fill="currentColor" stroke="none"/>'),
+    f: sv('<path d="M4 5h16M4 10h16M4 14h16M4 19h16" opacity=".55"/><path d="M5 19L19 5"/>'),
+    ruler: sv('<path d="M4.5 16.5l12-12 3 3-12 12z"/><path d="M8.5 12.5l1.5 1.5M11.5 9.5l1.5 1.5M14.5 6.5l1.5 1.5"/>'),
+    bell: sv('<path d="M6.5 16.5v-5a5.5 5.5 0 0 1 11 0v5l1.5 1.5h-14z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>'),
+    level: sv('<path d="M3 12h18"/><path d="M8 7.5h8M8 16.5h8" opacity=".55"/><circle cx="5" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.8" fill="currentColor" stroke="none"/>'),
+    magnet: sv('<path d="M6 4.5v7.5a6 6 0 0 0 12 0V4.5h-3.5V12a2.5 2.5 0 0 1-5 0V4.5z"/><path d="M6 8.5h3.5M14.5 8.5H18"/>'),
+    undo: sv('<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'),
+    redo: sv('<path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>'),
   };
   const toolbarHtml = () => `<div class="tv-tools" id="tvTools">
       <button data-s="mode" data-a="long" title="Long position (B)">${ICON.long}</button><button data-s="mode" data-a="short" title="Short position (S)">${ICON.short}</button><i></i>
