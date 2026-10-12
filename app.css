@@ -951,3 +951,28 @@ body.home-on main#view { padding-top: 14px; }
 .sim-cut:hover { background: var(--panel2); }
 .sim-cut.on { background: #2962ff; border-color: #2962ff; color: #fff; }
 @media (max-width: 899px) { .sim-cut span { display: none; } .sim-cut { padding: 0 9px; } }
+
+/* ---------- trend badge: 4H + 15m and what to do (home, simulator, trend board) */
+.tr-badge { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; }
+.tr-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line2); font-weight: 600; white-space: nowrap; }
+.tr-pill small { font-size: 10.5px; color: var(--muted); font-weight: 700; letter-spacing: .3px; }
+.tr-pill.up { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+.tr-pill.dn { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+.tr-pill.flat { color: var(--muted); }
+.tr-v { padding: 3px 10px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
+.tr-v.buy { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+.tr-v.sell { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+.tr-v.wait { background: var(--panel2); color: var(--muted); }
+.tr-hint { font-size: 11.5px; color: var(--muted); }
+.hm-trend { padding: 2px 12px 8px; min-height: 26px; }
+.tr-a { font-size: 9px; margin-left: 4px; } .tr-a.up { color: var(--good); } .tr-a.dn { color: var(--bad); }
+.hm-board { margin: 8px 12px 4px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
+.hm-board summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.tr-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
+.tr-table td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
+.tr-table td:last-child { white-space: normal; }
+.sim-trend { position: absolute; left: 56px; top: 30px; z-index: 5; pointer-events: none; }
+.sim-trend .tr-pill, .sim-trend .tr-v { backdrop-filter: blur(6px); background: color-mix(in srgb, var(--panel) 80%, transparent); }
+.sim-trend .tr-v.buy { background: color-mix(in srgb, var(--good) 22%, var(--panel)); } .sim-trend .tr-v.sell { background: color-mix(in srgb, var(--bad) 22%, var(--panel)); }
+.sim-trend .tr-hint { background: color-mix(in srgb, var(--panel) 80%, transparent); padding: 2px 6px; border-radius: 6px; }
+@media (max-width: 600px) { .tr-table td:nth-child(1) .muted { display: none; } }

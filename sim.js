@@ -346,7 +346,7 @@
         <button class="sim-ib sim-ptog" data-s="panel" title="Coach panel — checklist, hints, scorecards">${ICON_PANEL}</button></span></div>
       <div class="sim-info" id="simInfo">Loading prices…</div>
       <div class="sim-mid">${toolbarHtml()}
-      <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><svg class="sim-aim" id="simAim"></svg><div class="sim-legend" id="simLegend"></div><button class="sim-latest" data-s="latest" id="simLatest" hidden title="Back to the latest candle">»</button><div id="simTB"></div><div class="tv-hint" id="tvHint" hidden></div><div class="sim-banner" id="simBanner" hidden></div><button class="sim-nudge" id="simNudge" data-s="panelopen" hidden></button></div></div>
+      <div class="sim-chart" id="simChart"><svg class="sim-ov" id="simOv"></svg><svg class="sim-tools" id="simTools"></svg><svg class="sim-aim" id="simAim"></svg><div class="sim-legend" id="simLegend"></div><div class="sim-trend" id="simTrend" title="4H and 15m trend at this candle (candle bodies past the last swing)"></div><button class="sim-latest" data-s="latest" id="simLatest" hidden title="Back to the latest candle">»</button><div id="simTB"></div><div class="tv-hint" id="tvHint" hidden></div><div class="sim-banner" id="simBanner" hidden></div><button class="sim-nudge" id="simNudge" data-s="panelopen" hidden></button></div></div>
       <div class="sim-ctl">
         <span class="sim-trade"><button class="sim-buy" data-s="quick" data-a="1">${ICON.up} Buy</button><button class="sim-sell" data-s="quick" data-a="-1">${ICON.down} Sell</button></span>
         <span class="sim-play">
@@ -2096,6 +2096,17 @@
     if (!g) { const last = S.D.g[S.D.g.length - 1]; if (!last) return; g = { o: last.o, h: last.h, l: last.l, c: last.c, t: last.t }; }
     const ch = g.c - g.o, c = ch >= 0 ? "#26a69a" : "#ef5350", lab = (TFS.find((x) => x[0] === S.view.tf) || [0, S.view.tf + "m"])[1];
     const html = `<b>${esc(S.P.sym)} · ${lab}</b> <span>O</span><em style="color:${c}">${fmt(g.o)}</em> <span>H</span><em style="color:${c}">${fmt(g.h)}</em> <span>L</span><em style="color:${c}">${fmt(g.l)}</em> <span>C</span><em style="color:${c}">${fmt(g.c)}</em> <em style="color:${c}">${ch >= 0 ? "+" : "−"}${fmt(Math.abs(ch))} (${((ch / g.o) * 100).toFixed(2)}%)</em>`;
+    if (el.__last !== html) { el.__last = html; el.innerHTML = html; }
+    trendBadge();
+  }
+  // 4H + 15m trend at the replay's current candle: hourly history before the practice data, then the practice candles
+  function trendBadge() {
+    const el = $("#simTrend"), T = window.EdgeTrend; if (!el || !T || !S || !S.bars) return;
+    if (S.trK === S.i && S.trM === S.market) return; S.trK = S.i; S.trM = S.market;
+    const base = S.P.tf === "60m" ? 60 : 5, now = S.bars.slice(Math.max(0, S.i - 2500), S.i + 1), t0 = now.length ? now[0].t : 0;
+    const pre = (S.histH || []).filter((h) => h.t < t0).slice(-500);
+    const h4 = T.read(T.roll([...pre, ...now], 240)), m15 = base <= 15 ? T.read(T.roll(now, 15)) : null;
+    const html = T.badge({ h4, m15, verdict: T.verdict(h4, m15) });
     if (el.__last !== html) { el.__last = html; el.innerHTML = html; }
   }
   function tfType(v) {

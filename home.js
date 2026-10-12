@@ -20,8 +20,10 @@
     el.dataset.ready = "1";
     el.innerHTML = `<div class="hm-top"><div class="hm-mk" id="hmMk"></div></div>
       <div class="hm-bar"><div class="hm-px" id="hmPx"></div><div class="seg hm-tf" id="hmTf">${TFS.map(([v, l]) => `<button type="button" data-tf="${v}">${l}</button>`).join("")}</div></div>
+      <div class="hm-trend" id="hmTrend"></div>
       <div class="hm-chart" id="hmChart"><div class="hm-ov" id="hmOv"></div><div class="hm-msg" id="hmMsg">Loading prices…</div></div>
-      <div class="hm-foot"><span id="hmNote" class="muted"></span><span class="hm-act"><button type="button" class="link" id="hmPractice">Practise this market</button><a class="link" id="hmTv" target="_blank" rel="noopener">TradingView ↗</a></span></div>`;
+      <div class="hm-foot"><span id="hmNote" class="muted"></span><span class="hm-act"><button type="button" class="link" id="hmPractice">Practise this market</button><a class="link" id="hmTv" target="_blank" rel="noopener">TradingView ↗</a></span></div>
+      <details class="hm-board" id="hmBoard"><summary>Trend board · every market</summary><div id="hmBoardBody" class="muted">Loading…</div></details>`;
     el.addEventListener("click", (e) => {
       const b = e.target.closest("[data-hm]"); if (b) { H.m = b.dataset.hm; save("m", H.m); H.fit = true; draw(); load(); return; }
       const t = e.target.closest("[data-tf]"); if (t) { H.tf = Number(t.dataset.tf); save("tf", H.tf); H.fit = true; draw(); return; }
@@ -103,7 +105,8 @@
     const S = H.S, el = shell(); if (!S || !el) return;
     pickDefault(S); build();
     const busyMk = new Set([...(S.open || []).map((t) => t.market), ...(S.orders || []).map((o) => o.market), ...(S.setups || []).filter((x) => x.status === "open" && !(x.expires && S.now > x.expires)).map((x) => x.market)]);
-    $("#hmMk").innerHTML = MKTS.map(([k, n]) => `<button type="button" data-hm="${k}" class="${k === H.m ? "on" : ""}">${n}${busyMk.has(k) ? "<i></i>" : ""}</button>`).join("");
+    const bv = (k) => { const r = H.board && H.board.rows.find((x) => x.k === k); return r && !r.error ? r.v : ""; };
+    $("#hmMk").innerHTML = MKTS.map(([k, n]) => { const v = bv(k); return `<button type="button" data-hm="${k}" class="${k === H.m ? "on" : ""}">${n}${v === "buy" ? '<b class="tr-a up">▲</b>' : v === "sell" ? '<b class="tr-a dn">▼</b>' : ""}${busyMk.has(k) ? "<i></i>" : ""}</button>`; }).join("");
     $("#hmTf").querySelectorAll("[data-tf]").forEach((b) => b.classList.toggle("on", Number(b.dataset.tf) === H.tf));
     const mk = MKTS.find((x) => x[0] === H.m) || MKTS[3];
     $("#hmTv").href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(`${mk[3]}:${mk[2]}`)}`;
@@ -122,9 +125,10 @@
     // price, change on the day, where it is against your zones
     const last = raw[raw.length - 1], day = nyInfo(last[0]).cme, open = (raw.find((b) => nyInfo(b[0]).cme === day) || last)[1], ch = last[4] - open;
     const sd = H.sd[H.m] && H.sd[H.m].st, inZ = sd ? [...(sd.dem || []).map((z) => ({ ...z, d: 1, tf: "15m" })), ...(sd.sup || []).map((z) => ({ ...z, d: -1, tf: "15m" })), ...(sd.z4 || []).map((z) => ({ ...z, d: z.dir, tf: "4H" }))].find((z) => last[4] <= Math.max(z.top, z.bot) && last[4] >= Math.min(z.top, z.bot)) : null;
-    const tr = sd ? sd.trend : 0;
+    const T = window.EdgeTrend, tr2 = T ? T.both(raw, 5) : null;
+    $("#hmTrend").innerHTML = tr2 ? T.badge(tr2) : "";
     $("#hmPx").innerHTML = `<b class="num">${last[4].toFixed(H.prec ?? 2)}</b><span class="${ch >= 0 ? "pos" : "neg"}">${ch >= 0 ? "+" : ""}${ch.toFixed(H.prec ?? 2)} (${((ch / open) * 100).toFixed(2)}%)</span>
-      ${tr ? `<span class="hm-chip ${tr > 0 ? "up" : "dn"}">4H ${tr > 0 ? "▲ up" : "▼ down"}</span>` : ""}${inZ ? `<span class="hm-chip zone">In a ${inZ.tf} ${inZ.d > 0 ? "demand" : "supply"} zone</span>` : ""}`;
+      ${inZ ? `<span class="hm-chip zone">In a ${inZ.tf} ${inZ.d > 0 ? "demand" : "supply"} zone</span>` : ""}`;
     const age = Math.round((Date.now() - last[0]) / 60e3);
     $("#hmNote").textContent = `Prices ~10 min behind · last candle ${age < 90 ? `${age} min ago` : new Date(last[0]).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}. Your TradingView alerts watch it live.`;
     overlay();
@@ -150,15 +154,30 @@
     ov.innerHTML = out;
   }
 
+  // the trend board: 4H + 15m on every busy futures market, one line each (refreshed every 5 minutes)
+  async function board(force = false) {
+    if (!force && H.board && Date.now() - H.board.got < 290e3) return;
+    try { const j = await getJSON("/api/candles?trend=1"); H.board = { ...j, got: Date.now() }; } catch (e) { if (!H.board) { const b = $("#hmBoardBody"); if (b) b.textContent = `Couldn't load the trend board: ${e.message}`; } return; }
+    paintBoard(); draw();
+  }
+  function paintBoard() {
+    const el = $("#hmBoardBody"), sum = $("#hmBoard summary"); if (!el || !H.board) return;
+    const rows = H.board.rows.filter((r) => !r.error), n = (v) => rows.filter((r) => r.v === v).length, T = window.EdgeTrend;
+    sum.innerHTML = `Trend board · <span class="pos">${n("buy")} buys</span> · <span class="neg">${n("sell")} sells</span> · ${n("wait")} wait`;
+    const ord = { buy: 0, sell: 1, wait: 2 };
+    el.innerHTML = `<table class="tr-table">${[...rows].sort((a, b) => ord[a.v] - ord[b.v]).map((r) => `<tr><td><b>${esc(r.code)}</b> <span class="muted">${esc(r.name)}</span></td><td class="${r.h4 > 0 ? "pos" : r.h4 < 0 ? "neg" : "muted"}">4H ${T ? T.arrow(r.h4) : r.h4}</td><td class="${r.m15 > 0 ? "pos" : r.m15 < 0 ? "neg" : "muted"}">15m ${T ? T.arrow(r.m15) : r.m15}</td><td><span class="tr-v ${r.v}">${esc(r.text)}</span>${r.hint ? `<div class="tr-hint">${esc(r.hint)}</div>` : ""}</td></tr>`).join("")}</table>
+      <p class="muted" style="margin:6px 0 0;font-size:12px">Trend = candle bodies closing past the last swing. Prices ~10 min behind (Yahoo). Updated ${new Date(H.board.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.</p>`;
+  }
+
   // called by app.js after every state refresh, and when you switch tabs
   function update(S, show) {
     H.S = S;
     const el = $("#home"); if (!el) return;
     el.hidden = !show;
     if (!show) return;
-    shell(); draw(); load();
+    shell(); draw(); load(); board();
   }
-  setInterval(() => { if (!document.hidden && H.S && $("#home") && !$("#home").hidden && !document.body.classList.contains("sim-on")) load(); }, 60e3);
+  setInterval(() => { if (!document.hidden && H.S && $("#home") && !$("#home").hidden && !document.body.classList.contains("sim-on")) { load(); board(); } }, 60e3);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && $("#home") && !$("#home").hidden) load(); });
   window.EdgeHome = { update, _h: H };
   if (window.Edge && window.Edge.state && window.Edge.state()) window.Edge.homeSync && window.Edge.homeSync();

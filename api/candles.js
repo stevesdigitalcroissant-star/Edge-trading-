@@ -2,6 +2,9 @@
 // Finance chart data: GC=F gold, CL=F crude, NG=F natural gas) for the replay.
 // Public market data, so no sign-in; cached at Vercel's edge for 30 minutes.
 const SYMBOLS = { gold: "GC=F", crude: "CL=F", natgas: "NG=F", silver: "SI=F", es: "ES=F", nq: "NQ=F", ym: "YM=F", copper: "HG=F" };
+// the trend board also watches these busy futures (trend only — no chart or sizing for them in Edge yet)
+const EXTRA = { rty: "RTY=F", "6e": "6E=F", "6b": "6B=F", "6j": "6J=F", "6a": "6A=F", zn: "ZN=F", zb: "ZB=F" };
+const BOARD = [["es", "S&P 500", "ES"], ["nq", "Nasdaq", "NQ"], ["ym", "Dow", "YM"], ["rty", "Russell", "RTY"], ["crude", "Crude", "CL"], ["natgas", "Nat gas", "NG"], ["gold", "Gold", "GC"], ["silver", "Silver", "SI"], ["copper", "Copper", "HG"], ["6e", "Euro", "6E"], ["6b", "Pound", "6B"], ["6j", "Yen", "6J"], ["6a", "Aussie", "6A"], ["zn", "10-yr note", "ZN"], ["zb", "30-yr bond", "ZB"]];
 
 function parse(j) {
   const r = j && j.chart && j.chart.result && j.chart.result[0];
@@ -19,7 +22,7 @@ function parse(j) {
 const INTERVALS = { "5m": 59, "15m": 59, "60m": 729, "1d": 3650 }; // daily: 10 years, for the big picture (weekly / daily zones)
 
 async function load(market, days = 59, interval = "5m") {
-  const sym = SYMBOLS[market];
+  const sym = SYMBOLS[market] || EXTRA[market];
   if (!sym) throw new Error("Pick gold, crude, natgas, silver, es or nq");
   let last;
   for (const host of ["query1", "query2"]) {
@@ -66,6 +69,17 @@ module.exports = async (req, res) => {
       const bars = await db.month(require("./_store").getStore(), market, month, tf);
       res.setHeader("Cache-Control", month < new Date().toISOString().slice(0, 7) ? "private, max-age=604800" : "private, max-age=1800"); // your browser keeps it; never a shared cache
       return res.status(200).json({ market, source: "databento", month, interval: tf, bars });
+    }
+    // ?trend=1 — the 4H and 15m trend of every market on the board (20 days of 15-minute candles each), 5 min cache
+    if (url.searchParams.get("trend")) {
+      const T = require("../trend.js");
+      const rows = await Promise.all(BOARD.map(async ([k, name, code]) => {
+        try { const bars = await load(k, 20, "15m"); const r = T.both(bars, 15), last = bars[bars.length - 1];
+          return { k, name, code, price: last ? last[4] : null, at: last ? last[0] : null, h4: r.h4.dir, m15: r.m15 ? r.m15.dir : 0, v: r.verdict.cls, text: r.verdict.text, hint: r.verdict.hint, flipUp: r.m15 ? r.m15.hi : null, flipDn: r.m15 ? r.m15.lo : null };
+        } catch (e) { return { k, name, code, error: e.message }; }
+      }));
+      res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=300");
+      return res.status(200).json({ at: Date.now(), rows });
     }
     // ?tail=1 — just the last day of 5-minute candles, refreshed every minute (the home chart's live edge)
     if (url.searchParams.get("tail")) {
