@@ -946,3 +946,8 @@ body.home-on main#view { padding-top: 14px; }
 @media (min-width: 900px) { .sim { grid-template-rows: auto auto minmax(0, 1fr) auto; } }
 .sim-mid, .sim-mid .sim-chart { min-height: 0; }
 @media (max-width: 899px) { .sim-mid { flex: 1 1 0; } }
+.sim-cut { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; margin-right: 4px; border: 1px solid var(--line2); border-radius: 10px; background: none; color: var(--text); font: 600 13px var(--font); cursor: pointer; transition: background-color .16s ease, color .16s ease; }
+.sim-cut svg { width: 17px; height: 17px; }
+.sim-cut:hover { background: var(--panel2); }
+.sim-cut.on { background: #2962ff; border-color: #2962ff; color: #fff; }
+@media (max-width: 899px) { .sim-cut span { display: none; } .sim-cut { padding: 0 9px; } }

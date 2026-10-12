@@ -351,6 +351,8 @@
         <span class="sim-trade"><button class="sim-buy" data-s="quick" data-a="1">${ICON.up} Buy</button><button class="sim-sell" data-s="quick" data-a="-1">${ICON.down} Sell</button></span>
         <span class="sim-play">
           <span class="sim-sess"><button data-s="sess" data-a="asia" title="Jump to the Asian open (Tokyo 09:00)">Asia</button><button data-s="sess" data-a="london" title="Jump to the London open (08:00 London)">London</button><button data-s="sess" data-a="ny" title="Jump to the New York open (08:00 New York)">NY</button></span>
+          <button class="sim-cut" data-s="mode" data-a="cut" id="simCut" title="Select bar — click a candle to replay from there">${ICON.cut}<span>Select bar</span></button>
+          <button class="sim-ib" data-s="back" title="One candle back (←)">${ICON.stepb}</button>
           <button class="sim-ib big" data-s="play" id="simPlay" title="Play / pause (Space)">${ICON.play}</button>
           <button class="sim-ib" data-s="step" title="Next candle (→)">${ICON.step}</button><button class="sim-stepsz" data-s="vmenu" data-a="step" id="simStepSz" title="Move forward by…">5m</button>
           <button class="sim-spd" data-s="speed" id="simSpeed" title="Speed">1×</button>
@@ -1261,7 +1263,8 @@
   const ICON = {
     back: sv('<path d="M19 12H5M11 6l-6 6 6 6"/>'), full: sv('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
     play: sv('<path d="M8 5.5v13l11-6.5z"/>', true), pause: sv('<rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/>', true),
-    step: sv('<path d="M6 6l7 6-7 6zM16 6v12"/>'), endd: sv('<path d="M5 6l6 6-6 6M12 6l6 6-6 6"/>'),
+    step: sv('<path d="M6 6l7 6-7 6zM16 6v12"/>'), stepb: sv('<path d="M18 6l-7 6 7 6zM8 6v12"/>'),
+    cut: sv('<circle cx="6" cy="7" r="2.5"/><circle cx="6" cy="17" r="2.5"/><path d="M8.2 8.3L19 18M8.2 15.7L19 6"/>'), endd: sv('<path d="M5 6l6 6-6 6M12 6l6 6-6 6"/>'),
     up: sv('<path d="M7 17L17 7M9 7h8v8"/>'), down: sv('<path d="M7 7l10 10M17 9v8H9"/>'),
     gear: sv('<path d="M20 7h-8.5M7.5 7H4M20 17h-3.5M12.5 17H4"/><circle cx="9.5" cy="7" r="2.3"/><circle cx="14.5" cy="17" r="2.3"/>'),
     gearOld: sv('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
@@ -1291,7 +1294,7 @@
       <button data-s="magnet" title="Magnet — snap to the candle's high, low, open or close (M)">${ICON.magnet}</button><i></i>
       <button data-s="plan" id="simPlanBtn" title="Draw the London plan (P)" hidden>✨</button><button data-s="clearall" title="Remove all drawings">${ICON.trash}</button></div>`;
   const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-  const HINT = { long: "Tap where you want to buy", short: "Tap where you want to sell", h: "Tap a price for the line", r: "Press and drag out the zone — or tap one corner, then the other", t: "Press and drag the line — or tap where it starts, then where it ends. Hold Shift for a level line", f: "Drag from the start of the swing to its end — 0.5 is equilibrium, the gold band is 0.618–0.79", m: "Drag to measure — price, ticks, %, $, bars and time" };
+  const HINT = { cut: "Click the candle to replay from — earlier or later", long: "Tap where you want to buy", short: "Tap where you want to sell", h: "Tap a price for the line", r: "Press and drag out the zone — or tap one corner, then the other", t: "Press and drag the line — or tap where it starts, then where it ends. Hold Shift for a level line", f: "Drag from the start of the swing to its end — 0.5 is equilibrium, the gold band is 0.618–0.79", m: "Drag to measure — price, ticks, %, $, bars and time" };
   function modeUi() {
     document.querySelectorAll('#tvTools [data-s="mode"]').forEach((b) => b.classList.toggle("on", b.dataset.a === (S && S.mode)));
     const mg = $('#tvTools [data-s="magnet"]'); if (mg) mg.classList.toggle("on", !!(S && S.magnet));
@@ -1299,8 +1302,9 @@
     histUi();
     const h = $("#tvHint"); if (!h) return;
     h.hidden = !(S && S.mode); if (S && S.mode) h.textContent = S.pend ? (S.mode === "r" ? "Drag to the opposite corner — or tap it" : "Drag to where it ends — or tap it") : HINT[S.mode];
-    const arming = !!(S && S.mode), c = $("#simChart"); if (c) c.classList.toggle("arming", arming);
-    if (!arming && S) S.aim = null;
+    const sb = $("#simCut"); if (sb) sb.classList.toggle("on", !!(S && S.mode === "cut"));
+    const arming = !!(S && S.mode && S.mode !== "cut"), c = $("#simChart"); if (c) c.classList.toggle("arming", arming);
+    if (!arming && S && S.mode !== "cut") S.aim = null;
     // the chart holds still while you draw (pan comes back when the tool is placed; the mouse wheel still zooms)
     if (chart) chart.applyOptions({ handleScroll: !arming, handleScale: arming ? { mouseWheel: true, pinch: false, axisPressedMouseMove: true, axisDoubleClickReset: true } : true });
     if (chart) { const v = { visible: !arming, labelVisible: !arming }; chart.applyOptions({ crosshair: { vertLine: v, horzLine: v } }); }
@@ -1314,6 +1318,7 @@
   // put the chosen tool where the crosshair is
   function place(a) {
     const m = S.mode; if (!a || !m) return;
+    if (m === "cut") { S.mode = null; modeUi(); return jumpTo(a.i); }
     const { i: idx, p: price } = a;
     if (m === "long" || m === "short") { hist(); addTool(m === "long" ? 1 : -1, price, Math.min(idx, S.i + 5), true); S.mode = null; }
     else if (m === "h") { hist(); S.draws.push({ type: "h", p: price, tf: S.view.tf, ...styleOf("h") }); S.sel = `dr:${S.draws.length - 1}`; S.mode = null; }
@@ -1444,9 +1449,48 @@
   }
 
   // ---------- replay engine
+  // the state of the replay before a candle, so ◀ (and Select bar) can take it back exactly
+  function snapshot() {
+    const cl = (x) => (x == null ? x : JSON.parse(JSON.stringify(x)));
+    return { i: S.i, day: S.day, orders: cl(S.orders), pos: cl(S.pos), trades: S.trades.slice(), past: (S.pastTrades || []).slice(), dayStart: S.dayStart, dayLock: S.dayLock, plan: S.plan, acct: localStorage.getItem(ACCT), ended: !!S.ended };
+  }
+  function restore(z) {
+    S.i = z.i; S.orders = z.orders || []; S.pos = z.pos || null; S.trades = z.trades; S.pastTrades = z.past; S.dayStart = z.dayStart; S.dayLock = z.dayLock; S.ended = z.ended; S.reviewing = null;
+    if (z.day !== S.day) { S.day = z.day; S.sess = S.bars.filter((x) => x.cme === z.day); S.pd = null; dayLabel(); }
+    S.plan = z.plan;
+    try { if (z.acct != null) localStorage.setItem(ACCT, z.acct); } catch {}
+    redraw();
+  }
+  function redraw(center = false) {
+    const ts = chart.timeScale(), r = ts.getVisibleLogicalRange();
+    closeTicket(); closeMenu();
+    paintAll();
+    if (center) { const l = S.D.g.length - 1, w = r ? r.to - r.from : 160; ts.setVisibleLogicalRange({ from: l - w * 0.75, to: l + w * 0.25 }); } else if (r) ts.setVisibleLogicalRange(r);
+    paintPnl(); panel(); markers(); drawLines(); legend(); drawOverlay();
+  }
+  // ◀ one candle back
+  function back() {
+    stop();
+    const z = S.back && S.back.pop();
+    if (!z) return toast("That's where this replay started — use Select bar ✂ to jump further back.");
+    restore(z);
+  }
+  // Select bar (like TradingView's replay): click a candle and the replay carries on from there
+  function jumpTo(j) {
+    stop(); j = Math.max(1, Math.min(S.bars.length - 1, Math.round(j)));
+    if (j === S.i) return;
+    if (j > S.i) { let n = 0; while (n++ < 20000 && S.i < j && step()); return redraw(); }
+    const k = (S.back || []).map((z) => z.i).lastIndexOf(j);
+    if (k >= 0) { const z = S.back[k]; S.back.length = k; return restore(z); }
+    // further back than this replay has been: start again from that candle (your drawings stay)
+    const t = S.bars[j].t;
+    S.back = []; restore({ i: j, day: S.bars[j].cme, orders: [], pos: null, trades: S.trades.filter((x) => x.tOut <= t), past: (S.pastTrades || []).filter((x) => x.tOut <= t), dayStart: S.dayStart, dayLock: null, plan: S.P.strategy === "london" ? londonPlan(S.bars.filter((x) => x.cme === S.bars[j].cme), S.P) : null, acct: null, ended: false });
+    toast("Replaying from here — anything open after this candle was cleared.");
+  }
   function step() {
     if (!S || S.reviewing) return false;
     const nx = S.i + 1, b = S.bars[nx];
+    if (b) { S.back = S.back || []; S.back.push(snapshot()); if (S.back.length > 3000) S.back.shift(); }
     // the replay runs on, day after day, up to the latest data — a new day just starts a new day
     if (!b) { if (!S.extending) moreBars(); return false; }
     if (b.cme !== S.day) newDay(b.cme);
@@ -1895,6 +1939,7 @@
       case "quick": return openTicket(null, false, Number(a)); // Buy / Sell: the order ticket, that side, ready to send
       case "play": return play();
       case "step": stop(); return void stepN();
+      case "back": return back();
       case "stepsz": { try { localStorage.setItem("edge.sim.step", a); } catch {} closeMenu(); const sb = $("#simStepSz"); if (sb) sb.textContent = TF_SHORT(Math.max(Number(a), baseMin())); return; }
       case "speed": S.speed = S.speed >= 8 ? 1 : S.speed * 2; b.textContent = `${S.speed}×`; if (timer) { stop(); play(); } return;
       case "sess": { // jump straight to a session open (the candles in between play out, nothing is skipped over)
@@ -1998,6 +2043,7 @@
     if (k === "m") return go(toggleMagnet);
     if (k === " ") return go(play);
     if (k === "arrowright") return go(() => { stop(); stepN(); });
+    if (k === "arrowleft") return go(() => back());
     if (k === "b") return go(() => setMode("long"));
     if (k === "s") return go(() => setMode("short"));
     if (["h", "r", "t"].includes(k)) return go(() => setMode(k));
