@@ -562,7 +562,9 @@
   }
   async function loadHist(market) {
     try {
-      const [raw, rawH] = await Promise.all([getBars(`/api/candles?m=${market}&i=1d`), S.P.tf === "60m" ? Promise.resolve([]) : getBars(`/api/candles?m=${market}&i=60m`).catch(() => [])]);
+      // hourly history: a past month (Databento) gets the 13 months before it; recent days get Yahoo's 2 years
+      const prevMonth = S.src === "db" && S.month ? S.month : null;
+      const [raw, rawH] = await Promise.all([getBars(`/api/candles?m=${market}&i=1d`), S.P.tf === "60m" ? Promise.resolve([]) : getBars(prevMonth ? `/api/candles?m=${market}&src=db&hist=1h&to=${new Date(Date.UTC(+prevMonth.slice(0, 4), +prevMonth.slice(5, 7) - 2, 1)).toISOString().slice(0, 7)}` : `/api/candles?m=${market}&i=60m`).catch(() => [])]);
       if (!S || S.market !== market) return;
       const t0 = S.bars[0].t;
       S.hist = raw.filter(([t]) => t < t0 - 6 * 36e5).map(([t, o, h, l, c]) => ({ t, o, h, l, c, cme: nyInfo(t + 12 * 36e5).cme }));

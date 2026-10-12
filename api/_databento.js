@@ -62,6 +62,28 @@ async function fetchMonth(market, month, fetchImpl = fetch) {
   return parseCsv(text);
 }
 
+// The year before a practice day, as 1-hour candles — so the 1h, 4h and daily charts show the trend that led there.
+// Databento's own hourly candles: one small request (about 6,000 rows), a fraction of the cost of a minute month.
+const hourlyCache = new Map();
+async function hourly(market, toMonth, months = 13, fetchImpl = fetch) {
+  const root = ROOT[market];
+  if (!root) throw new Error("Unknown market");
+  if (!/^\d{4}-\d{2}$/.test(toMonth)) throw new Error("to must look like 2024-03");
+  if (!key()) throw new Error("Databento isn't connected — add DATABENTO_API_KEY in Vercel");
+  const ck = `${market}:${toMonth}:${months}`;
+  if (hourlyCache.has(ck)) return hourlyCache.get(ck);
+  const [y, m] = toMonth.split("-").map(Number);
+  const start = new Date(Date.UTC(y, m - 1 - months, 1)).toISOString().slice(0, 10), end = new Date(Math.min(Date.UTC(y, m - 1, 1), Date.now() - 864e5)).toISOString().slice(0, 10);
+  if (start < "2010-06-06" || end <= start) return [];
+  const q = new URLSearchParams({ dataset: "GLBX.MDP3", symbols: `${root}.v.0`, stype_in: "continuous", schema: "ohlcv-1h", start, end, encoding: "csv", pretty_px: "true", pretty_ts: "true", map_symbols: "true" });
+  const r = await fetchImpl(`${API}?${q}`, { headers: { Authorization: "Basic " + Buffer.from(key() + ":").toString("base64") }, signal: AbortSignal.timeout(50000) });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`Databento ${r.status}: ${text.slice(0, 160)}`);
+  const bars = parseCsv(text);
+  hourlyCache.set(ck, bars); while (hourlyCache.size > 12) hourlyCache.delete(hourlyCache.keys().next().value);
+  return bars;
+}
+
 // One month of 1-minute candles: from the archive (free) when Edge already bought it, otherwise
 // from Databento once — a finished month then goes into the archive for good.
 // Never in Redis: that database is small, in-memory and holds your journal — candles don't belong there.
@@ -111,4 +133,4 @@ async function fill(store, market, from, to, budgetMs = 45000, fetchImpl = fetch
   return { market, stored, next: null, done: true, have: have.size + stored.length };
 }
 
-module.exports = { key, parseCsv, rollUp, fetchMonth, month, fill, ROOT };
+module.exports = { hourly, key, parseCsv, rollUp, fetchMonth, month, fill, ROOT };

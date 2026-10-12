@@ -50,6 +50,12 @@ module.exports = async (req, res) => {
       const okToken = dt && given && require("crypto").timingSafeEqual(require("crypto").createHash("sha256").update(String(given)).digest(), require("crypto").createHash("sha256").update(dt).digest());
       if (!okToken && !(await require("./_auth").authorized(store, req.headers))) return res.status(401).json({ error: "Sign in to Edge to load these prices." });
     }
+    // ?src=db&hist=1h&to=2023-12 — the 13 months of 1-hour candles before that month (the big picture for practice)
+    if (url.searchParams.get("src") === "db" && url.searchParams.get("hist")) {
+      const bars = await db.hourly(market, url.searchParams.get("to") || "");
+      res.setHeader("Cache-Control", "private, max-age=604800");
+      return res.status(200).json({ market, source: "databento", interval: "60m", bars });
+    }
     if (url.searchParams.get("src") === "db" && url.searchParams.get("have")) return res.status(200).json({ market, months: await require("./_bars").have(market) });
     if (url.searchParams.get("src") === "db" && url.searchParams.get("fill")) {
       const r = await db.fill(require("./_store").getStore(), market, url.searchParams.get("from") || "2019-01", url.searchParams.get("to") || "2099-12");

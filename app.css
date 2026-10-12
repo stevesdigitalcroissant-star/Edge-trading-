@@ -941,3 +941,8 @@ body.home-on main#view { padding-top: 14px; }
 .tv-bar button.strat { color: var(--accent); }
 .sim-stepsz { height: 30px; min-width: 38px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 999px; background: none; color: var(--text); font: 600 12px var(--font); cursor: pointer; }
 .sim-stepsz:hover { background: var(--panel2); }
+/* the chart takes what's left and never pushes the bottom bar off the screen */
+.sim { height: 100vh; height: 100dvh; overflow: hidden; }
+@media (min-width: 900px) { .sim { grid-template-rows: auto auto minmax(0, 1fr) auto; } }
+.sim-mid, .sim-mid .sim-chart { min-height: 0; }
+@media (max-width: 899px) { .sim-mid { flex: 1 1 0; } }

@@ -47,3 +47,13 @@ test("the candle archive packs a month small and unpacks it exactly", () => {
   const ag = [[Date.parse("2024-03-04T10:00:00Z"), 22.105, 22.12, 22.1, 22.115]];
   assert.deepEqual(bars.decode(bars.encode("silver", ag)), ag);
 });
+
+test("the year before a practice month comes as Databento's own 1-hour candles, in one request", async () => {
+  process.env.DATABENTO_API_KEY = process.env.DATABENTO_API_KEY || "test-key";
+  const db = require("../api/_databento");
+  let url = "";
+  const bars = await db.hourly("silver", "2023-11", 13, async (u) => { url = decodeURIComponent(u); return { ok: true, text: async () => "ts_event,rtype,publisher_id,instrument_id,open,high,low,close,volume,symbol\n2022-10-03T00:00:00.000000000Z,34,1,1,19.1,19.2,19.0,19.15,100,SI.v.0\n" }; });
+  assert.equal(bars.length, 1);
+  assert.match(url, /schema=ohlcv-1h/);
+  assert.match(url, /start=2022-10-01&end=2023-11-01/);
+});
