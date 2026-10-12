@@ -12,7 +12,7 @@ try { blob = require("@vercel/blob"); } catch {}
 // (its accounts and media), and Edge must never use up that store's free allowance.
 const ready = () => !!(blob && process.env.EDGE_ARCHIVE_BLOB === "1" && (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID));
 
-const SCALE = { gold: 100, crude: 100, silver: 1000, natgas: 1000, es: 100, nq: 100, ym: 10, copper: 10000 };
+const SCALE = { gold: 100, crude: 100, silver: 1000, natgas: 1000, es: 100, nq: 100, ym: 10, copper: 10000, rty: 100, "6e": 100000, "6b": 10000, "6j": 10000000, "6a": 100000, zn: 1000000, zb: 100000 };
 const path = (market, month) => `edge-data/${market}/${month}.1m.json.gz`;
 
 // [[t, o, h, l, c], …] → { v, scale, t0, d: [Δminutes, o−prev c, h−o, o−l, c−o, …] }

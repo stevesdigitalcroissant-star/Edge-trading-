@@ -2,7 +2,7 @@
 // Needs DATABENTO_API_KEY (databento.com → Portal → API keys). Pay as you go; new accounts get free credit.
 // Each month is fetched once as 1-minute candles and kept in the candle archive (_bars.js, the private
 // Blob store), so the same month never costs twice; it's rolled up to 5 minutes, 15 minutes or 1 hour on read.
-const ROOT = { gold: "GC", crude: "CL", natgas: "NG", silver: "SI", es: "ES", nq: "NQ", ym: "YM", copper: "HG" };
+const ROOT = { gold: "GC", crude: "CL", natgas: "NG", silver: "SI", es: "ES", nq: "NQ", ym: "YM", copper: "HG", rty: "RTY", "6e": "6E", "6b": "6B", "6j": "6J", "6a": "6A", zn: "ZN", zb: "ZB" }; // the last 7: research data only (trend board markets)
 const TF = { "1m": 1, "5m": 5, "15m": 15, "60m": 60 };
 const archive = require("./_bars");
 const API = "https://hist.databento.com/v0/timeseries.get_range";
