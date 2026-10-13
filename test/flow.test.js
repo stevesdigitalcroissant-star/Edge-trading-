@@ -89,7 +89,7 @@ test("a trade that comes back after break-even closes flat, not as a loss", asyn
 test("S&D scanner alert (1H zone · 5m shift) → graded, taken as a limit", async () => {
   const store = memory();
   const now = NY(9, 35);
-  const alert = { secret: "s3cret", type: "setup", strategy: "sd", symbol: "M6E1!", tv: "CME:M6E1!", dir: "long", entry: 1.0852, sl: 1.0840, tp: 1.0876, rr: 2, kind: "FVG", zoneTop: 1.0850, zoneBot: 1.0838, mss: 1.0849, validMin: 240 };
+  const alert = { secret: "s3cret", type: "setup", strategy: "sd", symbol: "M6E1!", tv: "CME:M6E1!", dir: "long", entry: 1.0852, sl: 1.0840, tp: 1.0876, rr: 2, kind: "FVG", zoneTop: 1.0850, zoneBot: 1.0838, mss: 1.0849, liq: 1.0862, liqR: 0.83, validMin: 240 };
   const r = await core.handleHook(store, broker, JSON.stringify(alert), now);
   assert.equal(r.json.grade, "S&D");
   assert.equal(r.json.takeable, true);

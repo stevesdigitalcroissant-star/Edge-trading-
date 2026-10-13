@@ -116,9 +116,9 @@ async function radarSetup(store, market, msg, now, s) {
   const b = (x) => x === true || x === "true";
   const sd = msg.strategy === "sd";
   const setup = { id: id(), market, source: sd ? "scanner" : "radar", strategy: sd ? "sd" : "playbook", symbol: msg.symbol, tv: msg.tv, dir: msg.dir === "short" ? "short" : "long",
-    kind: String(msg.kind || "").slice(0, 20), mss: num(msg.mss),
+    kind: String(msg.kind || "").slice(0, 20), mss: num(msg.mss), liq: sd ? num(msg.liq) : undefined, liqR: sd ? num(msg.liqR) : undefined,
     entry: num(msg.entry), sl: num(msg.sl), tp: num(msg.tp), rr: num(msg.rr), zoneTop: num(msg.zoneTop), zoneBot: num(msg.zoneBot), trendD: num(msg.trendD), trend4h: num(msg.trend4h),
-    withTrend: b(msg.withTrend), fromHtfZone: b(msg.fromHtfZone), fresh: msg.fresh !== false && msg.fresh !== "false", liq: b(msg.liq), session: String(msg.session || ""), near: String(msg.near || "").slice(0, 80),
+    withTrend: b(msg.withTrend), fromHtfZone: b(msg.fromHtfZone), fresh: msg.fresh !== false && msg.fresh !== "false", ...(sd ? {} : { liq: b(msg.liq) }), session: String(msg.session || ""), near: String(msg.near || "").slice(0, 80),
     at: now, expires: now + (num(msg.validMin) || s.radarValidMin || 180) * 60e3, status: "open" };
   const k = R.sign(setup.dir);
   if (setup.entry == null || setup.sl == null || setup.tp == null || k * (setup.entry - setup.sl) <= 0 || k * (setup.tp - setup.entry) <= 0) return { error: "setup needs entry, sl and tp on the right sides" };
@@ -130,7 +130,7 @@ async function radarSetup(store, market, msg, now, s) {
   setup.grade = g.grade; await store.hset("setups", setup.id, setup);
   const name = MARKETS[market].name, side = setup.dir === "long" ? "BUY" : "SELL";
   if (sd) await notify(store, g.take.ok
-    ? `📣 ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R) · 1H ${setup.dir === "long" ? "demand" : "supply"} ${fx(setup.zoneBot)}–${fx(setup.zoneTop)} · 5m shift → ${setup.kind}. Tap to see it and send it.`
+    ? `📣 ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R) · 1H ${setup.dir === "long" ? "demand" : "supply"} ${fx(setup.zoneBot)}–${fx(setup.zoneTop)} · 5m shift → ${setup.kind}${setup.liqR != null && setup.liqR < setup.rr ? ` · ⚠️ 5m swing at ${R.round(setup.liqR, 1)}R` : ""}. Tap to see it and send it.`
     : `👀 ${name} ${side} setup @ ${fx(setup.entry)} — not now: ${g.take.why[0]}`, g.take.ok ? "setup" : "skip");
   else await notify(store, g.take.ok
     ? `📣 ${g.grade} ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R)${setup.liq ? " · liquidity taken" : ""}. Open Edge to confirm.`
@@ -746,7 +746,7 @@ async function planTrade(store, broker, body, now) {
   if (k * (tp - entry) <= 0) throw new Error(`For a ${dir === "long" ? "buy" : "sell"}, the target goes ${dir === "long" ? "above" : "below"} the entry.`);
   const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
   const sdMode = !!body.sd; // the supply & demand rules: target = nearest liquidity, 1.5R–6R
-  if (sdMode && (rr < 1.49 || rr > 6.01)) throw new Error(`That's ${rr.toFixed(1)}R — the supply & demand rules need 1.5R to 6R.`);
+  if (sdMode && (rr < 0.99 || rr > 6.01)) throw new Error(`That's ${rr.toFixed(1)}R — the supply & demand plan is 1R to 6R (1:3 by default).`);
   if (!sdMode && rr < s.minR - 0.005) throw new Error(`That's ${rr.toFixed(1)}R. Your rule: never under ${s.minR}R — skip it or find a better entry.`);
   if (!sdMode && rr > s.maxR + 0.005) throw new Error(`${rr.toFixed(1)}R is past your ${s.maxR}R maximum — aim for the nearest opposing liquidity.`);
   const checks = Array.isArray(body.checks) ? body.checks.map(String) : [];

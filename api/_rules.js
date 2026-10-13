@@ -123,7 +123,7 @@ function gradeSD(setup, ctx) {
     { id: "zone", label: `1H ${setup.dir === "long" ? "demand" : "supply"} zone of the latest break, first return`, pass: true, note: setup.zoneTop != null ? `${setup.zoneBot}–${setup.zoneTop}` : "" },
     { id: "mss", label: "5m market structure shift inside the zone", pass: true, note: setup.mss != null ? `past ${setup.mss}` : "" },
     { id: "entry", label: "Limit at the fair value gap / breaker / mitigation block", pass: true, note: setup.kind || "" },
-    { id: "rr", label: "Target: the nearest 5m liquidity, 1.5R or more", pass: rr >= 1.49, note: Number.isFinite(rr) ? `${round(rr, 1)}R` : "" },
+    { id: "rr", label: "Target 1:3 (you decide if the room is there)", pass: rr >= 1, note: Number.isFinite(rr) ? `${round(rr, 1)}R` : "" },
     { id: "session", label: "Orders 02:00–11:30 New York", pass: nyMin >= 120 && nyMin < 690 },
   ];
   const ok = checks.every((c) => c.pass);

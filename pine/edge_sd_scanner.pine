@@ -13,7 +13,8 @@
 //   4. 5m shift    : a 5m candle closes past the last 5m swing made before the low (high).
 //   5. Entry       : limit at the top of the last fair value gap of that move; if none, at the
 //                    breaker / mitigation block (the candles of the broken swing).
-//   6. Stop        : 2 ticks past the low of the move. Target: the nearest 5m swing ≥ 1.5R away (max 6R).
+//   6. Stop        : 2 ticks past the low of the move. Target: 1:3. The nearest 5m swing in the way
+//                    is sent too (and drawn) — you decide if there is room.
 //   Orders only 02:00–11:30 New York. Edge keeps the setup 4 hours and closes everything by 14:20.
 //
 // On the chart: the live 1H zone (blue = demand, orange = supply) and, for each setup, the
@@ -29,8 +30,7 @@ indicator("Edge — Supply & Demand scanner (1H · 5m)", shorttitle = "Edge S&D"
 
 secret = input.string("change-me", "Edge webhook secret", group = "Edge app alerts")
 htf = input.timeframe("60", "Zone timeframe", group = "Rules")
-minR = input.float(1.5, "Target at least (R)", step = 0.25, group = "Rules")
-maxR = input.float(6, "Target at most (R)", step = 0.5, group = "Rules")
+tpR = input.float(3, "Target (R)", step = 0.5, group = "Rules")
 fromH = input.int(2, "Orders from (New York hour)", group = "Rules")
 toHM = input.int(1130, "Orders until (New York, HHMM)", group = "Rules")
 showZone = input.bool(true, "Draw the 1H zone", group = "Chart")
@@ -208,8 +208,9 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                 float e = na(fvg) ? (d == 1 ? bHi : bLo) : fvg
                 float r = math.abs(e - sl)
                 if d * (e - sl) > 0 and r >= 4 * tick
-                    // target: the nearest 5m swing at least minR away
-                    float tp = na
+                    // target 1:3; the nearest 5m swing in the way is sent so you can judge the room
+                    float tp = e + d * tpR * r
+                    float liq = na
                     tids = d == 1 ? phI : plI
                     tvals = d == 1 ? phV : plV
                     int ts = array.size(tids)
@@ -218,20 +219,22 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                             if array.get(tids, j) < bar_index - 400
                                 break
                             float v = array.get(tvals, j)
-                            if d * (v - e) >= minR * r
-                                tp := na(tp) ? v : (d == 1 ? math.min(tp, v) : math.max(tp, v))
-                    if not na(tp)
-                        tp := d == 1 ? math.min(tp, e + maxR * r) : math.max(tp, e - maxR * r)
-                        float rr = math.abs(tp - e) / r
-                        string side = d == 1 ? "long" : "short"
-                        if kind == "block"
-                            float prevExt = d == 1 ? low[back + 1] : high[back + 1]
-                            for k = back + 1 to back + 30
-                                prevExt := d == 1 ? math.min(prevExt, low[k]) : math.max(prevExt, high[k])
-                            kind := (d == 1 ? leg < prevExt : leg > prevExt) ? "breaker" : "mitigation"
-                        // the long / short box on the chart
-                        box.new(bar_index, d == 1 ? tp : e, bar_index + 48, d == 1 ? e : tp, border_color = color.new(#4ade80, 20), bgcolor = color.new(#4ade80, 85))
-                        box.new(bar_index, d == 1 ? e : sl, bar_index + 48, d == 1 ? sl : e, border_color = color.new(#f87171, 20), bgcolor = color.new(#f87171, 85))
-                        label.new(bar_index, e, (d == 1 ? "BUY " : "SELL ") + kind + " " + str.tostring(e, format.mintick) + "\nSL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R)", style = label.style_label_left, color = color.new(#111923, 0), textcolor = color.white, size = size.small)
-                        line.new(swI, swV, bar_index, swV, color = color.white, style = line.style_dashed)
-                        alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + side + '","entry":' + str.tostring(e) + ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) + ',"rr":' + str.tostring(rr, "#.##") + ',"kind":"' + kind + '","zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(swV) + ',"validMin":240}', alert.freq_once_per_bar_close)
+                            if d * (v - e) > 0
+                                liq := na(liq) ? v : (d == 1 ? math.min(liq, v) : math.max(liq, v))
+                    float rr = math.abs(tp - e) / r
+                    string side = d == 1 ? "long" : "short"
+                    if kind == "block"
+                        float prevExt = d == 1 ? low[back + 1] : high[back + 1]
+                        for k = back + 1 to back + 30
+                            prevExt := d == 1 ? math.min(prevExt, low[k]) : math.max(prevExt, high[k])
+                        kind := (d == 1 ? leg < prevExt : leg > prevExt) ? "breaker" : "mitigation"
+                    // the long / short box on the chart
+                    box.new(bar_index, d == 1 ? tp : e, bar_index + 48, d == 1 ? e : tp, border_color = color.new(#4ade80, 20), bgcolor = color.new(#4ade80, 85))
+                    box.new(bar_index, d == 1 ? e : sl, bar_index + 48, d == 1 ? sl : e, border_color = color.new(#f87171, 20), bgcolor = color.new(#f87171, 85))
+                    label.new(bar_index, e, (d == 1 ? "BUY " : "SELL ") + kind + " " + str.tostring(e, format.mintick) + "\nSL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R)" + (na(liq) ? "" : "\n5m swing " + str.tostring(liq, format.mintick) + " (" + str.tostring(math.abs(liq - e) / r, "#.#") + "R)"), style = label.style_label_left, color = color.new(#111923, 0), textcolor = color.white, size = size.small)
+                    line.new(swI, swV, bar_index, swV, color = color.white, style = line.style_dashed)
+                    if not na(liq)
+                        line.new(bar_index, liq, bar_index + 48, liq, color = color.new(#f0c94b, 0), style = line.style_dotted, width = 2)
+                    string liqJ = na(liq) ? "null" : str.tostring(liq)
+                    string liqRJ = na(liq) ? "null" : str.tostring(math.abs(liq - e) / r, "#.##")
+                    alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + side + '","entry":' + str.tostring(e) + ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) + ',"rr":' + str.tostring(rr, "#.##") + ',"kind":"' + kind + '","zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(swV) + ',"liq":' + liqJ + ',"liqR":' + liqRJ + ',"validMin":240}', alert.freq_once_per_bar_close)

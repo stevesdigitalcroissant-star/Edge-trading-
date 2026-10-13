@@ -485,7 +485,7 @@
     const c = (CONTRACTS[x.market] || [["", 1]])[0], risk = riskNow(), pv = c[1];
     const qty = Math.floor(risk / (Math.abs(x.entry - x.sl) * pv) + 1e-9);
     const kind = { FVG: "fair value gap", breaker: "breaker block", mitigation: "mitigation block" }[x.kind] || x.kind || "";
-    const chips = [[`1H ${x.dir === "long" ? "demand" : "supply"} ${fx(x.zoneBot)}–${fx(x.zoneTop)}`, true], ["5m shift" + (x.mss != null ? ` past ${fx(x.mss)}` : ""), true], [`Entry: ${kind}`, true], [`${Number(x.rr || 0).toFixed(1)}R to the nearest 5m swing`, x.rr >= 1.49]];
+    const chips = [[`1H ${x.dir === "long" ? "demand" : "supply"} ${fx(x.zoneBot)}–${fx(x.zoneTop)}`, true], ["5m shift" + (x.mss != null ? ` past ${fx(x.mss)}` : ""), true], [`Entry: ${kind}`, true], [`Target ${Number(x.rr || 0).toFixed(1)}R`, true], x.liq == null ? ["No 5m swing in the way", true] : x.liqR >= x.rr - 0.05 ? [`Nearest 5m swing ${fx(x.liq)} (${Number(x.liqR).toFixed(1)}R) — room for the target`, true] : [`5m swing ${fx(x.liq)} at ${Number(x.liqR).toFixed(1)}R before the target — your call`, false]];
     return `<div class="card radar ${live ? "" : "dim"}" data-tour="setup">
       <div class="row between"><div class="row"><div class="grade A">S&amp;D</div>
         <div><h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY limit" : "▼ SELL limit"}</h3><span class="muted">${time(x.at)} · ${esc(x.tv || x.symbol || "")}</span></div></div>
@@ -538,7 +538,7 @@
     const inTrade = S.open.length, ses = sessionNow();
     const [stateTxt, stateColor, headline, sub] = !g.ok
       ? ["Locked", "var(--bad)", "Not trading right now.", g.reasons.map(esc).join("<br>")]
-      : live.length ? ["Setup ready", "var(--accent)", `${live.length} setup${live.length > 1 ? "s" : ""} waiting for your OK.`, `Check it below — it's only valid for ${s.setupExpiryMin} minutes.`]
+      : live.length ? ["Setup ready", "var(--accent)", `${live.length} setup${live.length > 1 ? "s" : ""} waiting for your OK.`, `Check it below — it's only valid for ${Math.max(1, Math.round((Math.min(...live.map((x) => x.expires || S.now + s.setupExpiryMin * 60e3)) - S.now) / 60e3))} more minutes.`]
       : inTrade ? ["In a trade", "var(--info)", "Hands off. The plan manages it.", S.open.map((t) => `${esc(mname(t.market))}: ${t.lockR != null ? `lock in +${t.lockR}R at +${t.beR}R, then trail · ` : ""}target ${t.tpR ? `${t.tpR}R` : fx(t.tp)}`).join("<br>")]
       : (S.orders || []).length ? ["Order waiting", "var(--info)", "Your limit is in. Let price come to you.", "No chasing — if it runs to the target without you, it's cancelled."]
       : ses.open ? ["Session open", "var(--good)", `${ses.name} session — look for your setup.`, "Big picture → 15m zone → 5m / 1m change of character. No setup, no trade."]
