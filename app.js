@@ -876,6 +876,7 @@
     const beTxt = sd ? "No break-even, no lock: the stop and the 1:3 target stay where they are." : radar ? `At +${S.settings.lockAtR || 3}R Edge locks in profit, then trails behind each new 15m swing.` : e.beR > 0 ? `At +${e.beR}R ${S.broker.kind === "manual" ? "Edge tells you to move the stop to break-even" : "the stop moves to break-even"}.` : "No break-even in this plan.";
     const moods = [["calm", "😌 Calm"], ["focused", "🎯 Focused"], ["fomo", "😬 Afraid to miss it"], ["revenge", "😤 Want my money back"], ["bored", "🥱 Bored"]];
     const body = $("#modalBody");
+    if (sd) return sdTakeDialog(x, z, moods, body);
     body.innerHTML = `<h3>${esc(mname(x.market))} ${x.dir.toUpperCase()} · ${x.g.grade}</h3>
       <p>Before you click: how do you feel <b>right now</b>? Be honest — this is your journal.</p>
       <div class="moods">${moods.map(([k, l]) => `<button type="button" data-mood="${k}">${l}</button>`).join("")}</div>
@@ -893,6 +894,44 @@
     $("#confirmTake").addEventListener("click", async () => {
       $("#confirmTake").disabled = true;
       const r = await act({ action: "take", setupId: id, emotion: mood, entry: manual && !radar ? $("#fill").value : undefined, riskUSD: risk }, "Trade on. Hands off — the rules manage it now.");
+      $("#modal").close();
+      if (r) { tab = "now"; render(); }
+    });
+    $("#modal").showModal();
+  }
+
+  // scanner setup: change the limit, stop, target or contracts — risk, R and profit follow as you type
+  function sdTakeDialog(x, z, moods, body) {
+    const k = x.dir === "short" ? -1 : 1, pv = (CONTRACTS[x.market] || [["", PV[x.market] || 1]])[0][1];
+    const f = (key, label, v) => `<label class="f">${label}<input data-sd="${key}" inputmode="decimal" type="number" step="any" value="${v}"></label>`;
+    body.innerHTML = `<h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY" : "▼ SELL"} limit</h3>
+      <p class="muted" style="margin-top:0">Change anything you want. Contracts follow your $${z.lo}–$${z.hi} risk until you set them yourself.</p>
+      <div class="grid2">${f("entry", "Limit", x.entry)}${f("sl", "Stop", x.sl)}${f("tp", "Target", x.tp)}${f("qty", `Contracts (${esc(z.contract)})`, z.qty)}</div>
+      <div class="sc-list" id="sdLive" style="margin:10px 0"></div>
+      <p>How do you feel <b>right now</b>?</p>
+      <div class="moods">${moods.map(([m, l]) => `<button type="button" data-mood="${m}">${l}</button>`).join("")}</div>
+      <p class="muted">${sendsOrders() ? "Edge sends the limit with this stop and target to Tradovate." : "Place this limit yourself; Edge tracks it and tells you when it fills."} I accept the stop. I won't move it further away.</p>
+      <div class="row"><button class="btn good" type="button" id="confirmTake" disabled>Confirm</button><button class="btn" value="cancel">Cancel</button></div>`;
+    const inp = (key) => body.querySelector(`[data-sd="${key}"]`), val = (key) => Number(inp(key).value);
+    let mood = "", qtyMine = false;
+    const calc = () => {
+      const e = val("entry"), sl = val("sl"), tp = val("tp"), per = Math.abs(e - sl) * pv;
+      const okSide = k * (e - sl) > 0 && k * (tp - e) > 0;
+      if (!qtyMine && okSide && per > 0) inp("qty").value = Math.floor(z.hi / per + 1e-9);
+      const q = Math.floor(val("qty")), risk = Math.round(q * per), rr = okSide ? Math.abs(tp - e) / Math.abs(e - sl) : 0;
+      const chips = !okSide ? [[`For a ${x.dir === "long" ? "buy the stop goes below and the target above" : "sell the stop goes above and the target below"} the limit`, false]]
+        : [[`Risk $${risk}`, risk >= z.lo && risk <= z.hi], [`${rr.toFixed(1)}R`, rr >= 1], [`+$${Math.round(q * Math.abs(tp - e) * pv)} at the target`, true]];
+      if (okSide && q < 1) chips.push(["0 contracts", false]);
+      $("#sdLive").innerHTML = chips.map(([t, ok]) => `<span class="${ok ? "ok" : "no"}">${ok ? "✓" : "!"} ${esc(t)}</span>`).join("");
+      $("#confirmTake").disabled = !mood || !okSide || q < 1 || rr < 0.5;
+      return { e, sl, tp, q };
+    };
+    body.querySelectorAll("[data-sd]").forEach((el) => el.addEventListener("input", () => { if (el.dataset.sd === "qty") qtyMine = true; calc(); }));
+    body.querySelectorAll("[data-mood]").forEach((b) => b.addEventListener("click", () => { mood = b.dataset.mood; body.querySelectorAll("[data-mood]").forEach((y) => y.classList.toggle("on", y === b)); calc(); }));
+    calc();
+    $("#confirmTake").addEventListener("click", async () => {
+      const v = calc(); $("#confirmTake").disabled = true;
+      const r = await act({ action: "take", setupId: x.id, emotion: mood, entry: v.e, sl: v.sl, tp: v.tp, qty: v.q }, "Limit in. Hands off — the stop and target do the work.");
       $("#modal").close();
       if (r) { tab = "now"; render(); }
     });

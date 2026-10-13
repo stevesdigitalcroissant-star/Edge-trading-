@@ -107,3 +107,16 @@ test("S&D scanner alert (1H zone · 5m shift) → graded, taken as a limit", asy
   const late = await core.handleHook(store, broker, JSON.stringify(alert), NY(13));
   assert.equal(late.json.takeable, false);
 });
+
+test("S&D setup: your own limit, stop, target and contracts", async () => {
+  const store = memory();
+  const now = NY(9, 35);
+  const alert = { secret: "s3cret", type: "setup", strategy: "sd", symbol: "MGC1!", tv: "COMEX:MGC1!", dir: "long", entry: 2651.4, sl: 2647.2, tp: 2664, rr: 3, kind: "FVG", zoneTop: 2652.8, zoneBot: 2645.9, mss: 2650.1, validMin: 240 };
+  await core.handleHook(store, broker, JSON.stringify(alert), now);
+  const x = (await core.state(store, broker, now)).setups[0];
+  await assert.rejects(core.action(store, broker, { action: "take", setupId: x.id, emotion: "calm", sl: 2655 }, now), /stop goes below/);
+  const out = await core.action(store, broker, { action: "take", setupId: x.id, emotion: "calm", entry: 2651, sl: 2647, tp: 2661, qty: 8 }, now);
+  const t = out.order.trade;
+  assert.deepEqual([t.entry, t.initialSL, t.tp, t.units], [2651, 2647, 2661, 8]);
+  assert.equal(t.riskUSD, 320);
+});

@@ -653,7 +653,7 @@ async function state(store, broker, now = Date.now()) {
   };
 }
 
-async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: myRisk }, now = Date.now()) {
+async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: myRisk, sl: mySl, tp: myTp, qty: myQty }, now = Date.now()) {
   const setup = await store.hget("setups", setupId);
   if (!setup) throw new Error("Setup not found");
   if (setup.strategy === "playbook" || setup.strategy === "sd") { // the radar's / scanner's setup is a limit: it goes out like a trade you planned yourself
@@ -661,7 +661,8 @@ async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: 
     if (!g0.take.ok) throw new Error(g0.take.why.join(" "));
     const spec = require("./_config").futuresSpec(setup.symbol || "");
     const micro = spec ? ({ GC: "MGC", CL: "MCL", SI: "SIL", NG: "MNG", QG: "MNG", ES: "MES", NQ: "MNQ", YM: "MYM", HG: "MHG", RTY: "M2K", "6E": "M6E", "6B": "M6B", "6A": "M6A", "6J": "MJY" })[spec.root] || spec.root : null;
-    const r = await planTrade(store, broker, { market: setup.market, contract: micro, dir: setup.dir, entry: setup.entry, sl: setup.sl, tp: setup.tp, riskUSD: myRisk, emotion, checks: require("../playbook.js").required, type: "limit", send: true, sd: setup.strategy === "sd", ...(setup.strategy === "sd" ? { riskUSD: mergeSettings(await store.get("settings")).sdRiskMax } : {}), note: setup.strategy === "sd" ? `S&D scanner · ${setup.kind}` : `radar setup ${setup.grade || ""}` }, now);
+    const sdx = setup.strategy === "sd"; // scanner setups: your own limit / stop / target / contracts if you changed them
+    const r = await planTrade(store, broker, { market: setup.market, contract: micro, dir: setup.dir, entry: (sdx && num(myEntry)) || setup.entry, sl: (sdx && num(mySl)) || setup.sl, tp: (sdx && num(myTp)) || setup.tp, qty: sdx ? num(myQty) : null, riskUSD: myRisk, emotion, checks: require("../playbook.js").required, type: "limit", send: true, sd: setup.strategy === "sd", ...(setup.strategy === "sd" ? { riskUSD: mergeSettings(await store.get("settings")).sdRiskMax } : {}), note: setup.strategy === "sd" ? `S&D scanner · ${setup.kind}` : `radar setup ${setup.grade || ""}` }, now);
     await store.hset("setups", setupId, { ...setup, status: "taken" });
     return r;
   }
@@ -746,7 +747,7 @@ async function planTrade(store, broker, body, now) {
   if (k * (tp - entry) <= 0) throw new Error(`For a ${dir === "long" ? "buy" : "sell"}, the target goes ${dir === "long" ? "above" : "below"} the entry.`);
   const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
   const sdMode = !!body.sd; // the supply & demand rules: target = nearest liquidity, 1.5R–6R
-  if (sdMode && (rr < 0.99 || rr > 6.01)) throw new Error(`That's ${rr.toFixed(1)}R — the supply & demand plan is 1R to 6R (1:3 by default).`);
+  if (sdMode && (rr < 0.49 || rr > 10.01)) throw new Error(`That's ${rr.toFixed(1)}R — keep the target between 0.5R and 10R.`);
   if (!sdMode && rr < s.minR - 0.005) throw new Error(`That's ${rr.toFixed(1)}R. Your rule: never under ${s.minR}R — skip it or find a better entry.`);
   if (!sdMode && rr > s.maxR + 0.005) throw new Error(`${rr.toFixed(1)}R is past your ${s.maxR}R maximum — aim for the nearest opposing liquidity.`);
   const checks = Array.isArray(body.checks) ? body.checks.map(String) : [];
@@ -770,6 +771,10 @@ async function planTrade(store, broker, body, now) {
   const pn = await propNow(store, ctx, now);
   if (pn) { if (pn.auto.usd <= 0) throw new Error(pn.auto.why[0]); riskUSD = Math.min(riskUSD || pn.auto.usd, pn.auto.usd); }
   const size = R.orderSize({ symbol, sl }, s, entry, riskUSD);
+  if (sdMode && num(body.qty) > 0) { // you picked the number of contracts yourself
+    size.qty = Math.floor(num(body.qty)); size.totalRisk = R.round(size.qty * size.riskPerContract);
+    if (pn && size.totalRisk > pn.auto.usd + 0.5) throw new Error(`${size.qty} ${size.contract} risks $${size.totalRisk} — your prop account allows $${pn.auto.usd} right now.`);
+  }
   if (pn && pn.cfg.maxMicros && size.qty > pn.cfg.maxMicros) size.qty = pn.cfg.maxMicros;
   if (size.kind !== "futures") throw new Error(`${root} isn't a futures contract Edge knows.`);
   if (size.qty < 1) throw new Error(`One ${size.contract} would risk $${size.riskPerContract} with this stop — more than your $${size.riskUSD}. Use the micro contract or skip it.`);
