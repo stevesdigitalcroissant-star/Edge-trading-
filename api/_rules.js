@@ -57,6 +57,7 @@ function strategyChecks(setup, now) {
 function gradeSetup(setup, ctx) {
   const { settings: s, bias, news, now } = ctx;
   if (setup.strategy === "playbook") return gradePlaybook(setup, ctx);
+  if (setup.strategy === "sd") return gradeSD(setup, ctx);
   if (setup.strategy) return gradeStrategy(setup, ctx);
   const dir = setup.dir;
   const b = bias && bias[setup.market];
@@ -112,6 +113,21 @@ function gradePlaybook(setup, ctx) {
   const hard = checks.filter((c) => !c.pass && !c.bonus).length;
   const grade = hard ? (hard === 1 ? "B" : "C") : setup.liq ? "A+" : "A";
   return { grade, checks, blocks: hardBlocks(setup, ctx), info: setup.near ? `Big picture: ${setup.near}` : "" };
+}
+
+// A setup from the supply & demand scanner (pine/edge_sd_scanner.pine). No grades: the rules either fit or not.
+function gradeSD(setup, ctx) {
+  const rr = Number(setup.rr), nyMin = require("./_time").minutesOfDay(setup.at || ctx.now, "America/New_York");
+  const checks = [
+    { id: "trend", label: "1H trend: the last two breaks of structure point your way", pass: true },
+    { id: "zone", label: `1H ${setup.dir === "long" ? "demand" : "supply"} zone of the latest break, first return`, pass: true, note: setup.zoneTop != null ? `${setup.zoneBot}–${setup.zoneTop}` : "" },
+    { id: "mss", label: "5m market structure shift inside the zone", pass: true, note: setup.mss != null ? `past ${setup.mss}` : "" },
+    { id: "entry", label: "Limit at the fair value gap / breaker / mitigation block", pass: true, note: setup.kind || "" },
+    { id: "rr", label: "Target: the nearest 5m liquidity, 1.5R or more", pass: rr >= 1.49, note: Number.isFinite(rr) ? `${round(rr, 1)}R` : "" },
+    { id: "session", label: "Orders 02:00–11:30 New York", pass: nyMin >= 120 && nyMin < 690 },
+  ];
+  const ok = checks.every((c) => c.pass);
+  return { grade: ok ? "S&D" : "C", checks, blocks: hardBlocks(setup, ctx), info: "" };
 }
 
 function gradeStrategy(setup, ctx) {

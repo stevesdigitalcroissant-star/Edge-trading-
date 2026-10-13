@@ -10,7 +10,7 @@ const fundamentals = require("./_fundamentals");
 const { parts } = require("./_time");
 
 const num = (x) => (x == null || x === "" || !Number.isFinite(Number(x)) ? null : Number(x));
-const fx = (x) => (x == null ? "—" : Number(x) >= 100 ? Number(x).toFixed(2) : Number(x).toFixed(3));
+const fx = (x) => (x == null ? "—" : Number(x) >= 100 ? Number(x).toFixed(2) : Math.abs(Number(x)) < 0.1 ? Number(x).toFixed(7) : Math.abs(Number(x)) < 2 ? Number(x).toFixed(5) : Number(x).toFixed(3));
 const rp = (x) => (x == null ? x : Math.round(x * 1e6) / 1e6); // computed prices without float dust
 const id = () => crypto.randomBytes(6).toString("hex");
 // brokers Edge sends orders to for you (Tradovate direct, or Tradovate through TradersPost); "manual" = you click yourself
@@ -114,10 +114,12 @@ const styleSl = (sp, dir, entry, hi, lo) => (sp.stopFrac && sp.stopFrac < 1 && h
 // A setup from the radar script: graded against your playbook, then on your phone with the exact order
 async function radarSetup(store, market, msg, now, s) {
   const b = (x) => x === true || x === "true";
-  const setup = { id: id(), market, source: "radar", strategy: "playbook", symbol: msg.symbol, tv: msg.tv, dir: msg.dir === "short" ? "short" : "long",
+  const sd = msg.strategy === "sd";
+  const setup = { id: id(), market, source: sd ? "scanner" : "radar", strategy: sd ? "sd" : "playbook", symbol: msg.symbol, tv: msg.tv, dir: msg.dir === "short" ? "short" : "long",
+    kind: String(msg.kind || "").slice(0, 20), mss: num(msg.mss),
     entry: num(msg.entry), sl: num(msg.sl), tp: num(msg.tp), rr: num(msg.rr), zoneTop: num(msg.zoneTop), zoneBot: num(msg.zoneBot), trendD: num(msg.trendD), trend4h: num(msg.trend4h),
     withTrend: b(msg.withTrend), fromHtfZone: b(msg.fromHtfZone), fresh: msg.fresh !== false && msg.fresh !== "false", liq: b(msg.liq), session: String(msg.session || ""), near: String(msg.near || "").slice(0, 80),
-    at: now, expires: now + (s.radarValidMin || 180) * 60e3, status: "open" };
+    at: now, expires: now + (num(msg.validMin) || s.radarValidMin || 180) * 60e3, status: "open" };
   const k = R.sign(setup.dir);
   if (setup.entry == null || setup.sl == null || setup.tp == null || k * (setup.entry - setup.sl) <= 0 || k * (setup.tp - setup.entry) <= 0) return { error: "setup needs entry, sl and tp on the right sides" };
   if (setup.rr == null) setup.rr = R.round(Math.abs(setup.tp - setup.entry) / Math.abs(setup.entry - setup.sl));
@@ -127,7 +129,10 @@ async function radarSetup(store, market, msg, now, s) {
   const g = gradeNow(setup, ctx);
   setup.grade = g.grade; await store.hset("setups", setup.id, setup);
   const name = MARKETS[market].name, side = setup.dir === "long" ? "BUY" : "SELL";
-  await notify(store, g.take.ok
+  if (sd) await notify(store, g.take.ok
+    ? `📣 ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R) · 1H ${setup.dir === "long" ? "demand" : "supply"} ${fx(setup.zoneBot)}–${fx(setup.zoneTop)} · 5m shift → ${setup.kind}. Tap to see it and send it.`
+    : `👀 ${name} ${side} setup @ ${fx(setup.entry)} — not now: ${g.take.why[0]}`, g.take.ok ? "setup" : "skip");
+  else await notify(store, g.take.ok
     ? `📣 ${g.grade} ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R)${setup.liq ? " · liquidity taken" : ""}. Open Edge to confirm.`
     : `⛔ ${g.grade} ${name} ${side} @ ${fx(setup.entry)} — skip it: ${g.take.why[0]}`, g.take.ok ? "setup" : "skip");
   return { setup, grade: g.grade, takeable: g.take.ok, why: g.take.why || [] };
@@ -170,7 +175,7 @@ async function createPlan(store, market, msg, now) {
 // A setup from the TradingView alert or read off the chart: store it, grade it, tell the phone.
 async function createSetup(store, market, msg, now, { source = "alert", broker = null } = {}) {
   const s = mergeSettings(await store.get("settings"));
-  if (msg.strategy === "playbook") return radarSetup(store, market, msg, now, s);
+  if (msg.strategy === "playbook" || msg.strategy === "sd") return radarSetup(store, market, msg, now, s);
   const sp = msg.strategy ? withStyle(strategyPlan(String(msg.strategy), market), s, market) : null;
   if (msg.strategy && !sp) return { error: `No ${msg.strategy} strategy for ${market}` };
   const setup = {
@@ -651,12 +656,12 @@ async function state(store, broker, now = Date.now()) {
 async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: myRisk }, now = Date.now()) {
   const setup = await store.hget("setups", setupId);
   if (!setup) throw new Error("Setup not found");
-  if (setup.strategy === "playbook") { // the radar's setup is a limit at the start of the gap: it goes out like a trade you planned yourself
+  if (setup.strategy === "playbook" || setup.strategy === "sd") { // the radar's / scanner's setup is a limit: it goes out like a trade you planned yourself
     const ctx0 = await context(store, now), g0 = gradeNow(setup, ctx0);
     if (!g0.take.ok) throw new Error(g0.take.why.join(" "));
     const spec = require("./_config").futuresSpec(setup.symbol || "");
-    const micro = spec ? ({ GC: "MGC", CL: "MCL", SI: "SIL", NG: "MNG", QG: "MNG", ES: "MES", NQ: "MNQ", YM: "MYM", HG: "MHG" })[spec.root] || spec.root : null;
-    const r = await planTrade(store, broker, { market: setup.market, contract: micro, dir: setup.dir, entry: setup.entry, sl: setup.sl, tp: setup.tp, riskUSD: myRisk, emotion, checks: require("../playbook.js").required, type: "limit", send: true, note: `radar setup ${setup.grade || ""}` }, now);
+    const micro = spec ? ({ GC: "MGC", CL: "MCL", SI: "SIL", NG: "MNG", QG: "MNG", ES: "MES", NQ: "MNQ", YM: "MYM", HG: "MHG", RTY: "M2K", "6E": "M6E", "6B": "M6B", "6A": "M6A", "6J": "MJY" })[spec.root] || spec.root : null;
+    const r = await planTrade(store, broker, { market: setup.market, contract: micro, dir: setup.dir, entry: setup.entry, sl: setup.sl, tp: setup.tp, riskUSD: myRisk, emotion, checks: require("../playbook.js").required, type: "limit", send: true, sd: setup.strategy === "sd", note: setup.strategy === "sd" ? `S&D scanner · ${setup.kind}` : `radar setup ${setup.grade || ""}` }, now);
     await store.hset("setups", setupId, { ...setup, status: "taken" });
     return r;
   }
@@ -740,8 +745,10 @@ async function planTrade(store, broker, body, now) {
   if (k * (entry - sl) <= 0) throw new Error(`For a ${dir === "long" ? "buy" : "sell"}, the stop goes ${dir === "long" ? "below" : "above"} the entry.`);
   if (k * (tp - entry) <= 0) throw new Error(`For a ${dir === "long" ? "buy" : "sell"}, the target goes ${dir === "long" ? "above" : "below"} the entry.`);
   const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
-  if (rr < s.minR - 0.005) throw new Error(`That's ${rr.toFixed(1)}R. Your rule: never under ${s.minR}R — skip it or find a better entry.`);
-  if (rr > s.maxR + 0.005) throw new Error(`${rr.toFixed(1)}R is past your ${s.maxR}R maximum — aim for the nearest opposing liquidity.`);
+  const sdMode = !!body.sd; // the supply & demand rules: target = nearest liquidity, 1.5R–6R
+  if (sdMode && (rr < 1.49 || rr > 6.01)) throw new Error(`That's ${rr.toFixed(1)}R — the supply & demand rules need 1.5R to 6R.`);
+  if (!sdMode && rr < s.minR - 0.005) throw new Error(`That's ${rr.toFixed(1)}R. Your rule: never under ${s.minR}R — skip it or find a better entry.`);
+  if (!sdMode && rr > s.maxR + 0.005) throw new Error(`${rr.toFixed(1)}R is past your ${s.maxR}R maximum — aim for the nearest opposing liquidity.`);
   const checks = Array.isArray(body.checks) ? body.checks.map(String) : [];
   const missing = PB.required.filter((x) => !checks.includes(x));
   if (missing.length) throw new Error(`Not ticked yet: ${missing.map((x) => PB.byId[x].title.toLowerCase()).join(", ")}. If it's not there, there's no trade.`);
@@ -754,7 +761,7 @@ async function planTrade(store, broker, body, now) {
   const waiting = Object.values((await store.hgetall("orders")) || {});
   const guard = R.guardrails({ ...ctx, open: [...ctx.open, ...waiting.map((o) => o.trade)] });
   if (!guard.ok) throw new Error(guard.reasons.join(" "));
-  const root = String(body.contract || "").toUpperCase().replace(/[^A-Z]/g, "") || { gold: "MGC", crude: "MCL", natgas: "MNG", silver: "SIL", es: "MES" }[market];
+  const root = String(body.contract || "").toUpperCase().replace(/[^A-Z0-9]/g, "") || { gold: "MGC", crude: "MCL", natgas: "MNG", silver: "SIL", es: "MES", nq: "MNQ", ym: "MYM", copper: "MHG", rty: "M2K", "6e": "M6E", "6b": "M6B", "6j": "MJY", "6a": "M6A", zn: "ZN", zb: "ZB" }[market];
   const symbol = `${root}1!`;
   let riskUSD = num(body.riskUSD);
   const tg = tilt(ctx, now, riskUSD || 0);
@@ -768,9 +775,9 @@ async function planTrade(store, broker, body, now) {
   if (size.qty < 1) throw new Error(`One ${size.contract} would risk $${size.riskPerContract} with this stop — more than your $${size.riskUSD}. Use the micro contract or skip it.`);
   const routed = ROUTED(broker) && !!body.send;
   const type = body.type === "market" ? "market" : "limit";
-  const lockR = rr > s.lockAtR + 0.25 ? s.lockToR : null;
+  const lockR = !sdMode && rr > s.lockAtR + 0.25 ? s.lockToR : null;
   const trade = { id: `plan:${id()}`, market, dir, grade: "A+", source: routed ? broker.kind : "manual", symbol, ticker: symbol, entry, initialSL: sl, currentSL: sl, tp,
-    strategy: "playbook", tpR: R.round(rr), beR: lockR != null ? s.lockAtR : 0, lockR, units: size.qty, unitLabel: size.unit, contract: size.contract, riskUSD: size.totalRisk,
+    strategy: sdMode ? "sd" : "playbook", tpR: R.round(rr), beR: lockR != null ? s.lockAtR : 0, lockR, units: size.qty, unitLabel: size.unit, contract: size.contract, riskUSD: size.totalRisk,
     emotion: ["calm", "focused"].includes(body.emotion) ? body.emotion : "calm", checks, note: String(body.note || "").slice(0, 500), maxR: 0, ruleBreaks: [], notified: {}, openedAt: now };
   if (routed) { const sent = await broker.order({ ticker: symbol, dir, qty: size.qty, sl, tp, price: entry, ref: trade.id, type }); if (sent && sent.orderId) trade.tv = sent; }
   const side = `${dir === "long" ? "BUY" : "SELL"} ${size.qty} ${size.contract}`;

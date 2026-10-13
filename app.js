@@ -2,7 +2,7 @@
 (() => {
   const $ = (s, el = document) => el.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const fx = (x) => (x == null ? "—" : Number(x) >= 100 ? Number(x).toFixed(2) : Number(x).toFixed(3));
+  const fx = (x) => (x == null ? "—" : Number(x) >= 100 ? Number(x).toFixed(2) : Math.abs(Number(x)) < 0.1 ? Number(x).toFixed(7) : Math.abs(Number(x)) < 2 ? Number(x).toFixed(5) : Number(x).toFixed(3));
   const rs = (r) => (r == null ? "—" : `${r > 0 ? "+" : ""}${Number(r).toFixed(2)}R`);
   const cls = (r) => (r > 0.1 ? "pos" : r < -0.1 ? "neg" : "");
   let token = ""; try { token = localStorage.getItem("edge.token") || ""; } catch {}
@@ -282,7 +282,7 @@
   const PB = () => window.EdgePlaybook;
   const sendsOrders = () => S.broker.kind === "traderspost" || S.broker.kind === "tradovate"; // Edge places the order on Tradovate for you
   // the contracts you can trade (prop firm futures): $ per 1.00 move
-  const CONTRACTS = { gold: [["MGC", 10, "Micro gold"], ["GC", 100, "Gold"]], crude: [["MCL", 100, "Micro crude"], ["CL", 1000, "Crude"]], silver: [["SIL", 1000, "Micro silver"], ["SI", 5000, "Silver"]], natgas: [["MNG", 1000, "Micro gas"], ["QG", 2500, "E-mini gas"]], es: [["MES", 5, "Micro S&P"], ["ES", 50, "E-mini S&P"]], nq: [["MNQ", 2, "Micro Nasdaq"], ["NQ", 20, "E-mini Nasdaq"]], ym: [["MYM", 0.5, "Micro Dow"], ["YM", 5, "E-mini Dow"]], copper: [["MHG", 2500, "Micro copper"], ["HG", 25000, "Copper"]] };
+  const CONTRACTS = { gold: [["MGC", 10, "Micro gold"], ["GC", 100, "Gold"]], crude: [["MCL", 100, "Micro crude"], ["CL", 1000, "Crude"]], silver: [["SIL", 1000, "Micro silver"], ["SI", 5000, "Silver"]], natgas: [["MNG", 1000, "Micro gas"], ["QG", 2500, "E-mini gas"]], es: [["MES", 5, "Micro S&P"], ["ES", 50, "E-mini S&P"]], nq: [["MNQ", 2, "Micro Nasdaq"], ["NQ", 20, "E-mini Nasdaq"]], ym: [["MYM", 0.5, "Micro Dow"], ["YM", 5, "E-mini Dow"]], copper: [["MHG", 2500, "Micro copper"], ["HG", 25000, "Copper"]], rty: [["M2K", 5, "Micro Russell"], ["RTY", 50, "E-mini Russell"]], "6e": [["M6E", 12500, "Micro euro"], ["6E", 125000, "Euro"]], "6b": [["M6B", 6250, "Micro pound"], ["6B", 62500, "Pound"]], "6j": [["MJY", 1250000, "Micro yen"], ["6J", 12500000, "Yen"]], "6a": [["M6A", 10000, "Micro Aussie"], ["6A", 100000, "Aussie"]], zn: [["ZN", 1000, "10-year note"]], zb: [["ZB", 1000, "30-year bond"]] };
   const PL = { open: false, checks: [], market: "gold", contract: "MGC", dir: "long", entry: "", sl: "", tp: "", mood: "", type: "limit", info: null, busy: false };
   try { Object.assign(PL, JSON.parse(localStorage.getItem("edge.plan") || "{}"), { busy: false, info: null }); } catch {}
   const savePL = () => { try { const { busy, info, ...keep } = PL; localStorage.setItem("edge.plan", JSON.stringify(keep)); } catch {} };
@@ -478,6 +478,26 @@
   }
   function propSwap() { const el = $("#propCard"); if (el) { el.outerHTML = propCard(); $("#view").querySelectorAll("#propCard [data-propset]").forEach((b) => b.addEventListener("click", propDialog)); } }
 
+  // ---------- S&D SCANNER: 1H zone + 5m shift found by TradingView on all 15 markets — one tap sends the limit
+  const SD_TV = ["MGC1!", "MCL1!", "SIL1!", "MNG1!", "MES1!", "MNQ1!", "MYM1!", "M2K1!", "MHG1!", "6E1!", "6B1!", "6J1!", "6A1!", "ZN1!", "ZB1!"];
+  function sdCard(x) {
+    const g = x.g, live = x.status === "open" && !(x.expires && S.now > x.expires);
+    const c = (CONTRACTS[x.market] || [["", 1]])[0], risk = riskNow(), pv = c[1];
+    const qty = Math.floor(risk / (Math.abs(x.entry - x.sl) * pv) + 1e-9);
+    const kind = { FVG: "fair value gap", breaker: "breaker block", mitigation: "mitigation block" }[x.kind] || x.kind || "";
+    const chips = [[`1H ${x.dir === "long" ? "demand" : "supply"} ${fx(x.zoneBot)}–${fx(x.zoneTop)}`, true], ["5m shift" + (x.mss != null ? ` past ${fx(x.mss)}` : ""), true], [`Entry: ${kind}`, true], [`${Number(x.rr || 0).toFixed(1)}R to the nearest 5m swing`, x.rr >= 1.49]];
+    return `<div class="card radar ${live ? "" : "dim"}" data-tour="setup">
+      <div class="row between"><div class="row"><div class="grade A">S&amp;D</div>
+        <div><h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY limit" : "▼ SELL limit"}</h3><span class="muted">${time(x.at)} · ${esc(x.tv || x.symbol || "")}</span></div></div>
+        <span class="pill">${live ? `${Math.max(0, Math.round((x.expires - S.now) / 60e3))} min left` : esc(x.status === "open" ? "expired" : x.status)}</span></div>
+      <div class="levels"><div><small>Limit</small><b>${fx(x.entry)}</b></div><div><small>Stop</small><b>${fx(x.sl)}</b></div><div><small>Target</small><b>${fx(x.tp)}</b></div><div><small>Size</small><b>${qty > 0 ? `${qty} ${esc(c[0])}` : "too wide"}</b></div></div>
+      <div class="sc-list">${chips.map(([t, ok]) => `<span class="${ok ? "ok" : "no"}">${ok ? "✓" : "!"} ${esc(t)}</span>`).join("")}</div>
+      ${live && !g.take.ok ? `<div class="blocks">${g.take.why.map((w) => `<div>⛔ ${esc(w)}</div>`).join("")}</div>` : ""}
+      ${live ? `<p class="muted" style="margin:6px 0;font-size:12.5px">Look at it first: price came back into the 1H zone and the 5m closed past its last swing. ${sendsOrders() ? "Confirm and Edge sends the limit with its stop and target to Tradovate." : "Place the limit yourself; Edge tracks it."} The setup expires 4 hours after the alert. Risk ${usd(qty > 0 ? qty * Math.abs(x.entry - x.sl) * pv : risk)}.</p>
+        <div class="row"><button class="btn ${g.take.ok && qty > 0 ? "good" : ""}" data-take="${esc(x.id)}" ${g.take.ok && qty > 0 ? "" : "disabled"}>${g.take.ok ? (qty > 0 ? "Confirm the limit" : "Stop too wide for your risk") : "Not allowed"}</button><button class="btn" data-skip="${esc(x.id)}">Skip</button></div>` : ""}
+    </div>`;
+  }
+
   // ---------- RADAR: your playbook found by TradingView on all 8 markets — graded, one tap to send the limit
   function radarCard(x) {
     const g = x.g, live = x.status === "open" && !(x.expires && S.now > x.expires), k = x.dir === "short" ? -1 : 1;
@@ -502,13 +522,13 @@
     const radar = Object.entries(S.prices || {}).filter(([, p]) => p && (p.swing15Low != null || p.trendD != null) && S.now - p.time < 3 * 864e5).map(([m]) => m);
     const push = !!pushSub || (S.push && S.push.devices.length > 0);
     let hide = false; try { hide = localStorage.getItem("edge.setupDone") === "1"; } catch {}
-    if (hide || (prop && radar.length >= 8 && push)) return "";
+    if (hide || (prop && radar.length >= 15 && push)) return "";
     const row = (ok, n, title, text, btn) => `<div class="su-row ${ok ? "ok" : ""}"><i>${ok ? "✓" : n}</i><div><b>${title}</b><p class="muted">${text}</p></div>${ok ? "" : btn}</div>`;
     return `<section class="card setup-steps" data-tour="getset"><div class="card-head"><h2>🚀 Get set up</h2><button type="button" class="link" data-suhide>Hide</button></div>
       ${row(prop, 1, "Your prop account", prop ? "The autopilot sizes every trade." : "Pick your firm and plan, type where the account stands — Edge does the rest.", `<button class="btn small primary" data-propset>Set up</button>`)}
-      ${row(radar.length >= 8, 2, `Radar alerts in TradingView${radar.length ? ` · ${radar.length}/8 markets` : ""}`, radar.length ? `Watching: ${radar.map(mname).join(", ")}.` : "On a computer: copy the script, add it to a 5-minute chart, create one alert per market (paid TradingView plan).", `<button class="btn small" data-copypine="edge_playbook_radar">Copy script</button>`)}
+      ${row(radar.length >= 15, 2, `S&D scanner in TradingView${radar.length ? ` · ${radar.length}/15 markets` : ""}`, radar.length ? `Watching: ${radar.map(mname).join(", ")}.` : "On a computer: copy the script, add it to a 5-minute chart, create one alert per market (paid TradingView plan).", `<button class="btn small" data-copypine="edge_sd_scanner">Copy script</button>`)}
       ${row(push, 3, "Notifications on this phone", push ? "Setups, fills and your game plan reach you anywhere." : "So the radar can reach you when the app is closed.", pushCapable && Notification.permission !== "denied" ? `<button class="btn small" data-pushon>Turn on</button>` : "")}
-      ${!radar.length ? `<details class="su-how"><summary>How to add the radar alerts</summary><ol class="steps"><li>Tap <b>Copy script</b> (your secret is inside), open TradingView on a computer.</li><li>Pine Editor → select all, delete, paste → <b>Save</b> → <b>Add to chart</b> on a <b>5-minute</b> chart of <code>MNQ1!</code>.</li><li>Alert (⏰) → Condition: <b>Edge radar</b> → <b>Any alert() function call</b> → Notifications → <b>Webhook URL</b>: <code>${esc(location.origin)}/api/hook</code> → Create.</li><li>Switch the chart to <code>MES1! MYM1! MGC1! SIL1! MCL1! MHG1! MNG1!</code> and create the same alert on each — 8 in all.</li></ol></details>` : ""}
+      ${!radar.length ? `<details class="su-how"><summary>How to add the scanner alerts</summary><ol class="steps"><li>Tap <b>Copy script</b> (your secret is inside), open TradingView on a computer.</li><li>Pine Editor → select all, delete, paste → <b>Save</b> → <b>Add to chart</b> on a <b>5-minute</b> chart of <code>MGC1!</code>.</li><li>Alert (⏰) → Condition: <b>Edge S&amp;D</b> → <b>Any alert() function call</b> → Notifications → <b>Webhook URL</b>: <code>${esc(location.origin)}/api/hook</code> → Create.</li><li>Switch the chart to each of <code>${SD_TV.slice(1).join(" ")}</code> and create the same alert — 15 in all.</li></ol></details>` : ""}
     </section>`;
   }
 
@@ -544,7 +564,7 @@
         <p>You're in ${n} trade${n > 1 ? "s" : ""}. Your prop firm closes you if you don't.</p>
         <button class="btn danger closeall" data-closeall style="margin-top:8px">⛔ Close everything</button></div>` : "";
     const pend = S.open.filter((t) => t.pending).map(confirmCard).join("");
-    const setups = live.length ? `<section class="card" data-tour="setups"><div class="card-head"><h2>📣 Edge found a setup</h2><span class="muted">confirm to send it</span></div><div class="setup-list">${live.map((x) => (x.strategy === "playbook" ? radarCard(x) : setupCard(x))).join("")}</div></section>` : "";
+    const setups = live.length ? `<section class="card" data-tour="setups"><div class="card-head"><h2>📣 Edge found a setup</h2><span class="muted">confirm to send it</span></div><div class="setup-list">${live.map((x) => (x.strategy === "sd" ? sdCard(x) : x.strategy === "playbook" ? radarCard(x) : setupCard(x))).join("")}</div></section>` : "";
     if (S.prop && S.prop.cfg && S.prop.cfg.enabled && !CO.ex) loadExamples(); // your practice results feed the pass odds
     const openCard = n ? `<section class="card" data-tour="open"><div class="card-head"><h2>Open trades</h2><button class="btn small closeall" data-closeall>Close everything</button></div>${S.open.map(tradeCard).join("")}</section>` : "";
     const nextNews = S.news.events.filter((e) => e.block && e.time > S.now - s.newsAfterMin * 60e3).slice(0, 3);
@@ -1074,7 +1094,10 @@
       </section>`;
     const tvCard = `<section class="card"><h2>TradingView setup</h2>
         <p class="muted" style="margin-top:0">TradingView doesn't let apps install scripts, so it's one copy-paste per script. Your secret is already inside.</p>
-        <div class="stat radar-pine"><small>⭐ Your playbook radar — all 8 markets</small><b style="font-size:14px">5-minute chart, one per market: <code>MNQ1!</code> · <code>MES1!</code> · <code>MYM1!</code> · <code>MGC1!</code> · <code>SIL1!</code> · <code>MCL1!</code> · <code>MHG1!</code> · <code>MNG1!</code></b>
+        <div class="stat radar-pine"><small>⭐ Supply &amp; demand scanner — 1H zones, 5m confirmation, all 15 markets</small><b style="font-size:14px">5-minute chart, one per market: ${SD_TV.map((t) => `<code>${t}</code>`).join(" · ")}</b>
+          <p class="muted" style="margin:6px 0">Draws the live 1H demand / supply zone, waits for price to come back into it and the 5m to close past its last swing, then sends Edge the limit (fair value gap or breaker), stop 2 ticks past the low / high and the nearest 5m swing target (1.5R–6R). Orders only 02:00–11:30 New York. Needs a paid TradingView plan: one alert per market, 15 in all.</p>
+          <button class="btn small primary" data-copypine="edge_sd_scanner">Copy S&amp;D scanner</button></div>
+        <div class="stat" style="margin-top:10px"><small>Your playbook radar — 8 markets (older)</small><b style="font-size:14px">5-minute chart, one per market: <code>MNQ1!</code> · <code>MES1!</code> · <code>MYM1!</code> · <code>MGC1!</code> · <code>SIL1!</code> · <code>MCL1!</code> · <code>MHG1!</code> · <code>MNG1!</code></b>
           <p class="muted" style="margin:6px 0">Watches the daily / 4H trend, fresh 15m zones and the 5m change of character on TradingView's servers — your phone buzzes with the limit, stop and target even when Edge and your chart are closed. Every 5 minutes it also tells Edge where price is, so Edge trails your stop behind new 15m swings. Needs a paid TradingView plan (webhooks): one alert per market.</p>
           <button class="btn small primary" data-copypine="edge_playbook_radar">Copy radar script</button></div>
         <div class="stat" style="margin-top:10px"><small>📈 Trend 4H · 15m — any market, any chart</small><b style="font-size:14px">A small panel in the corner: 4H ▲/▼, 15m ▲/▼, and "Buys only", "Sells only" or "Wait"</b>

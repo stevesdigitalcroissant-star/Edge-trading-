@@ -4,7 +4,7 @@
 (() => {
   const $ = (s, el = document) => el.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const MKTS = [["nq", "NQ", "MNQ1!", "CME_MINI"], ["es", "ES", "MES1!", "CME_MINI"], ["ym", "YM", "MYM1!", "CBOT_MINI"], ["gold", "Gold", "MGC1!", "COMEX"], ["silver", "Silver", "SIL1!", "COMEX"], ["crude", "Crude", "MCL1!", "NYMEX"], ["copper", "Copper", "MHG1!", "COMEX"], ["natgas", "Gas", "MNG1!", "NYMEX"]];
+  const MKTS = [["nq", "NQ", "MNQ1!", "CME_MINI"], ["es", "ES", "MES1!", "CME_MINI"], ["ym", "YM", "MYM1!", "CBOT_MINI"], ["gold", "Gold", "MGC1!", "COMEX"], ["silver", "Silver", "SIL1!", "COMEX"], ["crude", "Crude", "MCL1!", "NYMEX"], ["copper", "Copper", "MHG1!", "COMEX"], ["natgas", "Gas", "MNG1!", "NYMEX"], ["rty", "Russell", "M2K1!", "CME_MINI"], ["6e", "Euro", "6E1!", "CME"], ["6b", "Pound", "6B1!", "CME"], ["6j", "Yen", "6J1!", "CME"], ["6a", "Aussie", "6A1!", "CME"], ["zn", "10Y", "ZN1!", "CBOT"], ["zb", "30Y", "ZB1!", "CBOT"]];
   const TFS = [[5, "5m"], [15, "15m"], [60, "1H"], [240, "4H"]];
   // TradingView charts: the futures contract, or a CFD that follows it (embedded charts may not show CME futures)
   const TV_INT = [["15", "15m"], ["60", "1H"], ["240", "4H"], ["D", "D"]];
@@ -109,7 +109,8 @@
     for (const o of (S.orders || []).filter((o) => o.market === m)) L.push([o.entry, "#6aa8ff", `Limit ${o.dir === "long" ? "buy" : "sell"}`, 2], [o.sl, "#ef5350", "Stop", 2], [o.tp, "#26a69a", "Target", 2]);
     for (const x of (S.setups || []).filter((x) => x.market === m && x.status === "open" && !(x.expires && S.now > x.expires))) {
       const g = x.g && x.g.grade ? x.g.grade : "";
-      L.push([x.entry, "#d9b46c", `${g} setup ${x.dir === "long" ? "buy" : "sell"}`, 2], [x.sl, "#ef5350", "Setup stop", 3], [x.tp, "#26a69a", "Setup target", 3]);
+      L.push([x.entry, "#d9b46c", `${x.strategy === "sd" ? "S&D" : g} setup ${x.dir === "long" ? "buy" : "sell"}`, 2], [x.sl, "#ef5350", "Setup stop", 3], [x.tp, "#26a69a", "Setup target", 3]);
+      if (x.strategy === "sd") L.push([x.zoneTop, "#5aa9e6", `1H ${x.dir === "long" ? "demand" : "supply"} top`, 1], [x.zoneBot, "#5aa9e6", `1H ${x.dir === "long" ? "demand" : "supply"} bottom`, 1]);
     }
     return L.filter((l) => l[0] != null && Number.isFinite(Number(l[0])));
   }
@@ -129,8 +130,8 @@
     if (!H.series) return;
     const data = agg(raw, H.tf);
     H.series.setData(data); H.times = data.map((d) => d.time);
-    const tick = { gold: 0.1, silver: 0.005, crude: 0.01, natgas: 0.001, es: 0.25, nq: 0.25, ym: 1, copper: 0.0005 }[H.m] || 0.01;
-    H.prec = (String(tick).split(".")[1] || "").length; // .25 → 2, .0005 → 4
+    const tick = { gold: 0.1, silver: 0.005, crude: 0.01, natgas: 0.001, es: 0.25, nq: 0.25, ym: 1, copper: 0.0005, rty: 0.1, "6e": 0.00005, "6b": 0.0001, "6j": 0.0000005, "6a": 0.00005, zn: 0.015625, zb: 0.03125 }[H.m] || 0.01;
+    H.prec = (tick.toFixed(10).replace(/0+$/, "").split(".")[1] || "").length; // .25 → 2, .0005 → 4, 5e-7 → 7
     H.series.applyOptions({ priceFormat: { type: "price", minMove: tick, precision: H.prec } });
     for (const pl of H.lines) H.series.removePriceLine(pl);
     H.lines = marks(S).map(([price, color, title, style]) => H.series.createPriceLine({ price: Number(price), color, lineWidth: style === 0 ? 2 : 1, lineStyle: style, axisLabelVisible: true, title }));

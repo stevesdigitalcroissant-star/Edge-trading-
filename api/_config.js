@@ -59,6 +59,14 @@ const MARKETS = {
     match: /^M?HG(\d|[FGHJKMNQUVXZ]\d|1!|2!)|COPPER|XCU/i,
     instrument: () => "XCU_USD",
   },
+  // the supply & demand scanner's other busy futures (futures only — no CFD instrument)
+  rty: { name: "Russell 2000", unit: "points", lot: 50, match: /^(M2K|RTY)(\d|[FGHJKMNQUVXZ]\d|1!|2!)|US2000|RUT/i, instrument: () => "US2000_USD" },
+  "6e": { name: "Euro", unit: "EUR", lot: 125000, match: /^M?6E(\d|[FGHJKMNQUVXZ]\d|1!|2!)|^EURUSD/i, instrument: () => "EUR_USD" },
+  "6b": { name: "British pound", unit: "GBP", lot: 62500, match: /^M?6B(\d|[FGHJKMNQUVXZ]\d|1!|2!)|^GBPUSD/i, instrument: () => "GBP_USD" },
+  "6j": { name: "Japanese yen", unit: "JPY", lot: 12500000, match: /^(6J|MJY)(\d|[FGHJKMNQUVXZ]\d|1!|2!)/i, instrument: () => "USD_JPY" },
+  "6a": { name: "Australian dollar", unit: "AUD", lot: 100000, match: /^M?6A(\d|[FGHJKMNQUVXZ]\d|1!|2!)|^AUDUSD/i, instrument: () => "AUD_USD" },
+  zn: { name: "10-year note", unit: "points", lot: 1000, match: /^ZN(\d|[FGHJKMNQUVXZ]\d|1!|2!)/i, instrument: () => "USB10Y_USD" },
+  zb: { name: "30-year bond", unit: "points", lot: 1000, match: /^ZB(\d|[FGHJKMNQUVXZ]\d|1!|2!)/i, instrument: () => "USB30Y_USD" },
 };
 
 // Futures contracts you can trade from TradingView (Tradovate, prop firms).
@@ -81,6 +89,18 @@ const FUTURES = [
   { root: "MHG", market: "copper", name: "Micro Copper", pv: 2500, tick: 0.0005 },
   { root: "HG", market: "copper", name: "Copper", pv: 25000, tick: 0.0005 },
   { root: "ES", market: "es", name: "E-mini S&P 500", pv: 50, tick: 0.25 },
+  { root: "M2K", market: "rty", name: "Micro E-mini Russell 2000", pv: 5, tick: 0.1 },
+  { root: "RTY", market: "rty", name: "E-mini Russell 2000", pv: 50, tick: 0.1 },
+  { root: "M6E", market: "6e", name: "Micro EUR/USD", pv: 12500, tick: 0.0001 },
+  { root: "6E", market: "6e", name: "Euro FX", pv: 125000, tick: 0.00005 },
+  { root: "M6B", market: "6b", name: "Micro GBP/USD", pv: 6250, tick: 0.0001 },
+  { root: "6B", market: "6b", name: "British Pound", pv: 62500, tick: 0.0001 },
+  { root: "MJY", market: "6j", name: "Micro JPY/USD", pv: 1250000, tick: 0.000001 },
+  { root: "6J", market: "6j", name: "Japanese Yen", pv: 12500000, tick: 0.0000005 },
+  { root: "M6A", market: "6a", name: "Micro AUD/USD", pv: 10000, tick: 0.0001 },
+  { root: "6A", market: "6a", name: "Australian Dollar", pv: 100000, tick: 0.00005 },
+  { root: "ZN", market: "zn", name: "10-Year T-Note", pv: 1000, tick: 0.015625 },
+  { root: "ZB", market: "zb", name: "30-Year T-Bond", pv: 1000, tick: 0.03125 },
 ];
 // "NYMEX:MCL1!", "MCLX2026", "COMEX_MINI:MGC1!" → the contract spec (null for CFDs like XAUUSD)
 function futuresSpec(symbol) {
@@ -92,7 +112,7 @@ function futuresSpec(symbol) {
 // so "NATGASUSD" never falls through to another pattern, silver before gold and crude.
 function marketOf(symbol) {
   const s = String(symbol || "").replace(/^[A-Z_]+:/i, "");
-  for (const id of ["natgas", "silver", "gold", "crude", "copper", "es", "nq", "ym"]) if (MARKETS[id].match.test(s)) return id;
+  for (const id of ["natgas", "silver", "gold", "crude", "copper", "es", "nq", "ym", "rty", "6e", "6b", "6j", "6a", "zn", "zb"]) if (MARKETS[id].match.test(s)) return id;
   return null;
 }
 
@@ -156,8 +176,9 @@ const DEFAULT_SETTINGS = {
     nq: ["09:30", "15:30"],
     ym: ["09:30", "15:30"],
     copper: ["02:00", "12:00"],
+    rty: ["09:30", "15:30"], "6e": ["02:00", "12:00"], "6b": ["02:00", "12:00"], "6j": ["02:00", "12:00"], "6a": ["02:00", "12:00"], zn: ["08:00", "14:30"], zb: ["08:00", "14:30"],
   },
-  lots: { gold: 100, crude: 1000, natgas: 10000, silver: 5000, es: 50, nq: 20, ym: 5, copper: 25000 },
+  lots: { gold: 100, crude: 1000, natgas: 10000, silver: 5000, es: 50, nq: 20, ym: 5, copper: 25000, rty: 50, "6e": 125000, "6b": 62500, "6j": 12500000, "6a": 100000, zn: 1000, zb: 1000 },
   flatBy: "16:40", // be out of every trade by this time (your prop firm's close-out, New York time)
   flatWarnMin: 15, // warn this many minutes before
   noNewTradesMin: 30, // no new trades this close to the close-out

@@ -85,3 +85,24 @@ test("a trade that comes back after break-even closes flat, not as a loss", asyn
   assert.match(st.journal[0].exitReason, /break-even/);
   assert.equal(st.stats.unplanned.n, 1);
 });
+
+test("S&D scanner alert (1H zone · 5m shift) → graded, taken as a limit", async () => {
+  const store = memory();
+  const now = NY(9, 35);
+  const alert = { secret: "s3cret", type: "setup", strategy: "sd", symbol: "M6E1!", tv: "CME:M6E1!", dir: "long", entry: 1.0852, sl: 1.0840, tp: 1.0876, rr: 2, kind: "FVG", zoneTop: 1.0850, zoneBot: 1.0838, mss: 1.0849, validMin: 240 };
+  const r = await core.handleHook(store, broker, JSON.stringify(alert), now);
+  assert.equal(r.json.grade, "S&D");
+  assert.equal(r.json.takeable, true);
+  const st = await core.state(store, broker, now);
+  const x = st.setups[0];
+  assert.equal(x.market, "6e");
+  assert.equal(x.strategy, "sd");
+  assert.equal(x.expires, now + 240 * 60e3);
+  const out = await core.action(store, broker, { action: "take", setupId: x.id, emotion: "calm", riskUSD: 425 }, now);
+  assert.equal(out.order.trade.strategy, "sd");
+  assert.equal(out.order.trade.lockR, null);
+  assert.equal(out.order.trade.contract, "M6E");
+  // outside 02:00–11:30 New York it is graded C and not takeable
+  const late = await core.handleHook(store, broker, JSON.stringify(alert), NY(13));
+  assert.equal(late.json.takeable, false);
+});
