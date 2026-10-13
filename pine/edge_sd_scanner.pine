@@ -57,6 +57,10 @@ sdState() =>
     var int zId = 0
     var float zExt = na
     var int zT = na
+    var int z2Dir = 0 // the zone before it, kept while it points the same way and isn't broken
+    var float z2Top = na
+    var float z2Bot = na
+    var int z2T = na
     var float bLvl = na
     var int bT0 = na
     var int bT1 = na
@@ -79,6 +83,10 @@ sdState() =>
         zDir := 0
     if zDir == -1 and close > zTop
         zDir := 0
+    if z2Dir == 1 and close < z2Bot
+        z2Dir := 0
+    if z2Dir == -1 and close > z2Top
+        z2Dir := 0
     for d in array.from(1, -1)
         bool hit = d == 1 ? (not brokeH and not na(lastH) and close > lastH) : (not brokeL and not na(lastL) and close < lastL)
         if hit
@@ -122,6 +130,14 @@ sdState() =>
                 far := d == 1 ? math.min(far, low[k]) : math.max(far, high[k])
             float zt = d == 1 ? near : far
             float zb = d == 1 ? far : near
+            // the current zone becomes the older one if it points the same way; a break the other way clears it
+            if zDir == d
+                z2Dir := d
+                z2Top := zTop
+                z2Bot := zBot
+                z2T := zT
+            else if z2Dir != d
+                z2Dir := 0
             if zt - zb > 0 and zt - zb <= 3 * atr
                 zDir := d
                 zTop := zt
@@ -134,7 +150,8 @@ sdState() =>
     if zDir != 0
         zExt := zDir == 1 ? math.max(zExt, high) : math.min(zExt, low)
     int ok = zDir != 0 and cnt >= 2 ? zDir : 0
-    [ok[1], zTop[1], zBot[1], zId[1], zT[1], bLvl[1], bT0[1], bT1[1], bDir[1], bCh[1], bId[1], prevDir[1], cnt[1]]
+    int ok2 = z2Dir != 0 and cnt >= 2 and z2Dir == prevDir ? z2Dir : 0
+    [ok[1], zTop[1], zBot[1], zId[1], zT[1], bLvl[1], bT0[1], bT1[1], bDir[1], bCh[1], bId[1], prevDir[1], cnt[1], ok2[1], z2Top[1], z2Bot[1], z2T[1]]
 
 // 4H trend: the direction of the last 4H close past a 4H swing
 trendState() =>
@@ -155,7 +172,7 @@ trendState() =>
         l := na
     dir[1]
 
-[hDir, hTop, hBot, hId, hZT, bLvl, bT0, bT1, bDir, bCh, bId, hTrend, hCnt] = request.security(syminfo.tickerid, htf, sdState(), lookahead = barmerge.lookahead_on)
+[hDir, hTop, hBot, hId, hZT, bLvl, bT0, bT1, bDir, bCh, bId, hTrend, hCnt, h2Dir, h2Top, h2Bot, h2T] = request.security(syminfo.tickerid, htf, sdState(), lookahead = barmerge.lookahead_on)
 t4 = request.security(syminfo.tickerid, "240", trendState(), lookahead = barmerge.lookahead_on)
 htfName = htf == "60" ? "1H" : htf == "240" ? "4H" : htf + "m"
 
@@ -197,11 +214,20 @@ tick = syminfo.mintick
 
 var box zBox = na
 var label zLab = na
+var box z2Box = na
+var label z2Lab = na
 barMs = timeframe.in_seconds() * 1000
 rightX = time + 6 * barMs // labels live in the empty space right of the last candle, never on the candles
 if showZone and barstate.islast
     box.delete(zBox)
     label.delete(zLab)
+    box.delete(z2Box)
+    label.delete(z2Lab)
+    // the older zone with the trend, only while the trend holds and it isn't broken
+    if h2Dir != 0 and h2Dir == hTrend
+        string z2Name = htfName + (h2Dir == 1 ? " DEMAND zone " : " SUPPLY zone ") + str.tostring(h2Bot, format.mintick) + "–" + str.tostring(h2Top, format.mintick) + " (older)"
+        z2Box := box.new(nz(h2T, time - 300 * 300000), h2Top, time, h2Bot, xloc = xloc.bar_time, extend = extend.right, border_color = h2Dir == 1 ? color.new(#5aa9e6, 50) : color.new(#f08a4b, 50), bgcolor = h2Dir == 1 ? color.new(#5aa9e6, 92) : color.new(#f08a4b, 92))
+        z2Lab := label.new(rightX, h2Dir == 1 ? h2Top : h2Bot, z2Name, xloc = xloc.bar_time, style = label.style_label_left, color = h2Dir == 1 ? color.new(#5aa9e6, 40) : color.new(#f08a4b, 40), textcolor = color.white, size = size.small)
     if hDir != 0
         string zName = htfName + (hDir == 1 ? " DEMAND zone " : " SUPPLY zone ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick)
         zBox := box.new(nz(hZT, time - 150 * 300000), hTop, time, hBot, xloc = xloc.bar_time, extend = extend.right, border_color = hDir == 1 ? color.new(#5aa9e6, 30) : color.new(#f08a4b, 30), bgcolor = hDir == 1 ? color.new(#5aa9e6, 85) : color.new(#f08a4b, 85))
