@@ -185,7 +185,7 @@
   // supply & demand scanner trades: as many contracts as fit under the band's max; flag it under the min
   const PV = { gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500, rty: 5, "6e": 12500, "6b": 6250, "6j": 1250000, "6a": 10000, zn: 1000, zb: 1000 };
   function sdSize(x) {
-    const st = S.settings, lo = st.sdRiskMin || 190, a = S.prop && S.prop.auto, hi = Math.min(st.sdRiskMax || 200, a && a.usd > 0 ? a.usd : Infinity);
+    const st = S.settings, lo = st.sdRiskMin || 190, a = S.prop && S.prop.auto, hi = Math.min(st.sdRiskMax || 210, a && a.usd > 0 ? a.usd : Infinity);
     const c = (CONTRACTS[x.market] || [["", PV[x.market] || 1]])[0], per = Math.abs(x.entry - x.sl) * c[1];
     const qty = per > 0 ? Math.floor(hi / per + 1e-9) : 0, risk = Math.round(qty * per);
     return { contract: c[0], qty, risk, per: Math.round(per), lo, hi, under: qty > 0 && risk < lo };
@@ -492,7 +492,7 @@
     const g = x.g, live = x.status === "open" && !(x.expires && S.now > x.expires);
     const z = sdSize(x);
     const kind = { FVG: "fair value gap", breaker: "breaker block", mitigation: "mitigation block" }[x.kind] || x.kind || "";
-    const chips = [[`1H ${x.dir === "long" ? "demand" : "supply"} ${fx(x.zoneBot)}–${fx(x.zoneTop)}`, true], ["5m shift" + (x.mss != null ? ` past ${fx(x.mss)}` : ""), true], [`Entry: ${kind}`, true], [`Target ${Number(x.rr || 0).toFixed(1)}R`, true], x.liq == null ? ["No 5m swing in the way", true] : x.liqR >= x.rr - 0.05 ? [`Nearest 5m swing ${fx(x.liq)} (${Number(x.liqR).toFixed(1)}R) — room for the target`, true] : [`5m swing ${fx(x.liq)} at ${Number(x.liqR).toFixed(1)}R before the target — your call`, false]];
+    const chips = [[`1H ${x.dir === "long" ? "demand" : "supply"} ${fx(x.zoneBot)}–${fx(x.zoneTop)}`, true], ["5m CHoCH" + (x.mss != null ? ` past ${fx(x.mss)}` : ""), true], ...(x.trend4h ? [[x.trend4h === (x.dir === "short" ? -1 : 1) ? "4H trend with you" : "4H trend against you — your call", x.trend4h === (x.dir === "short" ? -1 : 1)]] : []), [`Entry: ${kind}`, true], [`Target ${Number(x.rr || 0).toFixed(1)}R`, true], x.liq == null ? ["No 5m swing in the way", true] : x.liqR >= x.rr - 0.05 ? [`Nearest 5m swing ${fx(x.liq)} (${Number(x.liqR).toFixed(1)}R) — room for the target`, true] : [`5m swing ${fx(x.liq)} at ${Number(x.liqR).toFixed(1)}R before the target — your call`, false]];
     return `<div class="card radar ${live ? "" : "dim"}" data-tour="setup">
       <div class="row between"><div class="row"><div class="grade A">S&amp;D</div>
         <div><h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY limit" : "▼ SELL limit"}</h3><span class="muted">${time(x.at)} · ${esc(x.tv || x.symbol || "")}</span></div></div>

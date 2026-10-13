@@ -17,8 +17,9 @@
 //                    is sent too (and drawn) — you decide if there is room.
 //   Orders only 02:00–11:30 New York. Edge keeps the setup 4 hours and closes everything by 14:20.
 //
-// On the chart: the live 1H zone (blue = demand, orange = supply) and, for each setup, the
-// long / short box with entry, stop and target.
+// On the chart: the live 1H zone (blue = demand, orange = supply, named with its timeframe), every 1H
+// break labelled "BOS 1H" or "CHoCH 1H", the 5m "CHoCH 5m" that triggers a setup, the long / short box
+// with entry, stop and target, and a panel top right: 4H trend, 1H trend, the zone, what Edge waits for.
 //
 // For the Edge app, create ONE alert on this chart:
 //   Condition: this script → "Any alert() function call"
@@ -34,6 +35,8 @@ tpR = input.float(3, "Target (R)", step = 0.5, group = "Rules")
 fromH = input.int(2, "Orders from (New York hour)", group = "Rules")
 toHM = input.int(1130, "Orders until (New York, HHMM)", group = "Rules")
 showZone = input.bool(true, "Draw the 1H zone", group = "Chart")
+showBos = input.bool(true, "Label 1H BOS / CHoCH", group = "Chart")
+showPanel = input.bool(true, "Trend panel (top right)", group = "Chart")
 
 // ---------- the 1H side: trend (two BOS the same way) and the zone of the latest BOS
 sdState() =>
@@ -50,6 +53,13 @@ sdState() =>
     var float zBot = na
     var int zId = 0
     var float zExt = na
+    var int zT = na
+    var float bLvl = na
+    var int bT0 = na
+    var int bT1 = na
+    var int bDir = 0
+    var bool bCh = false
+    var int bId = 0
     atr = ta.atr(14)
     ph = ta.pivothigh(high, 2, 2)
     pl = ta.pivotlow(low, 2, 2)
@@ -74,6 +84,13 @@ sdState() =>
                 brokeH := true
             else
                 brokeL := true
+            // the break itself, for the chart: BOS = same way as the last one, CHoCH = the first one the other way
+            bLvl := d == 1 ? lastH : lastL
+            bT0 := time[bar_index - sw]
+            bT1 := time
+            bDir := d
+            bCh := prevDir != 0 and d != prevDir
+            bId += 1
             cnt := d == prevDir ? cnt + 1 : 1
             prevDir := d
             int span = math.min(bar_index - sw, 400)
@@ -107,15 +124,37 @@ sdState() =>
                 zTop := zt
                 zBot := zb
                 zId += 1
+                zT := time[oldest]
                 zExt := d == 1 ? high : low
             else
                 zDir := 0
     if zDir != 0
         zExt := zDir == 1 ? math.max(zExt, high) : math.min(zExt, low)
     int ok = zDir != 0 and cnt >= 2 ? zDir : 0
-    [ok[1], zTop[1], zBot[1], zId[1]]
+    [ok[1], zTop[1], zBot[1], zId[1], zT[1], bLvl[1], bT0[1], bT1[1], bDir[1], bCh[1], bId[1], prevDir[1], cnt[1]]
 
-[hDir, hTop, hBot, hId] = request.security(syminfo.tickerid, htf, sdState(), lookahead = barmerge.lookahead_on)
+// 4H trend: the direction of the last 4H close past a 4H swing
+trendState() =>
+    var float h = na
+    var float l = na
+    var int dir = 0
+    ph = ta.pivothigh(high, 2, 2)
+    pl = ta.pivotlow(low, 2, 2)
+    if not na(ph)
+        h := ph
+    if not na(pl)
+        l := pl
+    if not na(h) and close > h
+        dir := 1
+        h := na
+    if not na(l) and close < l
+        dir := -1
+        l := na
+    dir[1]
+
+[hDir, hTop, hBot, hId, hZT, bLvl, bT0, bT1, bDir, bCh, bId, hTrend, hCnt] = request.security(syminfo.tickerid, htf, sdState(), lookahead = barmerge.lookahead_on)
+t4 = request.security(syminfo.tickerid, "240", trendState(), lookahead = barmerge.lookahead_on)
+htfName = htf == "60" ? "1H" : htf == "240" ? "4H" : htf + "m"
 
 // ---------- the 5m side
 var int usedId = -1
@@ -151,7 +190,16 @@ var box zBox = na
 if showZone and barstate.islast
     box.delete(zBox)
     if hDir != 0
-        zBox := box.new(bar_index - 150, hTop, bar_index + 20, hBot, border_color = hDir == 1 ? color.new(#5aa9e6, 30) : color.new(#f08a4b, 30), bgcolor = hDir == 1 ? color.new(#5aa9e6, 85) : color.new(#f08a4b, 85), text = "1H " + (hDir == 1 ? "demand" : "supply"), text_color = hDir == 1 ? #5aa9e6 : #f08a4b, text_size = size.small, text_halign = text.align_left, text_valign = text.align_top)
+        string zName = htfName + (hDir == 1 ? " DEMAND zone " : " SUPPLY zone ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick)
+        zBox := box.new(nz(hZT, time - 150 * 300000), hTop, time, hBot, xloc = xloc.bar_time, extend = extend.right, border_color = hDir == 1 ? color.new(#5aa9e6, 30) : color.new(#f08a4b, 30), bgcolor = hDir == 1 ? color.new(#5aa9e6, 85) : color.new(#f08a4b, 85), text = zName, text_color = hDir == 1 ? #5aa9e6 : #f08a4b, text_size = size.small, text_halign = text.align_left, text_valign = text.align_top)
+
+// every 1H break: a line at the broken swing, "BOS 1H" or "CHoCH 1H"
+var int lastBId = 0
+if showBos and bId != lastBId and not na(bLvl) and not na(bT0)
+    lastBId := bId
+    color bc = bCh ? color.new(#f0c94b, 0) : (bDir == 1 ? color.new(#5aa9e6, 0) : color.new(#f08a4b, 0))
+    line.new(bT0, bLvl, bT1, bLvl, xloc = xloc.bar_time, color = bc, width = 1)
+    label.new(bT1, bLvl, (bCh ? "CHoCH " : "BOS ") + htfName, xloc = xloc.bar_time, style = bDir == 1 ? label.style_label_down : label.style_label_up, color = color.new(#000000, 100), textcolor = bc, size = size.small)
 
 if barstate.isconfirmed and hDir != 0 and hId != usedId
     d = hDir
@@ -233,8 +281,28 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     box.new(bar_index, d == 1 ? e : sl, bar_index + 48, d == 1 ? sl : e, border_color = color.new(#f87171, 20), bgcolor = color.new(#f87171, 85))
                     label.new(bar_index, e, (d == 1 ? "BUY " : "SELL ") + kind + " " + str.tostring(e, format.mintick) + "\nSL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R)" + (na(liq) ? "" : "\n5m swing " + str.tostring(liq, format.mintick) + " (" + str.tostring(math.abs(liq - e) / r, "#.#") + "R)"), style = label.style_label_left, color = color.new(#111923, 0), textcolor = color.white, size = size.small)
                     line.new(swI, swV, bar_index, swV, color = color.white, style = line.style_dashed)
+                    label.new(bar_index, swV, "CHoCH 5m", style = d == 1 ? label.style_label_up : label.style_label_down, color = color.new(#000000, 100), textcolor = color.white, size = size.small)
                     if not na(liq)
                         line.new(bar_index, liq, bar_index + 48, liq, color = color.new(#f0c94b, 0), style = line.style_dotted, width = 2)
                     string liqJ = na(liq) ? "null" : str.tostring(liq)
                     string liqRJ = na(liq) ? "null" : str.tostring(math.abs(liq - e) / r, "#.##")
-                    alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + side + '","entry":' + str.tostring(e) + ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) + ',"rr":' + str.tostring(rr, "#.##") + ',"kind":"' + kind + '","zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(swV) + ',"liq":' + liqJ + ',"liqR":' + liqRJ + ',"validMin":240}', alert.freq_once_per_bar_close)
+                    alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + side + '","entry":' + str.tostring(e) + ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) + ',"rr":' + str.tostring(rr, "#.##") + ',"kind":"' + kind + '","zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(swV) + ',"liq":' + liqJ + ',"liqR":' + liqRJ + ',"trend4h":' + str.tostring(t4) + ',"validMin":240}', alert.freq_once_per_bar_close)
+
+// ---------- the panel, top right: 4H trend, 1H trend, the zone and what Edge is waiting for
+tc(v) => v == 1 ? color.new(#4ade80, 0) : v == -1 ? color.new(#f87171, 0) : color.gray
+tt(v) => v == 1 ? "▲ Bullish" : v == -1 ? "▼ Bearish" : "— none yet"
+var table panel = table.new(position.top_right, 2, 5, bgcolor = color.new(#111923, 10), border_width = 0, frame_color = color.new(#334155, 0), frame_width = 1)
+if showPanel and barstate.islast
+    string zTxt = hDir == 0 ? "no valid zone" : (hDir == 1 ? "Demand " : "Supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick)
+    string st = hDir == 0 ? (hCnt < 2 ? "Wait: 1H needs a 2nd BOS" : "Wait: no fresh 1H zone") : hId == usedId ? "Zone used — wait for the next" : armId == hId ? "IN ZONE — waiting for 5m CHoCH" : "Wait: price not in the zone yet"
+    string wTxt = hDir == 0 or t4 == 0 ? "" : hDir == t4 ? "  (with 4H)" : "  (against 4H)"
+    table.cell(panel, 0, 0, "4H trend", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 1, 0, tt(t4), text_color = tc(t4), text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 0, 1, htfName + " trend", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 1, 1, tt(hTrend) + (hCnt >= 2 ? " · " + str.tostring(hCnt) + " BOS" : " · 1 break"), text_color = tc(hTrend), text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 0, 2, htfName + " zone", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 1, 2, zTxt + wTxt, text_color = hDir == 1 ? #5aa9e6 : hDir == -1 ? #f08a4b : color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 0, 3, "Edge", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 1, 3, st, text_color = armId == hId and hDir != 0 ? color.new(#f0c94b, 0) : color.white, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 0, 4, "Orders", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 1, 4, inWin ? "open (02:00–11:30 NY)" : "closed (02:00–11:30 NY)", text_color = inWin ? color.new(#4ade80, 0) : color.gray, text_size = size.small, text_halign = text.align_left)
