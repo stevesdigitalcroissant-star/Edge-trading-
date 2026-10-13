@@ -976,3 +976,19 @@ body.home-on main#view { padding-top: 14px; }
 .sim-trend .tr-v.buy { background: color-mix(in srgb, var(--good) 22%, var(--panel)); } .sim-trend .tr-v.sell { background: color-mix(in srgb, var(--bad) 22%, var(--panel)); }
 .sim-trend .tr-hint { background: color-mix(in srgb, var(--panel) 80%, transparent); padding: 2px 6px; border-radius: 6px; }
 @media (max-width: 600px) { .tr-table td:nth-child(1) .muted { display: none; } }
+
+/* ---------- TradingView pair on the home screen: line chart (zones) + candles (entries) */
+.hm-tvp { margin: 10px 12px 4px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px 10px; }
+.hm-tvbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.hm-tvbar b { margin-right: auto; font-size: 13px; }
+.hm-tvgrid { display: grid; gap: 10px; }
+.hm-tvgrid.row { grid-template-columns: 1fr 1fr; }
+.hm-tvgrid.col { grid-template-columns: 1fr; }
+.hm-tvc { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.hm-tvh { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 12px; border-bottom: 1px solid var(--line); }
+.hm-tvh .seg { margin-left: auto; }
+.hm-tvc iframe { width: 100%; height: 460px; border: 0; display: block; background: var(--panel); }
+.hm-tvgrid.col .hm-tvc iframe { height: 420px; }
+.hm-tvnote { font-size: 11.5px; margin: 8px 2px 0; }
+@media (max-width: 700px) { .hm-tvgrid.row { grid-template-columns: 1fr; } }
+.hm-tvp .seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: 10px; } .hm-tvp .seg button { padding: 4px 9px; font-size: 12px; border-radius: 8px; }
