@@ -184,11 +184,12 @@
   // with your prop account set up, the risk autopilot decides (it starts from your base risk and only ever makes you smaller)
   // supply & demand scanner trades: as many contracts as fit under the band's max; flag it under the min
   const PV = { gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500, rty: 5, "6e": 12500, "6b": 6250, "6j": 1250000, "6a": 10000, zn: 1000, zb: 1000 };
+  const sdQty = (per, aim, hi) => { const top = per > 0 ? Math.floor(hi / per + 1e-9) : 0; return top < 1 ? 0 : Math.min(Math.max(1, Math.round(aim / per)), top); };
   function sdSize(x) {
-    const st = S.settings, lo = st.sdRiskMin || 190, a = S.prop && S.prop.auto, hi = Math.min(st.sdRiskMax || 210, a && a.usd > 0 ? a.usd : Infinity);
+    const st = S.settings, lo = st.sdRiskMin || 160, a = S.prop && S.prop.auto, hi = Math.min(st.sdRiskMax || 210, a && a.usd > 0 ? a.usd : Infinity), aim = Math.min(st.sdRiskTarget || 190, hi);
     const c = (CONTRACTS[x.market] || [["", PV[x.market] || 1]])[0], per = Math.abs(x.entry - x.sl) * c[1];
-    const qty = per > 0 ? Math.floor(hi / per + 1e-9) : 0, risk = Math.round(qty * per);
-    return { contract: c[0], qty, risk, per: Math.round(per), lo, hi, under: qty > 0 && risk < lo };
+    const qty = sdQty(per, aim, hi), risk = Math.round(qty * per);
+    return { contract: c[0], qty, risk, per: Math.round(per), lo, hi, aim, under: qty > 0 && risk < lo };
   }
   const riskNow = () => { const a = S.prop && S.prop.auto; return a ? a.usd : riskMine(); };
   const qtyFor = (z, risk) => (z && z.kind === "futures" && z.riskPerContract > 0 ? Math.floor(risk / z.riskPerContract + 1e-9) : null);
@@ -498,7 +499,7 @@
         <div><h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY limit" : "▼ SELL limit"}</h3><span class="muted">${time(x.at)} · ${esc(x.tv || x.symbol || "")}</span></div></div>
         <span class="pill">${live ? `${Math.max(0, Math.round((x.expires - S.now) / 60e3))} min left` : esc(x.status === "open" ? "expired" : x.status)}</span></div>
       <div class="levels"><div><small>Limit</small><b>${fx(x.entry)}</b></div><div><small>Stop</small><b>${fx(x.sl)}</b></div><div><small>Target</small><b>${fx(x.tp)}</b></div><div><small>Size</small><b>${z.qty > 0 ? `${z.qty} ${esc(z.contract)}` : "too wide"}</b></div></div>
-      <div class="sc-list">${chips.concat([z.qty < 1 ? [`One ${z.contract} risks $${z.per} — over your $${z.hi}`, false] : z.under ? [`Risk $${z.risk} — under your $${z.lo}–$${z.hi} (stop too tight for one more)`, false] : [`Risk $${z.risk} (your $${z.lo}–$${z.hi})`, true]]).map(([t, ok]) => `<span class="${ok ? "ok" : "no"}">${ok ? "✓" : "!"} ${esc(t)}</span>`).join("")}</div>
+      <div class="sc-list">${chips.concat([z.qty < 1 ? [`One ${z.contract} risks $${z.per} — over your $${z.hi}`, false] : z.under ? [`Risk $${z.risk} — under your $${z.lo}–$${z.hi} (one more would go over $${z.hi})`, false] : [`Risk $${z.risk} (aim ~$${z.aim}, $${z.lo}–$${z.hi})`, true]]).map(([t, ok]) => `<span class="${ok ? "ok" : "no"}">${ok ? "✓" : "!"} ${esc(t)}</span>`).join("")}</div>
       ${live && !g.take.ok ? `<div class="blocks">${g.take.why.map((w) => `<div>⛔ ${esc(w)}</div>`).join("")}</div>` : ""}
       ${live ? `<p class="muted" style="margin:6px 0;font-size:12.5px">Look at it first: price came back into the 1H zone and the 5m closed past its last swing. ${sendsOrders() ? "Confirm and Edge sends the limit with its stop and target to Tradovate." : "Place the limit yourself; Edge tracks it."} The setup expires 4 hours after the alert. Risk ${usd(z.risk)}.</p>
         <div class="row"><button class="btn ${g.take.ok && z.qty > 0 ? "good" : ""}" data-take="${esc(x.id)}" ${g.take.ok && z.qty > 0 ? "" : "disabled"}>${g.take.ok ? (z.qty > 0 ? "Confirm the limit" : "Stop too wide for your risk") : "Not allowed"}</button><button class="btn" data-skip="${esc(x.id)}">Skip</button></div>` : ""}
@@ -905,7 +906,7 @@
     const k = x.dir === "short" ? -1 : 1, pv = (CONTRACTS[x.market] || [["", PV[x.market] || 1]])[0][1];
     const f = (key, label, v) => `<label class="f">${label}<input data-sd="${key}" inputmode="decimal" type="number" step="any" value="${v}"></label>`;
     body.innerHTML = `<h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY" : "▼ SELL"} limit</h3>
-      <p class="muted" style="margin-top:0">Change anything you want. Contracts follow your $${z.lo}–$${z.hi} risk until you set them yourself.</p>
+      <p class="muted" style="margin-top:0">Change anything you want. Contracts aim for about $${z.aim} risk ($${z.lo}–$${z.hi}) until you set them yourself.</p>
       <div class="grid2">${f("entry", "Limit", x.entry)}${f("sl", "Stop", x.sl)}${f("tp", "Target", x.tp)}${f("qty", `Contracts (${esc(z.contract)})`, z.qty)}</div>
       <div class="sc-list" id="sdLive" style="margin:10px 0"></div>
       <p>How do you feel <b>right now</b>?</p>
@@ -917,7 +918,7 @@
     const calc = () => {
       const e = val("entry"), sl = val("sl"), tp = val("tp"), per = Math.abs(e - sl) * pv;
       const okSide = k * (e - sl) > 0 && k * (tp - e) > 0;
-      if (!qtyMine && okSide && per > 0) inp("qty").value = Math.floor(z.hi / per + 1e-9);
+      if (!qtyMine && okSide && per > 0) inp("qty").value = sdQty(per, z.aim, z.hi);
       const q = Math.floor(val("qty")), risk = Math.round(q * per), rr = okSide ? Math.abs(tp - e) / Math.abs(e - sl) : 0;
       const chips = !okSide ? [[`For a ${x.dir === "long" ? "buy the stop goes below and the target above" : "sell the stop goes above and the target below"} the limit`, false]]
         : [[`Risk $${risk}`, risk >= z.lo && risk <= z.hi], [`${rr.toFixed(1)}R`, rr >= 1], [`+$${Math.round(q * Math.abs(tp - e) * pv)} at the target`, true]];
@@ -1169,7 +1170,7 @@
         <div class="grid2">${n("minR", "Never take less than (R)", "0.5")}${n("maxR", "Target at most (R)", "0.5")}
           ${n("lockAtR", "Lock in profit when the trade reaches (R)", "0.5")}${n("lockToR", "…by moving the stop to (R)", "0.5")}
           <label class="f">Risk per trade ($)<input id="riskUsd" type="number" step="10" value="${riskNow()}"></label>
-          ${n("sdRiskMin", "S&D scanner: risk at least ($)", "10")}${n("sdRiskMax", "S&D scanner: risk at most ($)", "10")}
+          ${n("sdRiskMin", "S&D scanner: risk at least ($)", "10")}${n("sdRiskTarget", "S&D scanner: aim for ($)", "10")}${n("sdRiskMax", "S&D scanner: risk at most ($)", "10")}
           ${n("maxTradesPerDay", "Max trades per day")}${n("maxDailyLossR", "Stop for the day after losing (R)", "0.5")}${n("cooldownMin", "Break after a loss (min)", "5")}</div>
         <div class="row" style="margin-top:12px"><button class="btn primary" data-saverules>Save</button></div></section>`;
     return `${stratCard}${notifCard}<section class="card"><h2>Connections</h2>

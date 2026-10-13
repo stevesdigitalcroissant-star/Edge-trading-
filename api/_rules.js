@@ -237,6 +237,15 @@ function sizeContracts(riskMoneyUSD, entry, sl, spec) {
 
 // What to put in the order ticket for a setup (manual / TradingView mode).
 // riskOverride: the dollars you typed on the setup card (else account size × risk %).
+// Supply & demand scanner: the number of contracts whose risk is closest to the target, never over the max.
+function sdQty(perContract, target, max) {
+  if (!(perContract > 0)) return 0;
+  const top = Math.floor(max / perContract + 1e-9);
+  if (top < 1) return 0;
+  const near = Math.max(1, Math.round(target / perContract));
+  return Math.min(near, top);
+}
+
 function orderSize(setup, s, entry = setup.entry, riskOverride = null) {
   const { futuresSpec } = require("./_config");
   const riskUSD = Number(riskOverride) > 0 ? Number(riskOverride) : s.accountSize * s.riskPct / 100;
@@ -304,4 +313,4 @@ function exitReason(t, exit, s) {
   return r > 0 ? "closed early (profit)" : "closed early (loss)";
 }
 
-module.exports = { exits, strategyChecks, closeOut, gradeSetup, guardrails, canTake, aPlusShare, sizeUnits, sizeContracts, orderSize, plan, rAt, evaluateTrade, exitReason, sign, round };
+module.exports = { sdQty, exits, strategyChecks, closeOut, gradeSetup, guardrails, canTake, aPlusShare, sizeUnits, sizeContracts, orderSize, plan, rAt, evaluateTrade, exitReason, sign, round };

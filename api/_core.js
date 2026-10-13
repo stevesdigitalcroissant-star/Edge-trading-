@@ -771,6 +771,10 @@ async function planTrade(store, broker, body, now) {
   const pn = await propNow(store, ctx, now);
   if (pn) { if (pn.auto.usd <= 0) throw new Error(pn.auto.why[0]); riskUSD = Math.min(riskUSD || pn.auto.usd, pn.auto.usd); }
   const size = R.orderSize({ symbol, sl }, s, entry, riskUSD);
+  if (sdMode && !(num(body.qty) > 0) && size.kind === "futures") { // as close to your target risk as the stop allows, never over the max
+    const cap = Math.min(s.sdRiskMax, pn ? pn.auto.usd : Infinity);
+    size.qty = R.sdQty(size.riskPerContract, Math.min(s.sdRiskTarget, cap), cap); size.totalRisk = R.round(size.qty * size.riskPerContract);
+  }
   if (sdMode && num(body.qty) > 0) { // you picked the number of contracts yourself
     size.qty = Math.floor(num(body.qty)); size.totalRisk = R.round(size.qty * size.riskPerContract);
     if (pn && size.totalRisk > pn.auto.usd + 0.5) throw new Error(`${size.qty} ${size.contract} risks $${size.totalRisk} — your prop account allows $${pn.auto.usd} right now.`);
@@ -840,7 +844,7 @@ async function action(store, broker, body, now = Date.now()) {
   if (a === "settings") {
     const cur = mergeSettings(await store.get("settings"));
     const p = body.patch || {};
-    const nums = ["sdRiskMin", "sdRiskMax", "minR", "maxR", "lockAtR", "lockToR", "riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR", "coachIdleSec", "coachTradeSec", "coachDailyChecks", "flatWarnMin", "noNewTradesMin"];
+    const nums = ["sdRiskMin", "sdRiskTarget", "sdRiskMax", "minR", "maxR", "lockAtR", "lockToR", "riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR", "coachIdleSec", "coachTradeSec", "coachDailyChecks", "flatWarnMin", "noNewTradesMin"];
     for (const k of nums) if (p[k] != null && Number.isFinite(Number(p[k]))) cur[k] = Number(p[k]);
     if (cur.riskPct > 3) throw new Error("Risk per trade above 3% isn't allowed here. That's the greed talking.");
     if (cur.beAtR < 0 || (cur.beAtR > 0 && cur.tpAtR <= cur.beAtR)) throw new Error("Take-profit must be beyond the break-even trigger (or set break-even to 0 = off).");
