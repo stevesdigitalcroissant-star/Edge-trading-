@@ -163,7 +163,6 @@ var box sTp = na
 var box sSl = na
 var label sLab = na
 var line sMss = na
-var label sMssT = na
 var line sLiq = na
 var int armId = -1
 var float ext = na
@@ -194,11 +193,16 @@ inWin = nyH >= fromH and hhmm < toHM
 tick = syminfo.mintick
 
 var box zBox = na
+var label zLab = na
+barMs = timeframe.in_seconds() * 1000
+rightX = time + 6 * barMs // labels live in the empty space right of the last candle, never on the candles
 if showZone and barstate.islast
     box.delete(zBox)
+    label.delete(zLab)
     if hDir != 0
         string zName = htfName + (hDir == 1 ? " DEMAND zone " : " SUPPLY zone ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick)
-        zBox := box.new(nz(hZT, time - 150 * 300000), hTop, time, hBot, xloc = xloc.bar_time, extend = extend.right, border_color = hDir == 1 ? color.new(#5aa9e6, 30) : color.new(#f08a4b, 30), bgcolor = hDir == 1 ? color.new(#5aa9e6, 85) : color.new(#f08a4b, 85), text = zName, text_color = hDir == 1 ? #5aa9e6 : #f08a4b, text_size = size.small, text_halign = text.align_left, text_valign = text.align_top)
+        zBox := box.new(nz(hZT, time - 150 * 300000), hTop, time, hBot, xloc = xloc.bar_time, extend = extend.right, border_color = hDir == 1 ? color.new(#5aa9e6, 30) : color.new(#f08a4b, 30), bgcolor = hDir == 1 ? color.new(#5aa9e6, 85) : color.new(#f08a4b, 85))
+        zLab := label.new(rightX, hDir == 1 ? hTop : hBot, zName, xloc = xloc.bar_time, style = label.style_label_left, color = hDir == 1 ? color.new(#5aa9e6, 0) : color.new(#f08a4b, 0), textcolor = color.white, size = size.normal)
 
 // 1H breaks: only the last 3 BOS and the last CHoCH stay on the chart
 var int lastBId = 0
@@ -222,6 +226,18 @@ if showBos and bId != lastBId and not na(bLvl) and not na(bT0)
         if array.size(bosL) > 3
             line.delete(array.shift(bosL))
             label.delete(array.shift(bosT))
+if barstate.islast
+    if array.size(bosL) > 0
+        for i = 0 to array.size(bosL) - 1
+            line.set_x2(array.get(bosL, i), rightX)
+            line.set_style(array.get(bosL, i), line.style_dotted)
+            label.set_x(array.get(bosT, i), rightX)
+            label.set_style(array.get(bosT, i), label.style_label_left)
+    if not na(chL)
+        line.set_x2(chL, rightX)
+        line.set_style(chL, line.style_dotted)
+        label.set_x(chT, rightX)
+        label.set_style(chT, label.style_label_left)
 
 if barstate.isconfirmed and hDir != 0 and hId != usedId
     d = hDir
@@ -303,13 +319,11 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     box.delete(sSl)
                     label.delete(sLab)
                     line.delete(sMss)
-                    label.delete(sMssT)
                     line.delete(sLiq)
                     sTp := box.new(bar_index, d == 1 ? tp : e, bar_index + 48, d == 1 ? e : tp, border_color = color.new(#4ade80, 20), bgcolor = color.new(#4ade80, 85))
                     sSl := box.new(bar_index, d == 1 ? e : sl, bar_index + 48, d == 1 ? sl : e, border_color = color.new(#f87171, 20), bgcolor = color.new(#f87171, 85))
-                    sLab := label.new(bar_index + 48, e, (d == 1 ? "BUY LIMIT " : "SELL LIMIT ") + str.tostring(e, format.mintick) + " (" + kind + ")\nSL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R)" + (na(liq) ? "" : "\n5m swing " + str.tostring(liq, format.mintick) + " (" + str.tostring(math.abs(liq - e) / r, "#.#") + "R)"), style = label.style_label_left, color = color.new(#111923, 0), textcolor = color.white, size = size.normal)
-                    sMss := line.new(swI, swV, bar_index, swV, color = color.white, style = line.style_dashed)
-                    sMssT := label.new(bar_index, swV, "CHoCH 5m", style = d == 1 ? label.style_label_up : label.style_label_down, color = color.new(#000000, 100), textcolor = color.white, size = size.normal)
+                    sLab := label.new(bar_index + 48, e, (d == 1 ? "BUY LIMIT " : "SELL LIMIT ") + str.tostring(e, format.mintick) + " (" + kind + ")\nafter CHoCH 5m at " + str.tostring(swV, format.mintick) + "\nSL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R)" + (na(liq) ? "" : "\n5m swing " + str.tostring(liq, format.mintick) + " (" + str.tostring(math.abs(liq - e) / r, "#.#") + "R)"), style = label.style_label_left, color = color.new(#111923, 0), textcolor = color.white, size = size.normal)
+                    sMss := line.new(swI, swV, bar_index + 48, swV, color = color.white, style = line.style_dashed)
                     if not na(liq)
                         sLiq := line.new(bar_index, liq, bar_index + 48, liq, color = color.new(#f0c94b, 0), style = line.style_dotted, width = 2)
                     string liqJ = na(liq) ? "null" : str.tostring(liq)
