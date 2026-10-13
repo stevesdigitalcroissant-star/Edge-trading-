@@ -217,7 +217,9 @@ if showBos and bId != lastBId and not na(bLvl) and not na(bT0)
     lastBId := bId
     color bc = bCh ? color.new(#f0c94b, 0) : (bDir == 1 ? color.new(#5aa9e6, 0) : color.new(#f08a4b, 0))
     line ln = line.new(bT0, bLvl, bT1, bLvl, xloc = xloc.bar_time, color = bc, width = 2)
-    label lb = label.new(bT1, bLvl, (bCh ? "CHoCH " : "BOS ") + htfName, xloc = xloc.bar_time, style = bDir == 1 ? label.style_label_down : label.style_label_up, color = color.new(#000000, 100), textcolor = bc, size = size.normal)
+    // the line runs from the swing to the candle that broke it; the name sits at its middle, on the side
+    // with no candles (above a break up, below a break down)
+    label lb = label.new(math.round((bT0 + bT1) / 2), bLvl, (bCh ? "CHoCH " : "BOS ") + htfName, xloc = xloc.bar_time, style = bDir == 1 ? label.style_label_down : label.style_label_up, color = color.new(#000000, 100), textcolor = bc, size = size.small)
     if bCh
         line.delete(chL)
         label.delete(chT)
@@ -229,18 +231,6 @@ if showBos and bId != lastBId and not na(bLvl) and not na(bT0)
         if array.size(bosL) > 3
             line.delete(array.shift(bosL))
             label.delete(array.shift(bosT))
-if barstate.islast
-    if array.size(bosL) > 0
-        for i = 0 to array.size(bosL) - 1
-            line.set_x2(array.get(bosL, i), rightX)
-            line.set_style(array.get(bosL, i), line.style_dotted)
-            label.set_x(array.get(bosT, i), rightX)
-            label.set_style(array.get(bosT, i), label.style_label_left)
-    if not na(chL)
-        line.set_x2(chL, rightX)
-        line.set_style(chL, line.style_dotted)
-        label.set_x(chT, rightX)
-        label.set_style(chT, label.style_label_left)
 
 if barstate.isconfirmed and hDir != 0 and hId != usedId
     d = hDir
