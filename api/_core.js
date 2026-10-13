@@ -661,7 +661,7 @@ async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: 
     if (!g0.take.ok) throw new Error(g0.take.why.join(" "));
     const spec = require("./_config").futuresSpec(setup.symbol || "");
     const micro = spec ? ({ GC: "MGC", CL: "MCL", SI: "SIL", NG: "MNG", QG: "MNG", ES: "MES", NQ: "MNQ", YM: "MYM", HG: "MHG", RTY: "M2K", "6E": "M6E", "6B": "M6B", "6A": "M6A", "6J": "MJY" })[spec.root] || spec.root : null;
-    const r = await planTrade(store, broker, { market: setup.market, contract: micro, dir: setup.dir, entry: setup.entry, sl: setup.sl, tp: setup.tp, riskUSD: myRisk, emotion, checks: require("../playbook.js").required, type: "limit", send: true, sd: setup.strategy === "sd", note: setup.strategy === "sd" ? `S&D scanner · ${setup.kind}` : `radar setup ${setup.grade || ""}` }, now);
+    const r = await planTrade(store, broker, { market: setup.market, contract: micro, dir: setup.dir, entry: setup.entry, sl: setup.sl, tp: setup.tp, riskUSD: myRisk, emotion, checks: require("../playbook.js").required, type: "limit", send: true, sd: setup.strategy === "sd", ...(setup.strategy === "sd" ? { riskUSD: mergeSettings(await store.get("settings")).sdRiskMax } : {}), note: setup.strategy === "sd" ? `S&D scanner · ${setup.kind}` : `radar setup ${setup.grade || ""}` }, now);
     await store.hset("setups", setupId, { ...setup, status: "taken" });
     return r;
   }
@@ -835,7 +835,7 @@ async function action(store, broker, body, now = Date.now()) {
   if (a === "settings") {
     const cur = mergeSettings(await store.get("settings"));
     const p = body.patch || {};
-    const nums = ["minR", "maxR", "lockAtR", "lockToR", "riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR", "coachIdleSec", "coachTradeSec", "coachDailyChecks", "flatWarnMin", "noNewTradesMin"];
+    const nums = ["sdRiskMin", "sdRiskMax", "minR", "maxR", "lockAtR", "lockToR", "riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR", "coachIdleSec", "coachTradeSec", "coachDailyChecks", "flatWarnMin", "noNewTradesMin"];
     for (const k of nums) if (p[k] != null && Number.isFinite(Number(p[k]))) cur[k] = Number(p[k]);
     if (cur.riskPct > 3) throw new Error("Risk per trade above 3% isn't allowed here. That's the greed talking.");
     if (cur.beAtR < 0 || (cur.beAtR > 0 && cur.tpAtR <= cur.beAtR)) throw new Error("Take-profit must be beyond the break-even trigger (or set break-even to 0 = off).");

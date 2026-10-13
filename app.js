@@ -182,6 +182,14 @@
   const riskDefault = () => Math.round(S.settings.accountSize * S.settings.riskPct / 100);
   const riskMine = () => { try { const v = Number(localStorage.getItem("edge.riskUSD")); return v > 0 ? v : riskDefault(); } catch { return riskDefault(); } };
   // with your prop account set up, the risk autopilot decides (it starts from your base risk and only ever makes you smaller)
+  // supply & demand scanner trades: as many contracts as fit under the band's max; flag it under the min
+  const PV = { gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500, rty: 5, "6e": 12500, "6b": 6250, "6j": 1250000, "6a": 10000, zn: 1000, zb: 1000 };
+  function sdSize(x) {
+    const st = S.settings, lo = st.sdRiskMin || 300, a = S.prop && S.prop.auto, hi = Math.min(st.sdRiskMax || 380, a && a.usd > 0 ? a.usd : Infinity);
+    const c = (CONTRACTS[x.market] || [["", PV[x.market] || 1]])[0], per = Math.abs(x.entry - x.sl) * c[1];
+    const qty = per > 0 ? Math.floor(hi / per + 1e-9) : 0, risk = Math.round(qty * per);
+    return { contract: c[0], qty, risk, per: Math.round(per), lo, hi, under: qty > 0 && risk < lo };
+  }
   const riskNow = () => { const a = S.prop && S.prop.auto; return a ? a.usd : riskMine(); };
   const qtyFor = (z, risk) => (z && z.kind === "futures" && z.riskPerContract > 0 ? Math.floor(risk / z.riskPerContract + 1e-9) : null);
 
@@ -482,19 +490,18 @@
   const SD_TV = ["MGC1!", "MCL1!", "SIL1!", "MNG1!", "MES1!", "MNQ1!", "MYM1!", "M2K1!", "MHG1!", "6E1!", "6B1!", "6J1!", "6A1!", "ZN1!", "ZB1!"];
   function sdCard(x) {
     const g = x.g, live = x.status === "open" && !(x.expires && S.now > x.expires);
-    const c = (CONTRACTS[x.market] || [["", 1]])[0], risk = riskNow(), pv = c[1];
-    const qty = Math.floor(risk / (Math.abs(x.entry - x.sl) * pv) + 1e-9);
+    const z = sdSize(x);
     const kind = { FVG: "fair value gap", breaker: "breaker block", mitigation: "mitigation block" }[x.kind] || x.kind || "";
     const chips = [[`1H ${x.dir === "long" ? "demand" : "supply"} ${fx(x.zoneBot)}–${fx(x.zoneTop)}`, true], ["5m shift" + (x.mss != null ? ` past ${fx(x.mss)}` : ""), true], [`Entry: ${kind}`, true], [`Target ${Number(x.rr || 0).toFixed(1)}R`, true], x.liq == null ? ["No 5m swing in the way", true] : x.liqR >= x.rr - 0.05 ? [`Nearest 5m swing ${fx(x.liq)} (${Number(x.liqR).toFixed(1)}R) — room for the target`, true] : [`5m swing ${fx(x.liq)} at ${Number(x.liqR).toFixed(1)}R before the target — your call`, false]];
     return `<div class="card radar ${live ? "" : "dim"}" data-tour="setup">
       <div class="row between"><div class="row"><div class="grade A">S&amp;D</div>
         <div><h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY limit" : "▼ SELL limit"}</h3><span class="muted">${time(x.at)} · ${esc(x.tv || x.symbol || "")}</span></div></div>
         <span class="pill">${live ? `${Math.max(0, Math.round((x.expires - S.now) / 60e3))} min left` : esc(x.status === "open" ? "expired" : x.status)}</span></div>
-      <div class="levels"><div><small>Limit</small><b>${fx(x.entry)}</b></div><div><small>Stop</small><b>${fx(x.sl)}</b></div><div><small>Target</small><b>${fx(x.tp)}</b></div><div><small>Size</small><b>${qty > 0 ? `${qty} ${esc(c[0])}` : "too wide"}</b></div></div>
-      <div class="sc-list">${chips.map(([t, ok]) => `<span class="${ok ? "ok" : "no"}">${ok ? "✓" : "!"} ${esc(t)}</span>`).join("")}</div>
+      <div class="levels"><div><small>Limit</small><b>${fx(x.entry)}</b></div><div><small>Stop</small><b>${fx(x.sl)}</b></div><div><small>Target</small><b>${fx(x.tp)}</b></div><div><small>Size</small><b>${z.qty > 0 ? `${z.qty} ${esc(z.contract)}` : "too wide"}</b></div></div>
+      <div class="sc-list">${chips.concat([z.qty < 1 ? [`One ${z.contract} risks $${z.per} — over your $${z.hi}`, false] : z.under ? [`Risk $${z.risk} — under your $${z.lo}–$${z.hi} (stop too tight for one more)`, false] : [`Risk $${z.risk} (your $${z.lo}–$${z.hi})`, true]]).map(([t, ok]) => `<span class="${ok ? "ok" : "no"}">${ok ? "✓" : "!"} ${esc(t)}</span>`).join("")}</div>
       ${live && !g.take.ok ? `<div class="blocks">${g.take.why.map((w) => `<div>⛔ ${esc(w)}</div>`).join("")}</div>` : ""}
-      ${live ? `<p class="muted" style="margin:6px 0;font-size:12.5px">Look at it first: price came back into the 1H zone and the 5m closed past its last swing. ${sendsOrders() ? "Confirm and Edge sends the limit with its stop and target to Tradovate." : "Place the limit yourself; Edge tracks it."} The setup expires 4 hours after the alert. Risk ${usd(qty > 0 ? qty * Math.abs(x.entry - x.sl) * pv : risk)}.</p>
-        <div class="row"><button class="btn ${g.take.ok && qty > 0 ? "good" : ""}" data-take="${esc(x.id)}" ${g.take.ok && qty > 0 ? "" : "disabled"}>${g.take.ok ? (qty > 0 ? "Confirm the limit" : "Stop too wide for your risk") : "Not allowed"}</button><button class="btn" data-skip="${esc(x.id)}">Skip</button></div>` : ""}
+      ${live ? `<p class="muted" style="margin:6px 0;font-size:12.5px">Look at it first: price came back into the 1H zone and the 5m closed past its last swing. ${sendsOrders() ? "Confirm and Edge sends the limit with its stop and target to Tradovate." : "Place the limit yourself; Edge tracks it."} The setup expires 4 hours after the alert. Risk ${usd(z.risk)}.</p>
+        <div class="row"><button class="btn ${g.take.ok && z.qty > 0 ? "good" : ""}" data-take="${esc(x.id)}" ${g.take.ok && z.qty > 0 ? "" : "disabled"}>${g.take.ok ? (z.qty > 0 ? "Confirm the limit" : "Stop too wide for your risk") : "Not allowed"}</button><button class="btn" data-skip="${esc(x.id)}">Skip</button></div>` : ""}
     </div>`;
   }
 
@@ -861,11 +868,12 @@
   function takeDialog(id) {
     const x = S.setups.find((y) => y.id === id);
     const manual = S.broker.kind === "manual";
-    const e = xpOf(x), risk = riskNow(), radar = x.strategy === "playbook";
-    const q = radar ? Math.floor(risk / (Math.abs(x.entry - x.sl) * ({ gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500 }[x.market] || 1)) + 1e-9) : qtyFor(x.size, risk);
-    const mic = radar ? (CONTRACTS[x.market] || [[""]])[0][0] : x.size && x.size.contract;
-    const riskTxt = radar && q > 0 ? `$${Math.round(q * Math.abs(x.entry - x.sl) * ({ gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500 }[x.market] || 1))}` : `$${risk}`;
-    const beTxt = radar ? `At +${S.settings.lockAtR || 3}R Edge locks in profit, then trails behind each new 15m swing.` : e.beR > 0 ? `At +${e.beR}R ${S.broker.kind === "manual" ? "Edge tells you to move the stop to break-even" : "the stop moves to break-even"}.` : "No break-even in this plan.";
+    const sd = x.strategy === "sd", z = sd ? sdSize(x) : null;
+    const e = xpOf(x), risk = sd ? z.hi : riskNow(), radar = x.strategy === "playbook" || sd;
+    const q = sd ? z.qty : radar ? Math.floor(risk / (Math.abs(x.entry - x.sl) * ({ gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500 }[x.market] || 1)) + 1e-9) : qtyFor(x.size, risk);
+    const mic = sd ? z.contract : radar ? (CONTRACTS[x.market] || [[""]])[0][0] : x.size && x.size.contract;
+    const riskTxt = sd ? `$${z.risk}` : radar && q > 0 ? `$${Math.round(q * Math.abs(x.entry - x.sl) * ({ gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500 }[x.market] || 1))}` : `$${risk}`;
+    const beTxt = sd ? "No break-even, no lock: the stop and the 1:3 target stay where they are." : radar ? `At +${S.settings.lockAtR || 3}R Edge locks in profit, then trails behind each new 15m swing.` : e.beR > 0 ? `At +${e.beR}R ${S.broker.kind === "manual" ? "Edge tells you to move the stop to break-even" : "the stop moves to break-even"}.` : "No break-even in this plan.";
     const moods = [["calm", "😌 Calm"], ["focused", "🎯 Focused"], ["fomo", "😬 Afraid to miss it"], ["revenge", "😤 Want my money back"], ["bored", "🥱 Bored"]];
     const body = $("#modalBody");
     body.innerHTML = `<h3>${esc(mname(x.market))} ${x.dir.toUpperCase()} · ${x.g.grade}</h3>
@@ -1122,6 +1130,7 @@
         <div class="grid2">${n("minR", "Never take less than (R)", "0.5")}${n("maxR", "Target at most (R)", "0.5")}
           ${n("lockAtR", "Lock in profit when the trade reaches (R)", "0.5")}${n("lockToR", "…by moving the stop to (R)", "0.5")}
           <label class="f">Risk per trade ($)<input id="riskUsd" type="number" step="10" value="${riskNow()}"></label>
+          ${n("sdRiskMin", "S&D scanner: risk at least ($)", "10")}${n("sdRiskMax", "S&D scanner: risk at most ($)", "10")}
           ${n("maxTradesPerDay", "Max trades per day")}${n("maxDailyLossR", "Stop for the day after losing (R)", "0.5")}${n("cooldownMin", "Break after a loss (min)", "5")}</div>
         <div class="row" style="margin-top:12px"><button class="btn primary" data-saverules>Save</button></div></section>`;
     return `${stratCard}${notifCard}<section class="card"><h2>Connections</h2>

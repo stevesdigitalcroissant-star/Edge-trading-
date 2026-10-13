@@ -102,6 +102,7 @@ test("S&D scanner alert (1H zone · 5m shift) → graded, taken as a limit", asy
   assert.equal(out.order.trade.strategy, "sd");
   assert.equal(out.order.trade.lockR, null);
   assert.equal(out.order.trade.contract, "M6E");
+  assert.equal(out.order.trade.units, 25); // $15 a contract → 25 fit under the $380 max = $375
   // outside 02:00–11:30 New York it is graded C and not takeable
   const late = await core.handleHook(store, broker, JSON.stringify(alert), NY(13));
   assert.equal(late.json.takeable, false);
