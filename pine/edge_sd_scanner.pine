@@ -59,6 +59,8 @@ sdState() =>
     var int zId = 0
     var float zExt = na
     var int zT = na
+    var float zWick = na // the zone runs wick to wick: this is the wick edge (drawn light); the body edge arms alerts
+    var float z2Wick = na
     var int z2Dir = 0 // the zone before it, kept while it points the same way and isn't broken
     var float z2Top = na
     var float z2Bot = na
@@ -118,6 +120,7 @@ sdState() =>
             int a = (not oppO and oppO1) ? o + 1 : o
             int n = 0
             float near = na
+            float wnear = na
             for k = a to a + 2
                 bool opp = d == 1 ? close[k] < open[k] : close[k] > open[k]
                 if not opp
@@ -127,9 +130,11 @@ sdState() =>
                     break
                 n += 1
                 near := d == 1 ? math.max(nz(near, -1e10), math.max(open[k], close[k])) : math.min(nz(near, 1e10), math.min(open[k], close[k]))
+                wnear := d == 1 ? math.max(nz(wnear, -1e10), high[k]) : math.min(nz(wnear, 1e10), low[k])
             int oldest = n > 0 ? a + n - 1 : o
             if n == 0
                 near := d == 1 ? math.max(open[o], close[o]) : math.min(open[o], close[o])
+                wnear := d == 1 ? high[o] : low[o]
             float far = d == 1 ? low[oldest] : high[oldest]
             for k = 0 to oldest
                 far := d == 1 ? math.min(far, low[k]) : math.max(far, high[k])
@@ -141,6 +146,7 @@ sdState() =>
                 z2Top := zTop
                 z2Bot := zBot
                 z2T := zT
+                z2Wick := zWick
             else if z2Dir != d
                 z2Dir := 0
             if zt - zb > 0 and zt - zb <= 3 * atr
@@ -149,6 +155,7 @@ sdState() =>
                 zBot := zb
                 zId += 1
                 zT := time[oldest]
+                zWick := wnear
                 zExt := d == 1 ? high : low
             else
                 zDir := 0
@@ -156,7 +163,7 @@ sdState() =>
         zExt := zDir == 1 ? math.max(zExt, high) : math.min(zExt, low)
     int ok = zDir != 0 and cnt >= 2 ? zDir : 0
     int ok2 = z2Dir != 0 and cnt >= 2 and z2Dir == prevDir ? z2Dir : 0
-    [ok[1], zTop[1], zBot[1], zId[1], zT[1], bLvl[1], bT0[1], bT1[1], bDir[1], bCh[1], bId[1], prevDir[1], cnt[1], ok2[1], z2Top[1], z2Bot[1], z2T[1]]
+    [ok[1], zTop[1], zBot[1], zId[1], zT[1], bLvl[1], bT0[1], bT1[1], bDir[1], bCh[1], bId[1], prevDir[1], cnt[1], ok2[1], z2Top[1], z2Bot[1], z2T[1], zWick[1], z2Wick[1]]
 
 // 4H trend: the direction of the last 4H close past a 4H swing
 trendState() =>
@@ -177,10 +184,10 @@ trendState() =>
         l := na
     dir[1]
 
-[hDir, hTop, hBot, hId, hZT, bLvl, bT0, bT1, bDir, bCh, bId, hTrend, hCnt, h2Dir, h2Top, h2Bot, h2T] = request.security(syminfo.tickerid, htf, sdState(), lookahead = barmerge.lookahead_on)
+[hDir, hTop, hBot, hId, hZT, bLvl, bT0, bT1, bDir, bCh, bId, hTrend, hCnt, h2Dir, h2Top, h2Bot, h2T, hW, h2W] = request.security(syminfo.tickerid, htf, sdState(), lookahead = barmerge.lookahead_on)
 t4 = request.security(syminfo.tickerid, "240", trendState(), lookahead = barmerge.lookahead_on)
 // the 4H zones: the same rules on 4H candles (drawn in their own colours, for context — alerts come from the 1H zone)
-[x4Dir, x4Top, x4Bot, x4Id, x4ZT, x4bLvl, x4bT0, x4bT1, x4bDir, x4bCh, x4bId, x4Trend, x4Cnt, x42Dir, x42Top, x42Bot, x42T] = request.security(syminfo.tickerid, "240", sdState(), lookahead = barmerge.lookahead_on)
+[x4Dir, x4Top, x4Bot, x4Id, x4ZT, x4bLvl, x4bT0, x4bT1, x4bDir, x4bCh, x4bId, x4Trend, x4Cnt, x42Dir, x42Top, x42Bot, x42T, x4W, x42W] = request.security(syminfo.tickerid, "240", sdState(), lookahead = barmerge.lookahead_on)
 htfName = htf == "60" ? "1H" : htf == "240" ? "4H" : htf + "m"
 
 // ---------- the 5m side
@@ -221,6 +228,10 @@ tick = syminfo.mintick
 
 var box zBox = na
 var label zLab = na
+var array<box> wickBoxes = array.new<box>()
+// the wick part of a zone (between the body edge and the wick edge), drawn lighter than the body part
+wickPart(int t0, float body, float wick, color c) =>
+    box.new(t0, math.max(body, wick), time, math.min(body, wick), xloc = xloc.bar_time, extend = extend.right, border_color = color.new(c, 70), bgcolor = color.new(c, 94), border_style = line.style_dotted)
 var box z2Box = na
 var label z2Lab = na
 var box z4Box = na
@@ -228,6 +239,9 @@ var label z4Lab = na
 var box z42Box = na
 var label z42Lab = na
 // 4H zones: demand green, supply pink (1H: demand blue, supply orange)
+if barstate.islast
+    while array.size(wickBoxes) > 0
+        box.delete(array.pop(wickBoxes))
 if showZone4 and barstate.islast
     box.delete(z4Box)
     label.delete(z4Lab)
@@ -236,11 +250,15 @@ if showZone4 and barstate.islast
     if x4Dir != 0
         color c4 = x4Dir == 1 ? #26a69a : #d64578
         z4Box := box.new(nz(x4ZT, time - 300 * 300000), x4Top, time, x4Bot, xloc = xloc.bar_time, extend = extend.right, border_color = color.new(c4, 20), bgcolor = color.new(c4, 88))
+        if not na(x4W)
+            array.push(wickBoxes, wickPart(nz(x4ZT, time - 300 * 300000), x4Dir == 1 ? x4Top : x4Bot, x4W, c4))
         z4Lab := label.new(time + 6 * timeframe.in_seconds() * 1000, x4Dir == 1 ? x4Bot : x4Top, "4H " + (x4Dir == 1 ? "DEMAND" : "SUPPLY"), xloc = xloc.bar_time, style = label.style_label_left, color = c4, textcolor = color.white, size = size.normal)
     bool ov4 = x4Dir != 0 and x42Bot <= x4Top and x42Top >= x4Bot
     if x42Dir != 0 and x42Dir == x4Trend and not ov4
         color c42 = x42Dir == 1 ? #26a69a : #d64578
         z42Box := box.new(nz(x42T, time - 600 * 300000), x42Top, time, x42Bot, xloc = xloc.bar_time, extend = extend.right, border_color = color.new(c42, 50), bgcolor = color.new(c42, 94))
+        if not na(x42W)
+            array.push(wickBoxes, wickPart(nz(x42T, time - 600 * 300000), x42Dir == 1 ? x42Top : x42Bot, x42W, c42))
         z42Lab := label.new(time + 6 * timeframe.in_seconds() * 1000, x42Dir == 1 ? x42Bot : x42Top, "4H " + (x42Dir == 1 ? "DEMAND" : "SUPPLY") + " (older)", xloc = xloc.bar_time, style = label.style_label_left, color = color.new(c42, 40), textcolor = color.white, size = size.small)
 barMs = timeframe.in_seconds() * 1000
 rightX = time + 6 * barMs // labels live in the empty space right of the last candle, never on the candles
@@ -256,10 +274,14 @@ if showZone and barstate.islast
     if h2Dir != 0 and h2Dir == hTrend and not overlap and not in4
         string z2Name = htfName + (h2Dir == 1 ? " DEMAND zone " : " SUPPLY zone ") + str.tostring(h2Bot, format.mintick) + "–" + str.tostring(h2Top, format.mintick) + " (older)"
         z2Box := box.new(nz(h2T, time - 300 * 300000), h2Top, time, h2Bot, xloc = xloc.bar_time, extend = extend.right, border_color = h2Dir == 1 ? color.new(#5aa9e6, 50) : color.new(#f08a4b, 50), bgcolor = h2Dir == 1 ? color.new(#5aa9e6, 92) : color.new(#f08a4b, 92))
+        if not na(h2W)
+            array.push(wickBoxes, wickPart(nz(h2T, time - 300 * 300000), h2Dir == 1 ? h2Top : h2Bot, h2W, h2Dir == 1 ? #5aa9e6 : #f08a4b))
         z2Lab := label.new(rightX, h2Dir == 1 ? h2Top : h2Bot, z2Name, xloc = xloc.bar_time, style = label.style_label_left, color = h2Dir == 1 ? color.new(#5aa9e6, 40) : color.new(#f08a4b, 40), textcolor = color.white, size = size.small)
     if hDir != 0
         string zName = htfName + (hDir == 1 ? " DEMAND zone " : " SUPPLY zone ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick)
         zBox := box.new(nz(hZT, time - 150 * 300000), hTop, time, hBot, xloc = xloc.bar_time, extend = extend.right, border_color = hDir == 1 ? color.new(#5aa9e6, 30) : color.new(#f08a4b, 30), bgcolor = hDir == 1 ? color.new(#5aa9e6, 85) : color.new(#f08a4b, 85))
+        if not na(hW)
+            array.push(wickBoxes, wickPart(nz(hZT, time - 150 * 300000), hDir == 1 ? hTop : hBot, hW, hDir == 1 ? #5aa9e6 : #f08a4b))
         zLab := label.new(rightX, hDir == 1 ? hTop : hBot, zName, xloc = xloc.bar_time, style = label.style_label_left, color = hDir == 1 ? color.new(#5aa9e6, 0) : color.new(#f08a4b, 0), textcolor = color.white, size = size.normal)
 
 // 1H breaks: only the last 3 BOS and the last MSS stay on the chart

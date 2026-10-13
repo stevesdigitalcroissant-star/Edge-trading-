@@ -164,6 +164,9 @@
       const top = Math.min(y1, y2), h = Math.max(2, Math.abs(y2 - y1)); if (top > Hh || top + h < 0) return;
       const x = Math.max(0, Math.min(W - 60, xAt(z.t))), c = col(z.d, tf);
       out += `<div class="hm-z big" style="left:${x}px;top:${top}px;height:${h}px;background:rgba(${c},${older ? 0.07 : 0.16});border-color:rgba(${c},${older ? 0.35 : 0.75})"></div>`;
+      // the wick part (body edge → wick edge), lighter: the zone runs wick to wick, alerts arm at the body
+      const yw = z.wick != null ? H.series.priceToCoordinate(z.wick) : null, yb = H.series.priceToCoordinate(z.d > 0 ? z.top : z.bot);
+      if (yw != null && yb != null && Math.abs(yw - yb) >= 1) out += `<div class="hm-z" style="left:${x}px;top:${Math.min(yw, yb)}px;height:${Math.abs(yw - yb)}px;background:rgba(${c},0.05);border-color:rgba(${c},0.3)"></div>`;
       let ly = z.d > 0 ? top + h + 2 : top - 14; while (used.some((u) => Math.abs(u - ly) < 12)) ly += z.d > 0 ? 12 : -12; used.push(ly);
       out += `<span class="hm-zl" style="left:${Math.max(0, (ts.logicalToCoordinate((H.times || []).length + 1) ?? W - 200))}px;top:${ly}px;color:rgb(${c});opacity:${older ? 0.7 : 1}">${tf} ${z.d > 0 ? "DEMAND" : "SUPPLY"}${older ? " (older)" : ""}</span>`;
     };

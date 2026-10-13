@@ -39,21 +39,22 @@
         for (let k = i; k >= i - span; k--) if (d === 1 ? B[k].l < B[o].l : B[k].h > B[o].h) o = k;
         const opp = (k) => k >= 0 && (d === 1 ? B[k].c < B[k].o : B[k].c > B[k].o);
         const a = !opp(o) && opp(o - 1) ? o - 1 : o;
-        let n = 0, near = null;
+        let n = 0, near = null, wick = null; // the zone runs wick to wick: wick = the wick edge (drawn light), near = the body edge (arms alerts)
         for (let k = a; k >= Math.max(0, a - 2); k--) {
           if (!opp(k)) break;
           // an older opposite candle joins only inside the last one's range (a base), not a step of the drop
           if (n > 0 && (d === 1 ? Math.max(B[k].o, B[k].c) > B[a].h : Math.min(B[k].o, B[k].c) < B[a].l)) break;
           n++;
           near = d === 1 ? Math.max(near ?? -Infinity, B[k].o, B[k].c) : Math.min(near ?? Infinity, B[k].o, B[k].c);
+          wick = d === 1 ? Math.max(wick ?? -Infinity, B[k].h) : Math.min(wick ?? Infinity, B[k].l);
         }
         const oldest = n > 0 ? a - n + 1 : o;
-        if (n === 0) near = d === 1 ? Math.max(B[o].o, B[o].c) : Math.min(B[o].o, B[o].c);
+        if (n === 0) { near = d === 1 ? Math.max(B[o].o, B[o].c) : Math.min(B[o].o, B[o].c); wick = d === 1 ? B[o].h : B[o].l; }
         let far = d === 1 ? B[oldest].l : B[oldest].h;
         for (let k = oldest; k <= i; k++) far = d === 1 ? Math.min(far, B[k].l) : Math.max(far, B[k].h);
         const top = d === 1 ? near : far, bot = d === 1 ? far : near;
         if (z && z.d === d) z2 = z; else if (z2 && z2.d !== d) z2 = null;
-        z = top - bot > 0 && top - bot <= 3 * atr ? { d, top, bot, t: B[oldest].t } : null;
+        z = top - bot > 0 && top - bot <= 3 * atr ? { d, top, bot, wick, t: B[oldest].t } : null;
       }
     }
     const zone = z && cnt >= 2 ? z : null;
