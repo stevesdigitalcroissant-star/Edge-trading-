@@ -18,14 +18,14 @@
 //   Orders only 02:00–11:30 New York. Edge keeps the setup 4 hours and closes everything by 14:20.
 //
 // On the chart: the live 1H zone (blue = demand, orange = supply, named with its timeframe), every 1H
-// break labelled "BOS 1H" or "CHoCH 1H", the 5m "CHoCH 5m" that triggers a setup, the long / short box
+// break labelled "BOS 1H" or "MSS 1H", the 5m "MSS 5m" that triggers a setup, the long / short box
 // with entry, stop and target, and a panel top right: 4H trend, 1H trend, the zone, what Edge waits for.
 //
 // For the Edge app, create ONE alert on this chart:
 //   Condition: this script → "Any alert() function call"
 //   Webhook URL: https://<your-edge-app>/api/hook
 //   Message: leave as is (the script writes its own JSON)
-// Only the latest things stay drawn: the live zone, the last 3 BOS and last CHoCH (1H), the latest setup.
+// Only the latest things stay drawn: the live zone, the last 3 BOS and last MSS (1H), the latest setup.
 // ---------------------------------------------------------------------------
 //@version=6
 indicator("Edge — Supply & Demand scanner (1H · 5m)", shorttitle = "Edge S&D", overlay = true, max_bars_back = 600, max_boxes_count = 200, max_lines_count = 200, max_labels_count = 200)
@@ -36,7 +36,7 @@ tpR = input.float(3, "Target (R)", step = 0.5, group = "Rules")
 fromH = input.int(2, "Orders from (New York hour)", group = "Rules")
 toHM = input.int(1130, "Orders until (New York, HHMM)", group = "Rules")
 showZone = input.bool(true, "Draw the 1H zone", group = "Chart")
-showBos = input.bool(true, "Label 1H BOS / CHoCH", group = "Chart")
+showBos = input.bool(true, "Label 1H BOS / MSS", group = "Chart")
 showPanel = input.bool(true, "Trend panel (top right)", group = "Chart")
 showTrade = input.bool(false, "Draw the long / short boxes (off = you place your own)", group = "Chart")
 showTradeLabel = input.bool(false, "Price label next to the trade", group = "Chart")
@@ -95,7 +95,7 @@ sdState() =>
                 brokeH := true
             else
                 brokeL := true
-            // the break itself, for the chart: BOS = same way as the last one, CHoCH = the first one the other way
+            // the break itself, for the chart: BOS = same way as the last one, MSS = the first one the other way
             bLvl := d == 1 ? lastH : lastL
             bT0 := time[bar_index - sw]
             bT1 := time
@@ -233,7 +233,7 @@ if showZone and barstate.islast
         zBox := box.new(nz(hZT, time - 150 * 300000), hTop, time, hBot, xloc = xloc.bar_time, extend = extend.right, border_color = hDir == 1 ? color.new(#5aa9e6, 30) : color.new(#f08a4b, 30), bgcolor = hDir == 1 ? color.new(#5aa9e6, 85) : color.new(#f08a4b, 85))
         zLab := label.new(rightX, hDir == 1 ? hTop : hBot, zName, xloc = xloc.bar_time, style = label.style_label_left, color = hDir == 1 ? color.new(#5aa9e6, 0) : color.new(#f08a4b, 0), textcolor = color.white, size = size.normal)
 
-// 1H breaks: only the last 3 BOS and the last CHoCH stay on the chart
+// 1H breaks: only the last 3 BOS and the last MSS stay on the chart
 var int lastBId = 0
 var array<line> bosL = array.new<line>()
 var array<label> bosT = array.new<label>()
@@ -245,7 +245,7 @@ if showBos and bId != lastBId and not na(bLvl) and not na(bT0)
     line ln = line.new(bT0, bLvl, bT1, bLvl, xloc = xloc.bar_time, color = bc, width = 2)
     // the line runs from the swing to the candle that broke it; the name sits at its middle, on the side
     // with no candles (above a break up, below a break down)
-    label lb = label.new(math.round((bT0 + bT1) / 2), bLvl, (bCh ? "CHoCH " : "BOS ") + htfName, xloc = xloc.bar_time, style = bDir == 1 ? label.style_label_down : label.style_label_up, color = color.new(#000000, 100), textcolor = bc, size = size.small)
+    label lb = label.new(math.round((bT0 + bT1) / 2), bLvl, (bCh ? "MSS " : "BOS ") + htfName, xloc = xloc.bar_time, style = bDir == 1 ? label.style_label_down : label.style_label_up, color = color.new(#000000, 100), textcolor = bc, size = size.small)
     if bCh
         line.delete(chL)
         label.delete(chT)
@@ -345,9 +345,9 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     if showTrade
                         sSl := box.new(bar_index, d == 1 ? e : sl, bar_index + 48, d == 1 ? sl : e, border_color = color.new(#f87171, 20), bgcolor = color.new(#f87171, 85))
                     if showTrade and showTradeLabel
-                        sLab := label.new(bar_index + 48, e, (d == 1 ? "BUY LIMIT " : "SELL LIMIT ") + str.tostring(e, format.mintick) + " (" + kind + ")\nafter CHoCH 5m at " + str.tostring(swV, format.mintick) + "\nSL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R)" + (na(liq) ? "" : "\n5m swing " + str.tostring(liq, format.mintick) + " (" + str.tostring(math.abs(liq - e) / r, "#.#") + "R)"), style = label.style_label_left, color = color.new(#111923, 0), textcolor = color.white, size = size.normal)
+                        sLab := label.new(bar_index + 48, e, (d == 1 ? "BUY LIMIT " : "SELL LIMIT ") + str.tostring(e, format.mintick) + " (" + kind + ")\nafter MSS 5m at " + str.tostring(swV, format.mintick) + "\nSL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R)" + (na(liq) ? "" : "\n5m swing " + str.tostring(liq, format.mintick) + " (" + str.tostring(math.abs(liq - e) / r, "#.#") + "R)"), style = label.style_label_left, color = color.new(#111923, 0), textcolor = color.white, size = size.normal)
                     sMss := line.new(swI, swV, bar_index + 48, swV, color = color.white, style = line.style_dashed)
-                    sMssT := label.new(bar_index + 48, swV, "CHoCH 5m", style = label.style_label_left, color = color.new(#000000, 100), textcolor = color.white, size = size.normal)
+                    sMssT := label.new(bar_index + 48, swV, "MSS 5m", style = label.style_label_left, color = color.new(#000000, 100), textcolor = color.white, size = size.normal)
                     if showTrade and not na(liq)
                         sLiq := line.new(bar_index, liq, bar_index + 48, liq, color = color.new(#f0c94b, 0), style = line.style_dotted, width = 2)
                     string liqJ = na(liq) ? "null" : str.tostring(liq)
@@ -360,7 +360,7 @@ tt(v) => v == 1 ? "▲ Bullish" : v == -1 ? "▼ Bearish" : "— none yet"
 var table panel = table.new(position.top_right, 2, 5, bgcolor = color.new(#111923, 10), border_width = 0, frame_color = color.new(#334155, 0), frame_width = 1)
 if showPanel and barstate.islast
     string zTxt = hDir == 0 ? "no valid zone" : (hDir == 1 ? "Demand " : "Supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick)
-    string st = hDir == 0 ? (hCnt < 2 ? "Wait: 1H needs a 2nd BOS" : "Wait: no fresh 1H zone") : hId == usedId ? "Zone used — wait for the next" : armId == hId ? "IN ZONE — waiting for 5m CHoCH" : "Wait: price not in the zone yet"
+    string st = hDir == 0 ? (hCnt < 2 ? "Wait: 1H needs a 2nd BOS" : "Wait: no fresh 1H zone") : hId == usedId ? "Zone used — wait for the next" : armId == hId ? "IN ZONE — waiting for 5m MSS" : "Wait: price not in the zone yet"
     string wTxt = hDir == 0 or t4 == 0 ? "" : hDir == t4 ? "  (with 4H)" : "  (against 4H)"
     table.cell(panel, 0, 0, "4H trend", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
     table.cell(panel, 1, 0, tt(t4), text_color = tc(t4), text_size = size.small, text_halign = text.align_left)

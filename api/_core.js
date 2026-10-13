@@ -130,7 +130,7 @@ async function radarSetup(store, market, msg, now, s) {
   setup.grade = g.grade; await store.hset("setups", setup.id, setup);
   const name = MARKETS[market].name, side = setup.dir === "long" ? "BUY" : "SELL";
   if (sd) await notify(store, g.take.ok
-    ? `📣 ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R) · 1H ${setup.dir === "long" ? "demand" : "supply"} ${fx(setup.zoneBot)}–${fx(setup.zoneTop)} · 4H ${setup.trend4h === R.sign(setup.dir) ? "with you" : setup.trend4h ? "against you" : "?"} · 5m CHoCH → ${setup.kind}${setup.liqR != null && setup.liqR < setup.rr ? ` · ⚠️ 5m swing at ${R.round(setup.liqR, 1)}R` : ""}. Tap to see it and send it.`
+    ? `📣 ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R) · 1H ${setup.dir === "long" ? "demand" : "supply"} ${fx(setup.zoneBot)}–${fx(setup.zoneTop)} · 4H ${setup.trend4h === R.sign(setup.dir) ? "with you" : setup.trend4h ? "against you" : "?"} · 5m MSS → ${setup.kind}${setup.liqR != null && setup.liqR < setup.rr ? ` · ⚠️ 5m swing at ${R.round(setup.liqR, 1)}R` : ""}. Tap to see it and send it.`
     : `👀 ${name} ${side} setup @ ${fx(setup.entry)} — not now: ${g.take.why[0]}`, g.take.ok ? "setup" : "skip");
   else await notify(store, g.take.ok
     ? `📣 ${g.grade} ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R)${setup.liq ? " · liquidity taken" : ""}. Open Edge to confirm.`
