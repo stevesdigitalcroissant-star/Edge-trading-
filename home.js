@@ -1,4 +1,4 @@
-// The home chart: your 8 markets, with your zones, the radar's setups, your waiting limits and open trades drawn on it.
+// The home chart: your markets, with the S&D picture (1H zones, BOS / MSS, 1H + 4H trend), the radar's setups, your waiting limits and open trades drawn on it.
 // It lives outside the Today cards, so the 15-second refresh never rebuilds it. Prices are Yahoo's (≈10 min behind):
 // your TradingView alerts watch the market live — this is where you see the picture at a glance.
 (() => {
@@ -9,7 +9,6 @@
   // TradingView charts: the futures contract, or a CFD that follows it (embedded charts may not show CME futures)
   const TV_INT = [["15", "15m"], ["60", "1H"], ["240", "4H"], ["D", "D"]];
   const CFD = { gold: "OANDA:XAUUSD", silver: "OANDA:XAGUSD", crude: "TVC:USOIL", natgas: "CAPITALCOM:NATURALGAS", es: "OANDA:SPX500USD", nq: "OANDA:NAS100USD", ym: "OANDA:US30USD", copper: "CAPITALCOM:COPPER" };
-  const SD_RULES = { daily: "off", trendTF: "4h", maxTouches: 9, waitMin: 480 }; // the same rules the simulator draws your zones with
   const pref = (k, d) => { try { return localStorage.getItem(`edge.home.${k}`) || d; } catch { return d; } };
   const save = (k, v) => { try { localStorage.setItem(`edge.home.${k}`, v); } catch {} };
   const nyFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", minute: "numeric", hourCycle: "h23" });
@@ -60,12 +59,12 @@
     } catch (e) { H.err = e.message; }
     finally { H.busy = false; if (m === H.m) draw(); }
   }
-  // your zones and the 4H trend, worked out from the 5-minute candles exactly like the simulator does
+  // your supply & demand picture — 1H zones, 1H BOS / MSS, 1H and 4H trend — same rules as the TradingView scanner
   function zones(m) {
-    const E = window.EdgeStrategy2, raw = H.bars[m]; if (!E || !raw || raw.length < 300) return;
-    const last = raw[raw.length - 1][0]; if (H.sd[m] && H.sd[m].last === last) return;
-    const bars = raw.map(([t, o, h, l, c]) => ({ t, o, h, l, c, ...nyInfo(t) }));
-    try { const r = E.run(bars, m, SD_RULES), st = r.states[r.states.length - 1]; H.sd[m] = { last, st, t0: bars.map((b) => b.t) }; } catch { H.sd[m] = { last, st: null }; }
+    const E = window.EdgeSD, raw = H.bars[m]; if (!E || !raw || raw.length < 300) return;
+    const last = raw[raw.length - 1]; if (H.sd[m] && H.sd[m].last === last[0]) return;
+    const toB = (a) => a.map((b) => ({ t: b.time * 1000, o: b.open, h: b.high, l: b.low, c: b.close }));
+    try { H.sd[m] = { last: last[0], st: E.read(toB(agg(raw, 60)), toB(agg(raw, 240)), last[4], nyInfo(Date.now()).min) }; } catch { H.sd[m] = { last: last[0], st: null }; }
   }
   function agg(raw, tf) {
     if (tf === 5) return raw.map(([t, o, h, l, c]) => ({ time: t / 1000, open: o, high: h, low: l, close: c }));
@@ -84,7 +83,7 @@
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   function theme() {
     return { layout: { background: { type: "solid", color: "transparent" }, textColor: css("--muted"), fontFamily: "Inter, system-ui, sans-serif", fontSize: 11 },
-      grid: { vertLines: { color: css("--line") }, horzLines: { color: css("--line") } }, rightPriceScale: { borderColor: css("--line2") }, timeScale: { borderColor: css("--line2"), timeVisible: true, secondsVisible: false, rightOffset: 6 } };
+      grid: { vertLines: { color: css("--line") }, horzLines: { color: css("--line") } }, rightPriceScale: { borderColor: css("--line2") }, timeScale: { borderColor: css("--line2"), timeVisible: true, secondsVisible: false, rightOffset: 26 } };
   }
   function build() {
     const LW = window.LightweightCharts, box = $("#hmChart"); if (!LW || !box || H.chart) return;
@@ -135,36 +134,45 @@
     H.series.applyOptions({ priceFormat: { type: "price", minMove: tick, precision: H.prec } });
     for (const pl of H.lines) H.series.removePriceLine(pl);
     H.lines = marks(S).map(([price, color, title, style]) => H.series.createPriceLine({ price: Number(price), color, lineWidth: style === 0 ? 2 : 1, lineStyle: style, axisLabelVisible: true, title }));
-    if (H.fit) { const n = { 5: 140, 15: 120, 60: 110, 240: 90 }[H.tf] || 120; H.chart.timeScale().setVisibleLogicalRange({ from: data.length - n, to: data.length + 6 }); H.fit = false; }
+    if (H.fit) { const n = { 5: 140, 15: 120, 60: 110, 240: 90 }[H.tf] || 120; H.chart.timeScale().setVisibleLogicalRange({ from: data.length - n, to: data.length + 26 }); H.fit = false; }
     // price, change on the day, where it is against your zones
     const last = raw[raw.length - 1], day = nyInfo(last[0]).cme, open = (raw.find((b) => nyInfo(b[0]).cme === day) || last)[1], ch = last[4] - open;
-    const sd = H.sd[H.m] && H.sd[H.m].st, inZ = sd ? [...(sd.dem || []).map((z) => ({ ...z, d: 1, tf: "15m" })), ...(sd.sup || []).map((z) => ({ ...z, d: -1, tf: "15m" })), ...(sd.z4 || []).map((z) => ({ ...z, d: z.dir, tf: "4H" }))].find((z) => last[4] <= Math.max(z.top, z.bot) && last[4] >= Math.min(z.top, z.bot)) : null;
-    const T = window.EdgeTrend, tr2 = T ? T.both(raw, 5) : null;
-    $("#hmTrend").innerHTML = tr2 ? T.badge(tr2) : "";
+    const sd = H.sd[H.m] && H.sd[H.m].st, fp = (v) => Number(v).toFixed(H.prec ?? 2);
+    const pill = (tf, d, extra = "") => `<span class="tr-pill ${d > 0 ? "up" : d < 0 ? "dn" : ""}"><small>${tf}</small>${d > 0 ? "▲ Bullish" : d < 0 ? "▼ Bearish" : "– none yet"}${extra}</span>`;
+    $("#hmTrend").innerHTML = sd ? `<span class="tr-badge">${pill("4H", sd.t4)}${pill("1H", sd.trend, sd.trend ? ` · ${sd.cnt >= 2 ? `${sd.cnt} BOS` : "1 break"}` : "")}
+      ${sd.zone ? `<span class="tr-pill ${sd.zone.d > 0 ? "up" : "dn"}"><small>1H zone</small>${sd.zone.d > 0 ? "Demand" : "Supply"} ${fp(sd.zone.bot)}–${fp(sd.zone.top)}${sd.with4h === false ? " · against 4H" : ""}</span>` : ""}
+      <span class="tr-v ${sd.inZone ? "go" : ""}">${esc(sd.status)}</span><span class="tr-hint">Orders ${sd.ordersOpen ? "open" : "closed"} · 02:00–11:30 NY</span></span>` : "";
     $("#hmPx").innerHTML = `<b class="num">${last[4].toFixed(H.prec ?? 2)}</b><span class="${ch >= 0 ? "pos" : "neg"}">${ch >= 0 ? "+" : ""}${ch.toFixed(H.prec ?? 2)} (${((ch / open) * 100).toFixed(2)}%)</span>
-      ${inZ ? `<span class="hm-chip zone">In a ${inZ.tf} ${inZ.d > 0 ? "demand" : "supply"} zone</span>` : ""}`;
+      ${sd && sd.inZone ? `<span class="hm-chip zone">In the 1H ${sd.zone.d > 0 ? "demand" : "supply"} zone</span>` : ""}`;
     const age = Math.round((Date.now() - last[0]) / 60e3);
     $("#hmNote").textContent = `Prices ~10 min behind · last candle ${age < 90 ? `${age} min ago` : new Date(last[0]).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}. Your TradingView alerts watch it live.`;
     overlay();
   }
-  // zones as boxes from where they formed to the right edge (with-trend strong, counter-trend faint)
+  // the S&D picture: the 1H zone(s) from where they formed to the right edge, the last 3 BOS and the last MSS
   function overlay() {
     const ov = $("#hmOv"); if (!ov) return;
     const sd = H.sd[H.m] && H.sd[H.m].st;
     if (!H.series || !sd || !H.bars[H.m]) { ov.innerHTML = ""; return; }
-    const ts = H.chart.timeScale(), W = ov.clientWidth, Hh = ov.clientHeight, tr = sd.trend || 0, t0 = H.sd[H.m].t0 || [];
+    const ts = H.chart.timeScale(), W = ov.clientWidth, Hh = ov.clientHeight, fp = (v) => Number(v).toFixed(H.prec ?? 2);
     const T = H.times || [], xAt = (t) => { if (t == null || !T.length) return 0; let lo = 0, hi = T.length - 1; const s = t / 1000; while (lo < hi) { const md = (lo + hi) >> 1; if (T[md] < s) lo = md + 1; else hi = md; } const x = ts.logicalToCoordinate(T[lo] > s && lo > 0 ? lo - 1 : lo); return x == null ? 0 : x; };
-    let out = "", used = [];
-    const box = (z, d, tf, t) => {
+    const col = (d) => (d > 0 ? "90,169,230" : "240,138,75"); // demand blue, supply orange — like the TradingView script
+    let out = "";
+    const box = (z, older) => {
       const y1 = H.series.priceToCoordinate(z.top), y2 = H.series.priceToCoordinate(z.bot); if (y1 == null || y2 == null) return;
       const top = Math.min(y1, y2), h = Math.max(2, Math.abs(y2 - y1)); if (top > Hh || top + h < 0) return;
-      const x = Math.max(0, Math.min(W - 60, xAt(t))), withT = !tr || d === tr, c = d > 0 ? "38,166,154" : "239,83,80", big = tf === "4H";
-      out += `<div class="hm-z${big ? " big" : ""}" style="left:${x}px;top:${top}px;height:${h}px;background:rgba(${c},${(big ? 0.1 : 0.16) * (withT ? 1 : 0.45)});border-color:rgba(${c},${withT ? 0.7 : 0.3})"></div>`;
-      let ly = top - 13; while (used.some((u) => Math.abs(u - ly) < 12)) ly -= 12; used.push(ly);
-      out += `<span class="hm-zl" style="left:${x + 4}px;top:${ly}px;color:rgb(${c});opacity:${withT ? 1 : 0.6}">${tf} ${d > 0 ? "demand" : "supply"}${withT ? "" : " · against the 4H"}</span>`;
+      const x = Math.max(0, Math.min(W - 60, xAt(z.t))), c = col(z.d);
+      out += `<div class="hm-z big" style="left:${x}px;top:${top}px;height:${h}px;background:rgba(${c},${older ? 0.07 : 0.16});border-color:rgba(${c},${older ? 0.35 : 0.75})"></div>`;
+      out += `<span class="hm-zl" style="left:${Math.max(0, (ts.logicalToCoordinate((H.times || []).length + 1) ?? W - 200))}px;top:${z.d > 0 ? top + h + 2 : top - 14}px;color:rgb(${c});opacity:${older ? 0.7 : 1}">1H ${z.d > 0 ? "DEMAND" : "SUPPLY"}${older ? " (older)" : ""}</span>`;
     };
-    for (const z of sd.z4 || []) box(z, z.dir, "4H", z.t);
-    if (H.tf <= 60) for (const [list, d] of [[sd.dem || [], 1], [sd.sup || [], -1]]) for (const z of list) box(z, d, "15m", t0[z.from]);
+    if (sd.older) box(sd.older, true);
+    if (sd.zone) box(sd.zone, false);
+    for (const b of sd.breaks || []) {
+      const y = H.series.priceToCoordinate(b.lvl); if (y == null || y < 0 || y > Hh) continue;
+      const x0 = xAt(b.t0), x1 = xAt(b.t1); if (x1 <= 0) continue;
+      const c = b.mss ? "240,201,75" : col(b.d), l = Math.max(0, x0), w = Math.max(6, x1 - l);
+      out += `<div class="hm-bos" style="left:${l}px;top:${y}px;width:${w}px;border-color:rgb(${c})"></div>`;
+      out += `<span class="hm-zl" style="left:${l + w / 2 - 20}px;top:${b.d > 0 ? y - 13 : y + 2}px;color:rgb(${c})">${b.mss ? "MSS" : "BOS"} 1H</span>`;
+    }
     ov.innerHTML = out;
   }
 

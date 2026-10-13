@@ -794,6 +794,8 @@ body.home-on main#view { padding-top: 14px; }
 .hm-z { position: absolute; right: 0; border: 1px solid; border-radius: 2px; }
 .hm-z:not(.big) { border-style: dashed; }
 .hm-zl { position: absolute; font: 700 10px var(--font); white-space: nowrap; }
+.hm-bos { position: absolute; height: 0; border-top: 1.5px solid; }
+.tr-v.go { color: #f0c94b; }
 .hm-msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; z-index: 3; }
 .hm-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
 .hm-act { display: flex; gap: 12px; }
