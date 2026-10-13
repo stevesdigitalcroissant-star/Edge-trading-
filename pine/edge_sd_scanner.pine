@@ -121,6 +121,9 @@ sdState() =>
                 bool opp = d == 1 ? close[k] < open[k] : close[k] > open[k]
                 if not opp
                     break
+                // an older opposite candle joins only if it sits inside the last one's range (a base), not a step of the drop
+                if n > 0 and (d == 1 ? math.max(open[k], close[k]) > high[a] : math.min(open[k], close[k]) < low[a])
+                    break
                 n += 1
                 near := d == 1 ? math.max(nz(near, -1e10), math.max(open[k], close[k])) : math.min(nz(near, 1e10), math.min(open[k], close[k]))
             int oldest = n > 0 ? a + n - 1 : o
@@ -225,7 +228,9 @@ if showZone and barstate.islast
     box.delete(z2Box)
     label.delete(z2Lab)
     // the older zone with the trend, only while the trend holds and it isn't broken
-    if h2Dir != 0 and h2Dir == hTrend
+    // the older zone only when it makes sense: same way as the trend and clear of the newest zone (no overlap)
+    bool overlap = hDir != 0 and h2Bot <= hTop and h2Top >= hBot
+    if h2Dir != 0 and h2Dir == hTrend and not overlap
         string z2Name = htfName + (h2Dir == 1 ? " DEMAND zone " : " SUPPLY zone ") + str.tostring(h2Bot, format.mintick) + "–" + str.tostring(h2Top, format.mintick) + " (older)"
         z2Box := box.new(nz(h2T, time - 300 * 300000), h2Top, time, h2Bot, xloc = xloc.bar_time, extend = extend.right, border_color = h2Dir == 1 ? color.new(#5aa9e6, 50) : color.new(#f08a4b, 50), bgcolor = h2Dir == 1 ? color.new(#5aa9e6, 92) : color.new(#f08a4b, 92))
         z2Lab := label.new(rightX, h2Dir == 1 ? h2Top : h2Bot, z2Name, xloc = xloc.bar_time, style = label.style_label_left, color = h2Dir == 1 ? color.new(#5aa9e6, 40) : color.new(#f08a4b, 40), textcolor = color.white, size = size.small)
