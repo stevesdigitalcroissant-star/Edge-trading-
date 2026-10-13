@@ -120,3 +120,11 @@ test("S&D setup: your own limit, stop, target and contracts", async () => {
   assert.deepEqual([t.entry, t.initialSL, t.tp, t.units], [2651, 2647, 2661, 8]);
   assert.equal(t.riskUSD, 320);
 });
+
+test("S&D alert from a crude chart is ignored", async () => {
+  const store = memory();
+  const now = NY(9, 35);
+  const r = await core.handleHook(store, broker, JSON.stringify({ secret: "s3cret", type: "setup", strategy: "sd", symbol: "MCL1!", tv: "NYMEX:MCL1!", dir: "long", entry: 60, sl: 59.8, tp: 60.6, rr: 3, validMin: 240 }), now);
+  assert.equal(r.json.ignored, true);
+  assert.equal((await core.state(store, broker, now)).setups.length, 0);
+});

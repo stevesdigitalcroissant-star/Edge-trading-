@@ -91,6 +91,7 @@ async function handleHook(store, broker, body, now = Date.now()) {
   if (msg.type === "setup") {
     const r = await createSetup(store, market, msg, now, { broker });
     if (r.error) return { status: 400, json: { error: r.error } };
+    if (r.ignored) return { status: 200, json: { ignored: true, why: r.why } };
     return { status: 200, json: { ok: true, grade: r.grade, takeable: r.takeable, autoTrade: r.autoTrade ? r.autoTrade.id : null } };
   }
 
@@ -115,6 +116,7 @@ const styleSl = (sp, dir, entry, hi, lo) => (sp.stopFrac && sp.stopFrac < 1 && h
 async function radarSetup(store, market, msg, now, s) {
   const b = (x) => x === true || x === "true";
   const sd = msg.strategy === "sd";
+  if (sd && market === "crude") return { ignored: true, why: "Crude is off for supply & demand — it lost money in every test." };
   const setup = { id: id(), market, source: sd ? "scanner" : "radar", strategy: sd ? "sd" : "playbook", symbol: msg.symbol, tv: msg.tv, dir: msg.dir === "short" ? "short" : "long",
     kind: String(msg.kind || "").slice(0, 20), mss: num(msg.mss), liq: sd ? num(msg.liq) : undefined, liqR: sd ? num(msg.liqR) : undefined,
     entry: num(msg.entry), sl: num(msg.sl), tp: num(msg.tp), rr: num(msg.rr), zoneTop: num(msg.zoneTop), zoneBot: num(msg.zoneBot), trendD: num(msg.trendD), trend4h: num(msg.trend4h),

@@ -487,8 +487,8 @@
   }
   function propSwap() { const el = $("#propCard"); if (el) { el.outerHTML = propCard(); $("#view").querySelectorAll("#propCard [data-propset]").forEach((b) => b.addEventListener("click", propDialog)); } }
 
-  // ---------- S&D SCANNER: 1H zone + 5m shift found by TradingView on all 15 markets — one tap sends the limit
-  const SD_TV = ["MGC1!", "MCL1!", "SIL1!", "MNG1!", "MES1!", "MNQ1!", "MYM1!", "M2K1!", "MHG1!", "6E1!", "6B1!", "6J1!", "6A1!", "ZN1!", "ZB1!"];
+  // ---------- S&D SCANNER: 1H zone + 5m shift found by TradingView on 14 markets (crude is off) — one tap sends the limit
+  const SD_TV = ["MGC1!", "SIL1!", "MNG1!", "MES1!", "MNQ1!", "MYM1!", "M2K1!", "MHG1!", "6E1!", "6B1!", "6J1!", "6A1!", "ZN1!", "ZB1!"];
   function sdCard(x) {
     const g = x.g, live = x.status === "open" && !(x.expires && S.now > x.expires);
     const z = sdSize(x);
@@ -530,13 +530,13 @@
     const radar = Object.entries(S.prices || {}).filter(([, p]) => p && (p.swing15Low != null || p.trendD != null) && S.now - p.time < 3 * 864e5).map(([m]) => m);
     const push = !!pushSub || (S.push && S.push.devices.length > 0);
     let hide = false; try { hide = localStorage.getItem("edge.setupDone") === "1"; } catch {}
-    if (hide || (prop && radar.length >= 15 && push)) return "";
+    if (hide || (prop && radar.length >= 14 && push)) return "";
     const row = (ok, n, title, text, btn) => `<div class="su-row ${ok ? "ok" : ""}"><i>${ok ? "✓" : n}</i><div><b>${title}</b><p class="muted">${text}</p></div>${ok ? "" : btn}</div>`;
     return `<section class="card setup-steps" data-tour="getset"><div class="card-head"><h2>🚀 Get set up</h2><button type="button" class="link" data-suhide>Hide</button></div>
       ${row(prop, 1, "Your prop account", prop ? "The autopilot sizes every trade." : "Pick your firm and plan, type where the account stands — Edge does the rest.", `<button class="btn small primary" data-propset>Set up</button>`)}
-      ${row(radar.length >= 15, 2, `S&D scanner in TradingView${radar.length ? ` · ${radar.length}/15 markets` : ""}`, radar.length ? `Watching: ${radar.map(mname).join(", ")}.` : "On a computer: copy the script, add it to a 5-minute chart, create one alert per market (paid TradingView plan).", `<button class="btn small" data-copypine="edge_sd_scanner">Copy script</button>`)}
+      ${row(radar.length >= 14, 2, `S&D scanner in TradingView${radar.length ? ` · ${radar.length}/14 markets` : ""}`, radar.length ? `Watching: ${radar.map(mname).join(", ")}.` : "On a computer: copy the script, add it to a 5-minute chart, create one alert per market (paid TradingView plan).", `<button class="btn small" data-copypine="edge_sd_scanner">Copy script</button>`)}
       ${row(push, 3, "Notifications on this phone", push ? "Setups, fills and your game plan reach you anywhere." : "So the radar can reach you when the app is closed.", pushCapable && Notification.permission !== "denied" ? `<button class="btn small" data-pushon>Turn on</button>` : "")}
-      ${!radar.length ? `<details class="su-how"><summary>How to add the scanner alerts</summary><ol class="steps"><li>Tap <b>Copy script</b> (your secret is inside), open TradingView on a computer.</li><li>Pine Editor → select all, delete, paste → <b>Save</b> → <b>Add to chart</b> on a <b>5-minute</b> chart of <code>MGC1!</code>.</li><li>Alert (⏰) → Condition: <b>Edge S&amp;D</b> → <b>Any alert() function call</b> → Notifications → <b>Webhook URL</b>: <code>${esc(location.origin)}/api/hook</code> → Create.</li><li>Switch the chart to each of <code>${SD_TV.slice(1).join(" ")}</code> and create the same alert — 15 in all.</li></ol></details>` : ""}
+      ${!radar.length ? `<details class="su-how"><summary>How to add the scanner alerts</summary><ol class="steps"><li>Tap <b>Copy script</b> (your secret is inside), open TradingView on a computer.</li><li>Pine Editor → select all, delete, paste → <b>Save</b> → <b>Add to chart</b> on a <b>5-minute</b> chart of <code>MGC1!</code>.</li><li>Alert (⏰) → Condition: <b>Edge S&amp;D</b> → <b>Any alert() function call</b> → Notifications → <b>Webhook URL</b>: <code>${esc(location.origin)}/api/hook</code> → Create.</li><li>Switch the chart to each of <code>${SD_TV.slice(1).join(" ")}</code> and create the same alert — 14 in all (crude is off).</li></ol></details>` : ""}
     </section>`;
   }
 
@@ -1142,8 +1142,8 @@
       </section>`;
     const tvCard = `<section class="card"><h2>TradingView setup</h2>
         <p class="muted" style="margin-top:0">One script, your strategy. TradingView doesn't let apps install it, so it's one copy-paste — your secret is already inside.</p>
-        <div class="stat radar-pine"><small>⭐ Supply &amp; demand scanner — 1H zones, 5m confirmation, all 15 markets</small><b style="font-size:14px">5-minute chart, one per market: ${SD_TV.map((t) => `<code>${t}</code>`).join(" · ")}</b>
-          <p class="muted" style="margin:6px 0">Draws the live 1H demand / supply zone, waits for price to come back into it and the 5m to close past its last swing, then sends Edge the limit (fair value gap or breaker), stop 2 ticks past the low / high and the nearest 5m swing target (1.5R–6R). Orders only 02:00–11:30 New York. Needs a paid TradingView plan: one alert per market, 15 in all.</p>
+        <div class="stat radar-pine"><small>⭐ Supply &amp; demand scanner — 1H zones, 5m confirmation, 14 markets (crude is off)</small><b style="font-size:14px">5-minute chart, one per market: ${SD_TV.map((t) => `<code>${t}</code>`).join(" · ")}</b>
+          <p class="muted" style="margin:6px 0">Draws the live 1H demand / supply zone, waits for price to come back into it and the 5m to close past its last swing, then sends Edge the limit (fair value gap or breaker), stop 2 ticks past the low / high and the nearest 5m swing target (1.5R–6R). Orders only 02:00–11:30 New York. Needs a paid TradingView plan: one alert per market, 14 in all.</p>
           <button class="btn small primary" data-copypine="edge_sd_scanner">Copy S&amp;D scanner</button></div>
         <ol class="steps">
           <li>Tap <b>Copy S&amp;D scanner</b>, then on a computer open TradingView on a <b>5-minute</b> chart.</li>
