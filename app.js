@@ -1141,26 +1141,15 @@
         <div class="grid2">${kinds.map(([k, l]) => `<label class="f" style="flex-direction:row;display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" data-notify="${k}" style="width:auto" ${s.notify[k] ? "checked" : ""}> ${l}</label>`).join("")}</div>
       </section>`;
     const tvCard = `<section class="card"><h2>TradingView setup</h2>
-        <p class="muted" style="margin-top:0">TradingView doesn't let apps install scripts, so it's one copy-paste per script. Your secret is already inside.</p>
+        <p class="muted" style="margin-top:0">One script, your strategy. TradingView doesn't let apps install it, so it's one copy-paste — your secret is already inside.</p>
         <div class="stat radar-pine"><small>⭐ Supply &amp; demand scanner — 1H zones, 5m confirmation, all 15 markets</small><b style="font-size:14px">5-minute chart, one per market: ${SD_TV.map((t) => `<code>${t}</code>`).join(" · ")}</b>
           <p class="muted" style="margin:6px 0">Draws the live 1H demand / supply zone, waits for price to come back into it and the 5m to close past its last swing, then sends Edge the limit (fair value gap or breaker), stop 2 ticks past the low / high and the nearest 5m swing target (1.5R–6R). Orders only 02:00–11:30 New York. Needs a paid TradingView plan: one alert per market, 15 in all.</p>
           <button class="btn small primary" data-copypine="edge_sd_scanner">Copy S&amp;D scanner</button></div>
-        <div class="stat" style="margin-top:10px"><small>Your playbook radar — 8 markets (older)</small><b style="font-size:14px">5-minute chart, one per market: <code>MNQ1!</code> · <code>MES1!</code> · <code>MYM1!</code> · <code>MGC1!</code> · <code>SIL1!</code> · <code>MCL1!</code> · <code>MHG1!</code> · <code>MNG1!</code></b>
-          <p class="muted" style="margin:6px 0">Watches the daily / 4H trend, fresh 15m zones and the 5m change of character on TradingView's servers — your phone buzzes with the limit, stop and target even when Edge and your chart are closed. Every 5 minutes it also tells Edge where price is, so Edge trails your stop behind new 15m swings. Needs a paid TradingView plan (webhooks): one alert per market.</p>
-          <button class="btn small primary" data-copypine="edge_playbook_radar">Copy radar script</button></div>
-        <div class="stat" style="margin-top:10px"><small>📈 Trend 4H · 15m — any market, any chart</small><b style="font-size:14px">A small panel in the corner: 4H ▲/▼, 15m ▲/▼, and "Buys only", "Sells only" or "Wait"</b>
-          <p class="muted" style="margin:6px 0">Same rule as Edge: candle bodies closing past the last swing. When they disagree it shows the price where the 15m turns back with the 4H. No webhook needed.</p>
-          <button class="btn small primary" data-copypine="edge_trend">Copy trend script</button></div>
-        <details style="margin-top:10px"><summary class="muted">Older scripts</summary><div class="grid2" style="margin-top:8px">
-          <div class="stat"><small>London breakout — gold, crude, silver</small><b style="font-size:14px">5-minute charts: <code>MGC1!</code> · <code>MCL1!</code> · <code>SIL1!</code></b><button class="btn small primary" data-copypine="edge_london_breakout" style="margin-top:6px">Copy London script</button></div>
-          <div class="stat"><small>Natural gas zones</small><b style="font-size:14px">1-hour chart, normal candles: <code>QG1!</code> or <code>MNG1!</code></b><button class="btn small primary" data-copypine="edge_natgas_zones" style="margin-top:6px">Copy gas zones script</button></div>
-          <div class="stat"><small>Supply &amp; demand (the original)</small><b style="font-size:14px">5-minute charts: gold, crude, gas</b><button class="btn small" data-copypine="edge_supply_demand" style="margin-top:6px">Copy S&amp;D script</button></div>
-        </div></details>
         <ol class="steps">
-          <li>Tap a <b>Copy</b> button above, then on a computer open TradingView on the chart it says.</li>
+          <li>Tap <b>Copy S&amp;D scanner</b>, then on a computer open TradingView on a <b>5-minute</b> chart.</li>
           <li>Bottom panel → <b>Pine Editor</b> → <b>delete everything already there</b> (Ctrl+A / ⌘A, then Delete), paste → <b>Save</b> → <b>Add to chart</b>.</li>
           <li><b>Alert</b> (clock icon) → Condition: the Edge script → <b>Any alert() function call</b> (or "alert() function calls only") → Notifications → tick <b>Webhook URL</b> and paste the address below → Create.</li>
-          <li>One alert per chart. The first candle shows up in Edge's log.</li>
+          <li>Change the symbol and create the same alert again — one alert per market.</li>
         </ol>
         <div class="row" style="margin-top:12px"><button class="btn small" id="copyHook">Copy webhook URL</button></div>
         <p class="muted" style="margin:8px 0 0;font-size:12.5px">Webhook URL: <code>${esc(location.origin)}/api/hook</code>${S.hookReady ? "" : ` · <span class="err">EDGE_HOOK_SECRET isn't set in Vercel yet</span>`}</p>
