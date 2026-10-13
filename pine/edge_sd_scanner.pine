@@ -31,6 +31,7 @@
 indicator("Edge — Supply & Demand scanner (1H · 5m)", shorttitle = "Edge S&D", overlay = true, max_bars_back = 600, max_boxes_count = 200, max_lines_count = 200, max_labels_count = 200)
 
 secret = input.string("change-me", "Edge webhook secret", group = "Edge app alerts")
+alertMode = input.string("Edge webhook", "Alerts go to", options = ["Edge webhook", "TradingView app (plain text)"], group = "Edge app alerts", tooltip = "No two-factor authentication on TradingView yet? Pick the TradingView app: you get a readable notification on your phone instead of the Edge webhook.")
 htf = input.timeframe("60", "Zone timeframe", group = "Rules")
 tpR = input.float(3, "Target (R)", step = 0.5, group = "Rules")
 fromH = input.int(2, "Orders from (New York hour)", group = "Rules")
@@ -352,7 +353,12 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                         sLiq := line.new(bar_index, liq, bar_index + 48, liq, color = color.new(#f0c94b, 0), style = line.style_dotted, width = 2)
                     string liqJ = na(liq) ? "null" : str.tostring(liq)
                     string liqRJ = na(liq) ? "null" : str.tostring(math.abs(liq - e) / r, "#.##")
-                    alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + side + '","entry":' + str.tostring(e) + ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) + ',"rr":' + str.tostring(rr, "#.##") + ',"kind":"' + kind + '","zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(swV) + ',"liq":' + liqJ + ',"liqR":' + liqRJ + ',"trend4h":' + str.tostring(t4) + ',"validMin":240}', alert.freq_once_per_bar_close)
+                    string side4 = t4 == 0 ? "4H trend unclear" : t4 == d ? "with the 4H trend" : "AGAINST the 4H trend"
+                    string txt = syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(e, format.mintick) + " · SL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R, " + kind + ") · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + " · 5m MSS at " + str.tostring(swV, format.mintick) + " · " + side4 + (na(liq) ? "" : " · 5m swing at " + str.tostring(math.abs(liq - e) / r, "#.#") + "R")
+                    if alertMode == "Edge webhook"
+                        alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + side + '","entry":' + str.tostring(e) + ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) + ',"rr":' + str.tostring(rr, "#.##") + ',"kind":"' + kind + '","zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(swV) + ',"liq":' + liqJ + ',"liqR":' + liqRJ + ',"trend4h":' + str.tostring(t4) + ',"validMin":240}', alert.freq_once_per_bar_close)
+                    else
+                        alert(txt, alert.freq_once_per_bar_close)
 
 // ---------- the panel, top right: 4H trend, 1H trend, the zone and what Edge is waiting for
 tc(v) => v == 1 ? color.new(#4ade80, 0) : v == -1 ? color.new(#f87171, 0) : color.gray
