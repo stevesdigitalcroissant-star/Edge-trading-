@@ -38,6 +38,7 @@ toHM = input.int(1130, "Orders until (New York, HHMM)", group = "Rules")
 showZone = input.bool(true, "Draw the 1H zone", group = "Chart")
 showBos = input.bool(true, "Label 1H BOS / CHoCH", group = "Chart")
 showPanel = input.bool(true, "Trend panel (top right)", group = "Chart")
+showTrade = input.bool(false, "Draw the long / short boxes (off = you place your own)", group = "Chart")
 showTradeLabel = input.bool(false, "Price label next to the trade", group = "Chart")
 
 // ---------- the 1H side: trend (two BOS the same way) and the zone of the latest BOS
@@ -165,6 +166,7 @@ var box sSl = na
 var label sLab = na
 var line sMss = na
 var line sLiq = na
+var label sMssT = na
 var int armId = -1
 var float ext = na
 var int extBar = na
@@ -321,12 +323,16 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     label.delete(sLab)
                     line.delete(sMss)
                     line.delete(sLiq)
-                    sTp := box.new(bar_index, d == 1 ? tp : e, bar_index + 48, d == 1 ? e : tp, border_color = color.new(#4ade80, 20), bgcolor = color.new(#4ade80, 85))
-                    sSl := box.new(bar_index, d == 1 ? e : sl, bar_index + 48, d == 1 ? sl : e, border_color = color.new(#f87171, 20), bgcolor = color.new(#f87171, 85))
-                    if showTradeLabel
+                    label.delete(sMssT)
+                    if showTrade
+                        sTp := box.new(bar_index, d == 1 ? tp : e, bar_index + 48, d == 1 ? e : tp, border_color = color.new(#4ade80, 20), bgcolor = color.new(#4ade80, 85))
+                    if showTrade
+                        sSl := box.new(bar_index, d == 1 ? e : sl, bar_index + 48, d == 1 ? sl : e, border_color = color.new(#f87171, 20), bgcolor = color.new(#f87171, 85))
+                    if showTrade and showTradeLabel
                         sLab := label.new(bar_index + 48, e, (d == 1 ? "BUY LIMIT " : "SELL LIMIT ") + str.tostring(e, format.mintick) + " (" + kind + ")\nafter CHoCH 5m at " + str.tostring(swV, format.mintick) + "\nSL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R)" + (na(liq) ? "" : "\n5m swing " + str.tostring(liq, format.mintick) + " (" + str.tostring(math.abs(liq - e) / r, "#.#") + "R)"), style = label.style_label_left, color = color.new(#111923, 0), textcolor = color.white, size = size.normal)
                     sMss := line.new(swI, swV, bar_index + 48, swV, color = color.white, style = line.style_dashed)
-                    if not na(liq)
+                    sMssT := label.new(bar_index + 48, swV, "CHoCH 5m", style = label.style_label_left, color = color.new(#000000, 100), textcolor = color.white, size = size.normal)
+                    if showTrade and not na(liq)
                         sLiq := line.new(bar_index, liq, bar_index + 48, liq, color = color.new(#f0c94b, 0), style = line.style_dotted, width = 2)
                     string liqJ = na(liq) ? "null" : str.tostring(liq)
                     string liqRJ = na(liq) ? "null" : str.tostring(math.abs(liq - e) / r, "#.##")
