@@ -185,7 +185,7 @@
   // supply & demand scanner trades: as many contracts as fit under the band's max; flag it under the min
   const PV = { gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500, rty: 5, "6e": 12500, "6b": 6250, "6j": 1250000, "6a": 10000, zn: 1000, zb: 1000 };
   function sdSize(x) {
-    const st = S.settings, lo = st.sdRiskMin || 300, a = S.prop && S.prop.auto, hi = Math.min(st.sdRiskMax || 380, a && a.usd > 0 ? a.usd : Infinity);
+    const st = S.settings, lo = st.sdRiskMin || 190, a = S.prop && S.prop.auto, hi = Math.min(st.sdRiskMax || 200, a && a.usd > 0 ? a.usd : Infinity);
     const c = (CONTRACTS[x.market] || [["", PV[x.market] || 1]])[0], per = Math.abs(x.entry - x.sl) * c[1];
     const qty = per > 0 ? Math.floor(hi / per + 1e-9) : 0, risk = Math.round(qty * per);
     return { contract: c[0], qty, risk, per: Math.round(per), lo, hi, under: qty > 0 && risk < lo };

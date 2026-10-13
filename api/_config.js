@@ -147,8 +147,8 @@ const DEFAULT_SETTINGS = {
   tz: "America/New_York",
   riskPct: 1, // % of the account risked per trade
   accountSize: 10000, // used for sizing when no broker is connected
-  sdRiskMin: 300, // supply & demand scanner trades: risk band in dollars — size up to the max,
-  sdRiskMax: 380, // flag it when the stop only allows less than the min
+  sdRiskMin: 190, // supply & demand scanner trades: risk band in dollars — size up to the max,
+  sdRiskMax: 200, // flag it when the stop only allows less than the min
   beAtR: 0, // move the stop to break-even at +R (0 = never — the 2019-2026 tests did better without it)
   beOffsetR: 0.05, // break-even + a hair, so the spread doesn't turn a BE into a small loss
   tpAtR: 3.2, // full exit
