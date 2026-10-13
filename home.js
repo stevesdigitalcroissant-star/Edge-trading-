@@ -141,9 +141,10 @@
     const pill = (tf, d, extra = "") => `<span class="tr-pill ${d > 0 ? "up" : d < 0 ? "dn" : ""}"><small>${tf}</small>${d > 0 ? "▲ Bullish" : d < 0 ? "▼ Bearish" : "– none yet"}${extra}</span>`;
     $("#hmTrend").innerHTML = sd ? `<span class="tr-badge">${pill("4H", sd.t4)}${pill("1H", sd.trend, sd.trend ? ` · ${sd.cnt >= 2 ? `${sd.cnt} BOS` : "1 break"}` : "")}
       ${sd.zone ? `<span class="tr-pill ${sd.zone.d > 0 ? "up" : "dn"}"><small>1H zone</small>${sd.zone.d > 0 ? "Demand" : "Supply"} ${fp(sd.zone.bot)}–${fp(sd.zone.top)}${sd.with4h === false ? " · against 4H" : ""}</span>` : ""}
+      ${sd.zone4 ? `<span class="tr-pill ${sd.zone4.d > 0 ? "up" : "dn"}"><small>4H zone</small>${sd.zone4.d > 0 ? "Demand" : "Supply"} ${fp(sd.zone4.bot)}–${fp(sd.zone4.top)}</span>` : ""}
       <span class="tr-v ${sd.inZone ? "go" : ""}">${esc(sd.status)}</span><span class="tr-hint">Orders ${sd.ordersOpen ? "open" : "closed"} · 02:00–11:30 NY</span></span>` : "";
     $("#hmPx").innerHTML = `<b class="num">${last[4].toFixed(H.prec ?? 2)}</b><span class="${ch >= 0 ? "pos" : "neg"}">${ch >= 0 ? "+" : ""}${ch.toFixed(H.prec ?? 2)} (${((ch / open) * 100).toFixed(2)}%)</span>
-      ${sd && sd.inZone ? `<span class="hm-chip zone">In the 1H ${sd.zone.d > 0 ? "demand" : "supply"} zone</span>` : ""}`;
+      ${sd && sd.inZone ? `<span class="hm-chip zone">In the 1H ${sd.zone.d > 0 ? "demand" : "supply"} zone</span>` : ""}${sd && sd.inZone4 ? `<span class="hm-chip zone">In the 4H ${sd.zone4.d > 0 ? "demand" : "supply"} zone</span>` : ""}`;
     const age = Math.round((Date.now() - last[0]) / 60e3);
     $("#hmNote").textContent = `Prices ~10 min behind · last candle ${age < 90 ? `${age} min ago` : new Date(last[0]).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}. Your TradingView alerts watch it live.`;
     overlay();
@@ -155,16 +156,20 @@
     if (!H.series || !sd || !H.bars[H.m]) { ov.innerHTML = ""; return; }
     const ts = H.chart.timeScale(), W = ov.clientWidth, Hh = ov.clientHeight, fp = (v) => Number(v).toFixed(H.prec ?? 2);
     const T = H.times || [], xAt = (t) => { if (t == null || !T.length) return 0; let lo = 0, hi = T.length - 1; const s = t / 1000; while (lo < hi) { const md = (lo + hi) >> 1; if (T[md] < s) lo = md + 1; else hi = md; } const x = ts.logicalToCoordinate(T[lo] > s && lo > 0 ? lo - 1 : lo); return x == null ? 0 : x; };
-    const col = (d) => (d > 0 ? "90,169,230" : "240,138,75"); // demand blue, supply orange — like the TradingView script
-    let out = "";
-    const box = (z, older) => {
+    const col = (d, tf) => (tf === "4H" ? (d > 0 ? "38,166,154" : "214,69,120") : d > 0 ? "90,169,230" : "240,138,75"); // 1H: demand blue, supply orange · 4H: demand green, supply pink — like the TradingView script
+    let out = ""; const used = [];
+    const ovl = (a, b) => a && b && a.bot <= b.top && a.top >= b.bot;
+    const box = (z, older, tf = "1H") => {
       const y1 = H.series.priceToCoordinate(z.top), y2 = H.series.priceToCoordinate(z.bot); if (y1 == null || y2 == null) return;
       const top = Math.min(y1, y2), h = Math.max(2, Math.abs(y2 - y1)); if (top > Hh || top + h < 0) return;
-      const x = Math.max(0, Math.min(W - 60, xAt(z.t))), c = col(z.d);
+      const x = Math.max(0, Math.min(W - 60, xAt(z.t))), c = col(z.d, tf);
       out += `<div class="hm-z big" style="left:${x}px;top:${top}px;height:${h}px;background:rgba(${c},${older ? 0.07 : 0.16});border-color:rgba(${c},${older ? 0.35 : 0.75})"></div>`;
-      out += `<span class="hm-zl" style="left:${Math.max(0, (ts.logicalToCoordinate((H.times || []).length + 1) ?? W - 200))}px;top:${z.d > 0 ? top + h + 2 : top - 14}px;color:rgb(${c});opacity:${older ? 0.7 : 1}">1H ${z.d > 0 ? "DEMAND" : "SUPPLY"}${older ? " (older)" : ""}</span>`;
+      let ly = z.d > 0 ? top + h + 2 : top - 14; while (used.some((u) => Math.abs(u - ly) < 12)) ly += z.d > 0 ? 12 : -12; used.push(ly);
+      out += `<span class="hm-zl" style="left:${Math.max(0, (ts.logicalToCoordinate((H.times || []).length + 1) ?? W - 200))}px;top:${ly}px;color:rgb(${c});opacity:${older ? 0.7 : 1}">${tf} ${z.d > 0 ? "DEMAND" : "SUPPLY"}${older ? " (older)" : ""}</span>`;
     };
-    if (sd.older) box(sd.older, true);
+    if (sd.older4) box(sd.older4, true, "4H");
+    if (sd.zone4) box(sd.zone4, false, "4H");
+    if (sd.older && !ovl(sd.older, sd.zone4)) box(sd.older, true); // an older 1H zone inside the 4H zone adds nothing
     if (sd.zone) box(sd.zone, false);
     for (const b of sd.breaks || []) {
       const y = H.series.priceToCoordinate(b.lvl); if (y == null || y < 0 || y > Hh) continue;

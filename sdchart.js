@@ -77,7 +77,7 @@
 
   // everything the home chart shows; h1 / h4 include the candle still forming (it is dropped here)
   function read(h1, h4, price, nyMin) {
-    const s = sd1h(h1.slice(0, -1)), t4 = trend4h(h4.slice(0, -1));
+    const s = sd1h(h1.slice(0, -1)), t4 = trend4h(h4.slice(0, -1)), s4 = sd1h(h4.slice(0, -1)); // the 4H zones follow the same rules on 4H candles
     const inZ = s.zone && price != null && price <= s.zone.top && price >= s.zone.bot;
     const status = !s.trend ? "Wait: no 1H trend yet"
       : s.cnt < 2 ? "Wait: 1H needs a 2nd BOS"
@@ -85,7 +85,8 @@
       : inZ ? "IN ZONE — waiting for 5m MSS"
       : "Wait: price not in the zone yet";
     const open = nyMin != null && nyMin >= 120 && nyMin < 690;
-    return { ...s, t4, inZone: !!inZ, status, ordersOpen: open, with4h: s.zone && t4 ? s.zone.d === t4 : null };
+    const in4 = s4.zone && price != null && price <= s4.zone.top && price >= s4.zone.bot;
+    return { ...s, t4, zone4: s4.zone, older4: s4.older, inZone4: !!in4, inZone: !!inZ, status, ordersOpen: open, with4h: s.zone && t4 ? s.zone.d === t4 : null };
   }
 
   const api = { sd1h, trend4h, read };

@@ -37,6 +37,7 @@ tpR = input.float(3, "Target (R)", step = 0.5, group = "Rules")
 fromH = input.int(2, "Orders from (New York hour)", group = "Rules")
 toHM = input.int(1130, "Orders until (New York, HHMM)", group = "Rules")
 showZone = input.bool(true, "Draw the 1H zone", group = "Chart")
+showZone4 = input.bool(true, "Draw the 4H zone", group = "Chart")
 showBos = input.bool(true, "Label 1H BOS / MSS", group = "Chart")
 showPanel = input.bool(true, "Trend panel (top right)", group = "Chart")
 showTrade = input.bool(false, "Draw the long / short boxes (off = you place your own)", group = "Chart")
@@ -178,6 +179,8 @@ trendState() =>
 
 [hDir, hTop, hBot, hId, hZT, bLvl, bT0, bT1, bDir, bCh, bId, hTrend, hCnt, h2Dir, h2Top, h2Bot, h2T] = request.security(syminfo.tickerid, htf, sdState(), lookahead = barmerge.lookahead_on)
 t4 = request.security(syminfo.tickerid, "240", trendState(), lookahead = barmerge.lookahead_on)
+// the 4H zones: the same rules on 4H candles (drawn in their own colours, for context — alerts come from the 1H zone)
+[x4Dir, x4Top, x4Bot, x4Id, x4ZT, x4bLvl, x4bT0, x4bT1, x4bDir, x4bCh, x4bId, x4Trend, x4Cnt, x42Dir, x42Top, x42Bot, x42T] = request.security(syminfo.tickerid, "240", sdState(), lookahead = barmerge.lookahead_on)
 htfName = htf == "60" ? "1H" : htf == "240" ? "4H" : htf + "m"
 
 // ---------- the 5m side
@@ -220,6 +223,25 @@ var box zBox = na
 var label zLab = na
 var box z2Box = na
 var label z2Lab = na
+var box z4Box = na
+var label z4Lab = na
+var box z42Box = na
+var label z42Lab = na
+// 4H zones: demand green, supply pink (1H: demand blue, supply orange)
+if showZone4 and barstate.islast
+    box.delete(z4Box)
+    label.delete(z4Lab)
+    box.delete(z42Box)
+    label.delete(z42Lab)
+    if x4Dir != 0
+        color c4 = x4Dir == 1 ? #26a69a : #d64578
+        z4Box := box.new(nz(x4ZT, time - 300 * 300000), x4Top, time, x4Bot, xloc = xloc.bar_time, extend = extend.right, border_color = color.new(c4, 20), bgcolor = color.new(c4, 88))
+        z4Lab := label.new(time + 6 * timeframe.in_seconds() * 1000, x4Dir == 1 ? x4Bot : x4Top, "4H " + (x4Dir == 1 ? "DEMAND" : "SUPPLY"), xloc = xloc.bar_time, style = label.style_label_left, color = c4, textcolor = color.white, size = size.normal)
+    bool ov4 = x4Dir != 0 and x42Bot <= x4Top and x42Top >= x4Bot
+    if x42Dir != 0 and x42Dir == x4Trend and not ov4
+        color c42 = x42Dir == 1 ? #26a69a : #d64578
+        z42Box := box.new(nz(x42T, time - 600 * 300000), x42Top, time, x42Bot, xloc = xloc.bar_time, extend = extend.right, border_color = color.new(c42, 50), bgcolor = color.new(c42, 94))
+        z42Lab := label.new(time + 6 * timeframe.in_seconds() * 1000, x42Dir == 1 ? x42Bot : x42Top, "4H " + (x42Dir == 1 ? "DEMAND" : "SUPPLY") + " (older)", xloc = xloc.bar_time, style = label.style_label_left, color = color.new(c42, 40), textcolor = color.white, size = size.small)
 barMs = timeframe.in_seconds() * 1000
 rightX = time + 6 * barMs // labels live in the empty space right of the last candle, never on the candles
 if showZone and barstate.islast
@@ -230,7 +252,8 @@ if showZone and barstate.islast
     // the older zone with the trend, only while the trend holds and it isn't broken
     // the older zone only when it makes sense: same way as the trend and clear of the newest zone (no overlap)
     bool overlap = hDir != 0 and h2Bot <= hTop and h2Top >= hBot
-    if h2Dir != 0 and h2Dir == hTrend and not overlap
+    bool in4 = x4Dir != 0 and h2Bot <= x4Top and h2Top >= x4Bot // an older 1H zone inside the 4H zone adds nothing
+    if h2Dir != 0 and h2Dir == hTrend and not overlap and not in4
         string z2Name = htfName + (h2Dir == 1 ? " DEMAND zone " : " SUPPLY zone ") + str.tostring(h2Bot, format.mintick) + "–" + str.tostring(h2Top, format.mintick) + " (older)"
         z2Box := box.new(nz(h2T, time - 300 * 300000), h2Top, time, h2Bot, xloc = xloc.bar_time, extend = extend.right, border_color = h2Dir == 1 ? color.new(#5aa9e6, 50) : color.new(#f08a4b, 50), bgcolor = h2Dir == 1 ? color.new(#5aa9e6, 92) : color.new(#f08a4b, 92))
         z2Lab := label.new(rightX, h2Dir == 1 ? h2Top : h2Bot, z2Name, xloc = xloc.bar_time, style = label.style_label_left, color = h2Dir == 1 ? color.new(#5aa9e6, 40) : color.new(#f08a4b, 40), textcolor = color.white, size = size.small)
@@ -368,7 +391,7 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
 // ---------- the panel, top right: 4H trend, 1H trend, the zone and what Edge is waiting for
 tc(v) => v == 1 ? color.new(#4ade80, 0) : v == -1 ? color.new(#f87171, 0) : color.gray
 tt(v) => v == 1 ? "▲ Bullish" : v == -1 ? "▼ Bearish" : "— none yet"
-var table panel = table.new(position.top_right, 2, 5, bgcolor = color.new(#111923, 10), border_width = 0, frame_color = color.new(#334155, 0), frame_width = 1)
+var table panel = table.new(position.top_right, 2, 6, bgcolor = color.new(#111923, 10), border_width = 0, frame_color = color.new(#334155, 0), frame_width = 1)
 if showPanel and barstate.islast
     string zTxt = hDir == 0 ? "no valid zone" : (hDir == 1 ? "Demand " : "Supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick)
     string st = hDir == 0 ? (hCnt < 2 ? "Wait: 1H needs a 2nd BOS" : "Wait: no fresh 1H zone") : hId == usedId ? "Zone used — wait for the next" : armId == hId ? "IN ZONE — waiting for 5m MSS" : "Wait: price not in the zone yet"
@@ -381,7 +404,10 @@ if showPanel and barstate.islast
     table.cell(panel, 1, 2, zTxt + wTxt, text_color = hDir == 1 ? #5aa9e6 : hDir == -1 ? #f08a4b : color.gray, text_size = size.small, text_halign = text.align_left)
     if timeframe.period != "5"
         st := "Put this on a 5-MINUTE chart"
-    table.cell(panel, 0, 3, "Edge", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 1, 3, st, text_color = armId == hId and hDir != 0 ? color.new(#f0c94b, 0) : color.white, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 0, 4, "Orders", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 1, 4, inWin ? "open (02:00–11:30 NY)" : "closed (02:00–11:30 NY)", text_color = inWin ? color.new(#4ade80, 0) : color.gray, text_size = size.small, text_halign = text.align_left)
+    string z4Txt = x4Dir == 0 ? "no valid zone" : (x4Dir == 1 ? "Demand " : "Supply ") + str.tostring(x4Bot, format.mintick) + "–" + str.tostring(x4Top, format.mintick)
+    table.cell(panel, 0, 3, "4H zone", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 1, 3, z4Txt, text_color = x4Dir == 1 ? #26a69a : x4Dir == -1 ? #d64578 : color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 0, 4, "Edge", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 1, 4, st, text_color = armId == hId and hDir != 0 ? color.new(#f0c94b, 0) : color.white, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 0, 5, "Orders", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 1, 5, inWin ? "open (02:00–11:30 NY)" : "closed (02:00–11:30 NY)", text_color = inWin ? color.new(#4ade80, 0) : color.gray, text_size = size.small, text_halign = text.align_left)
