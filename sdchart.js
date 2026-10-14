@@ -105,6 +105,56 @@
     return { trend: dir, breaks: out };
   }
 
+  // Liquidity taken: a candle wicks past an earlier swing high / low (where stops rest) and closes back inside.
+  // Swings = 3-candle pivots not yet run; each swing can be swept once. d = the side of the stops that were taken
+  // (+1 = buy stops above a high, −1 = sell stops below a low).
+  function sweeps(B, len = 3, maxAge = 120) {
+    const pools = [], out = [];
+    for (let i = 0; i < B.length; i++) {
+      const j = i - len;
+      if (j >= len) {
+        let H = true, L = true;
+        for (let k = 1; k <= len; k++) { if (!(B[j].h > B[j - k].h && B[j].h >= B[j + k].h)) H = false; if (!(B[j].l < B[j - k].l && B[j].l <= B[j + k].l)) L = false; }
+        if (H) pools.push({ d: 1, p: B[j].h, i: j });
+        if (L) pools.push({ d: -1, p: B[j].l, i: j });
+      }
+      const b = B[i];
+      for (let q = pools.length - 1; q >= 0; q--) {
+        const P = pools[q];
+        if (i - P.i > maxAge) { pools.splice(q, 1); continue; }
+        if (P.i >= i - len) continue;
+        if (P.d === 1 ? b.h > P.p : b.l < P.p) {
+          pools.splice(q, 1);
+          if (P.d === 1 ? b.c < P.p : b.c > P.p) out.push({ d: P.d, lvl: P.p, t0: B[P.i].t, t1: b.t }); // wick through, close back = taken
+        }
+      }
+    }
+    return out;
+  }
+
+  // Liquidity at the MAJOR swings only (the zigzag of the swing structure): the first candle that wicks past one of
+  // those highs / lows and is back inside within `back` candles takes its liquidity. Staying past it is a break.
+  function majorSweeps(B, sw, back = 3) {
+    const byT = new Map(B.map((b, i) => [b.t, i])), pts = [];
+    for (const x of sw.breaks) {
+      pts.push({ t: x.t0, p: x.lvl, hi: x.mss ? x.d < 0 : x.d > 0 }); // the level that broke: a high for a break up
+      if (x.o) pts.push({ t: x.o.t, p: x.o.p, hi: x.mss ? x.d > 0 : x.d < 0 }); // the impulse start / failed extreme
+    }
+    const out = [], seen = new Set();
+    for (const P of pts) {
+      const key = `${P.t}:${P.p}`; if (seen.has(key)) continue; seen.add(key);
+      const i0 = byT.get(P.t); if (i0 == null) continue;
+      for (let i = i0 + 2; i < B.length; i++) {
+        const b = B[i];
+        if (P.hi ? b.h <= P.p : b.l >= P.p) continue;
+        // taken if price is back inside (a close) on this candle or within the next `back` candles
+        for (let k = i; k <= Math.min(B.length - 1, i + back); k++) if (P.hi ? B[k].c < P.p : B[k].c > P.p) { out.push({ d: P.hi ? 1 : -1, lvl: P.p, t0: P.t, t1: b.t, back: k - i }); break; }
+        break;
+      }
+    }
+    return out.sort((a, b) => a.t1 - b.t1);
+  }
+
   function trend4h(B) {
     let h = null, l = null, dir = 0;
     for (let i = 0; i < B.length; i++) {
@@ -131,6 +181,6 @@
     return { ...s, t4, zone4: s4.zone, older4: s4.older, inZone4: !!in4, inZone: !!inZ, status, ordersOpen: open, with4h: s.zone && t4 ? s.zone.d === t4 : null };
   }
 
-  const api = { sd1h, swing, trend4h, read };
+  const api = { sd1h, swing, sweeps, majorSweeps, trend4h, read };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.EdgeSD = api;
 })(typeof window !== "undefined" ? window : globalThis);
