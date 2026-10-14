@@ -110,6 +110,17 @@ test("S&D scanner alert (1H zone · 5m shift) → graded, taken as a limit", asy
   assert.equal(late.json.takeable, false);
 });
 
+test("S&D mitigation block alert is its own setup next to the FVG one", async () => {
+  const store = memory();
+  const now = NY(9, 35);
+  const base = { secret: "s3cret", type: "setup", strategy: "sd", symbol: "M6E1!", tv: "CME:M6E1!", dir: "long", sl: 1.0840, rr: 3, zoneTop: 1.0850, zoneBot: 1.0838, validMin: 240 };
+  await core.handleHook(store, broker, JSON.stringify({ ...base, entry: 1.0849, tp: 1.0876, kind: "MB", mss: 1.0849 }), now);
+  await core.handleHook(store, broker, JSON.stringify({ ...base, entry: 1.0852, tp: 1.0888, kind: "FVG", mss: 1.0851 }), now + 60e3);
+  const st = await core.state(store, broker, now + 60e3);
+  assert.deepEqual(st.setups.map((x) => x.kind).sort(), ["FVG", "MB"]);
+  assert.ok(st.setups.every((x) => x.takeable !== false));
+});
+
 test("S&D setup: your own limit, stop, target and contracts", async () => {
   const store = memory();
   const now = NY(9, 35);

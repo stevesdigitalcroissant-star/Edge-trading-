@@ -18,6 +18,12 @@
 //   7. 30% fill    : price usually fills ~30% of a fresh zone before it turns (dotted line). A 5m MSS
 //                    before that is flagged "may go deeper" — not blocked (tested: blocking it doesn't
 //                    raise the win rate).
+//   8. Too far     : a small sweep past the zone is fine (liquidity); if price pushed more than 1× the 1H
+//                    average range past it, no setup.
+//   9. MB entry    : mitigation block — after the low in the zone: swing high (top of the first rally), a
+//                    HIGHER low, then a strong close above that swing high. Block = the last 1–3 up-close
+//                    candles of the rally (wick to wick); limit at its top, stop under the higher low. It is
+//                    its own alert ("MB") and doesn't use up the zone (the FVG setup can still follow).
 //   Orders only 02:00–11:30 New York. Edge keeps the setup 4 hours and closes everything by 14:20.
 //
 // CLEAN chart (default): only the live 1H zone with its 30% line and, when a setup fires, the latest one:
@@ -48,6 +54,8 @@ showPanel = input.bool(true, "Trend panel (top right)", group = "Chart")
 showFill = input.bool(true, "Dotted 30% line inside the 1H zone", group = "Chart", tooltip = "Price usually fills about 30% of a fresh zone before it turns. A 5m MSS before that line: it may go deeper first (you could become the liquidity).")
 showTrade = input.bool(true, "Draw the latest setup: liquidity taken, MSS 5m, FVG and the entry", group = "Chart")
 showBoxes = input.bool(false, "Long / short boxes instead of the entry line + text", group = "Chart")
+maxPast = input.float(1.0, "No setup if price pushed this far past the zone (× 1H average range); a small sweep is fine", step = 0.25, group = "Rules")
+showMB = input.bool(true, "Mitigation block entries (swing low → swing high → higher low → strong close above)", group = "Rules")
 maxR = input.float(10, "Highest target (R) — the 1H high / low the move came from, capped here", step = 0.5, group = "Rules")
 showTradeLabel = input.bool(false, "Price label next to the trade", group = "Chart")
 
@@ -194,6 +202,7 @@ trendState() =>
 
 [hDir, hTop, hBot, hId, hZT, bLvl, bT0, bT1, bDir, bCh, bId, hTrend, hCnt, h2Dir, h2Top, h2Bot, h2T, hW, h2W] = request.security(syminfo.tickerid, htf, sdState(), lookahead = barmerge.lookahead_on)
 t4 = request.security(syminfo.tickerid, "240", trendState(), lookahead = barmerge.lookahead_on)
+atr1h = request.security(syminfo.tickerid, htf, ta.atr(14)[1], lookahead = barmerge.lookahead_on)
 // how much of the 1H zone price has filled, measured on the drawn zone (wick edge → far edge): 0 = just touched, 1 = all
 hFar = hDir == 1 ? hBot : hTop
 hNear = hDir == 1 ? (na(hW) ? hTop : math.max(hTop, hW)) : (na(hW) ? hBot : math.min(hBot, hW))
@@ -212,6 +221,12 @@ var line sMss = na
 var line sLiq = na
 var label sMssT = na
 var box sFvg = na
+var int mbId = -1
+var box mbBox = na
+var line mbEnt = na
+var line mbStop = na
+var label mbLab = na
+var line mbMss = na
 var line sEnt = na
 var line sStop = na
 var label sEntT = na
@@ -380,6 +395,65 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     swI := ii
                     swV := array.get(vals, j)
                     break
+        // ---- MITIGATION BLOCK (5m): after the low in the zone (L1) a swing high H (top of the first rally), then a
+        // HIGHER low, then a strong candle (body ≥ half) CLOSES above H. Block = the last 1–3 up-close candles of the
+        // rally into H, wick to wick; buy limit at its top, stop 2 ticks under the higher low. Sells mirrored.
+        // It doesn't use up the zone: the normal FVG setup can still come after it.
+        if showMB and mbId != hId and inWin and not na(extBar)
+            int nB = math.min(bar_index - extBar - 1, 150)
+            if nB >= 6
+                int kH = na
+                for k = 1 to nB
+                    if na(kH) or (d == 1 ? high[k] > high[kH] : low[k] < low[kH])
+                        kH := k
+                int kL = na
+                if kH >= 4
+                    for k = 1 to kH - 1
+                        if na(kL) or (d == 1 ? low[k] < low[kL] : high[k] > high[kL])
+                            kL := k
+                bool okH = not na(kH) and kH >= 4 and kH <= nB - 2 and (d == 1 ? high[kH] >= math.max(high[kH - 1], high[kH - 2], high[kH + 1], high[kH + 2]) : low[kH] <= math.min(low[kH - 1], low[kH - 2], low[kH + 1], low[kH + 2]))
+                bool okL = not na(kL) and kL >= 3 and (d == 1 ? low[kL] <= math.min(low[kL - 1], low[kL - 2], low[kL + 1], low[kL + 2]) and low[kL] > ext : high[kL] >= math.max(high[kL - 1], high[kL - 2], high[kL + 1], high[kL + 2]) and high[kL] < ext)
+                bool strong = math.abs(close - open) >= 0.5 * (high - low)
+                if okH and okL and strong and (d == 1 ? close > high[kH] : close < low[kH])
+                    mbId := hId
+                    int k0 = kH
+                    while k0 < nB and not (d == 1 ? close[k0] > open[k0] : close[k0] < open[k0])
+                        k0 += 1
+                    float bTop = high[k0]
+                    float bBot = low[k0]
+                    int kEnd = k0
+                    for k = k0 to math.min(k0 + 2, nB)
+                        if not (d == 1 ? close[k] > open[k] : close[k] < open[k])
+                            break
+                        bTop := math.max(bTop, high[k])
+                        bBot := math.min(bBot, low[k])
+                        kEnd := k
+                    float me = d == 1 ? bTop : bBot
+                    float msl = (d == 1 ? low[kL] : high[kL]) - d * 2 * tick
+                    float mr = math.abs(me - msl)
+                    bool mFar = (d == 1 ? hFar - ext : ext - hFar) > maxPast * atr1h
+                    if d * (me - msl) > 0 and mr >= 4 * tick and not mFar
+                        float mtp = me + d * tpR * mr
+                        float mtpMax = na(legExt) ? mtp : me + d * math.max(tpR * mr, math.min(d * (legExt - me), maxR * mr))
+                        float mrrMax = math.abs(mtpMax - me) / mr
+                        float mfill = fillOf(ext)
+                        box.delete(mbBox)
+                        line.delete(mbEnt)
+                        line.delete(mbStop)
+                        label.delete(mbLab)
+                        line.delete(mbMss)
+                        if showTrade
+                            mbBox := box.new(bar_index - kEnd, bTop, bar_index + 30, bBot, border_color = color.new(#777777, 20), bgcolor = color.new(#777777, 80), text = "MB", text_size = size.tiny, text_color = #555555, text_halign = text.align_left)
+                            mbEnt := line.new(bar_index - kEnd, me, bar_index + 30, me, color = color.new(#8e44ad, 0), width = 2)
+                            mbStop := line.new(bar_index, msl, bar_index + 30, msl, color = color.new(#ef5350, 0), style = line.style_dotted, width = 1)
+                            mbMss := line.new(bar_index - kH, d == 1 ? high[kH] : low[kH], bar_index, d == 1 ? high[kH] : low[kH], color = color.new(#e0b000, 0), width = 2)
+                            mbLab := label.new(bar_index + 30, me, (d == 1 ? "BUY" : "SELL") + " ENTRY " + str.tostring(me, format.mintick) + " (MB)\nstop " + str.tostring(msl, format.mintick) + "\ntarget 1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(mtp, format.mintick) + "  ✓ recommended" + (mrrMax > tpR + 0.25 ? "\nhighest 1:" + str.tostring(mrrMax, "#.#") + " → " + str.tostring(mtpMax, format.mintick) : ""), style = label.style_label_left, color = color.new(#000000, 100), textcolor = #8e44ad, size = size.normal, textalign = text.align_left)
+                        string mside = d == 1 ? "long" : "short"
+                        string mtxt = syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(me, format.mintick) + " · SL " + str.tostring(msl, format.mintick) + " · TP " + str.tostring(mtp, format.mintick) + " (1:" + str.tostring(tpR, "#.#") + ", MITIGATION BLOCK) · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + (mrrMax > tpR + 0.25 ? " · highest target " + str.tostring(mtpMax, format.mintick) + " (" + str.tostring(mrrMax, "#.#") + "R)" : "") + (na(mfill) ? "" : " · " + fillTxt(mfill))
+                        if alertMode == "Edge webhook"
+                            alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + mside + '","entry":' + str.tostring(me) + ',"sl":' + str.tostring(msl) + ',"tp":' + str.tostring(mtp) + ',"rr":' + str.tostring(tpR, "#.##") + ',"kind":"MB","zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(d == 1 ? high[kH] : low[kH]) + ',"liq":null,"liqR":null,"trend4h":' + str.tostring(t4) + ',"tpMax":' + str.tostring(mtpMax) + ',"rrMax":' + str.tostring(mrrMax, "#.##") + ',"fill":' + (na(mfill) ? "null" : str.tostring(mfill, "#.##")) + ',"validMin":240}', alert.freq_once_per_bar_close)
+                        else
+                            alert(mtxt, alert.freq_once_per_bar_close)
         if not na(swV) and (d == 1 ? close > swV : close < swV)
             usedId := hId
             armId := -1
@@ -390,6 +464,8 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     leg := d == 1 ? math.min(leg, low[k]) : math.max(leg, high[k])
                 float sl = leg - d * 2 * tick
                 float fill = fillOf(leg)
+                // a small sweep past the zone is fine (liquidity); pushed far through it = no setup
+                bool tooFar = (d == 1 ? hFar - leg : leg - hFar) > maxPast * atr1h
                 // fair value gap (the last one of the move)
                 float fvg = na
                 int fvgK = na
@@ -411,7 +487,7 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                 string kind = na(fvg) ? "block" : "FVG"
                 float e = na(fvg) ? (d == 1 ? bHi : bLo) : fvg
                 float r = math.abs(e - sl)
-                if d * (e - sl) > 0 and r >= 4 * tick
+                if d * (e - sl) > 0 and r >= 4 * tick and not tooFar
                     // target 1:3; the nearest 5m swing in the way is sent so you can judge the room
                     float tp = e + d * tpR * r
                     float liq = na
