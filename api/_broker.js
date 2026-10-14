@@ -133,7 +133,9 @@ function traderspost() {
       ticker, action: side(dir), orderType: type, ...(type === "limit" ? { limitPrice: price } : {}), quantityType: "fixed_quantity", quantity: qty, signalPrice: price,
       stopLoss: { type: "stop", stopPrice: sl }, takeProfit: { limitPrice: tp }, time: new Date().toISOString(), extras: { source: "edge", ref },
     }),
-    breakeven: (ticker) => send({ ticker, action: "breakeven", orderType: "stop", time: new Date().toISOString() }),
+    breakeven: (ticker) => send({ ticker, action: "breakeven", time: new Date().toISOString() }),
+    // the 🔒 button: TradersPost moves the open position's stop to its entry
+    moveStop: (t) => send({ ticker: t.ticker || t.symbol, action: "breakeven", time: new Date().toISOString(), extras: { source: "edge", ref: t.id } }),
     exit: (ticker) => send({ ticker, action: "exit", cancel: true, time: new Date().toISOString() }),
   };
 }

@@ -82,3 +82,16 @@ test("news: 10 min before a big release Edge cancels the waiting limits and gets
   await core.tick(store, broker, now + 60e3);
   assert.equal((await store.lrange("log", 20)).filter((l) => /CPI m\/m at 08:30/.test(l.text)).length, 1);
 });
+
+test("🔒 Break-even on a TradersPost trade sends TradersPost's breakeven for that ticker", async () => {
+  sent.length = 0;
+  const store = memory(), broker = getBroker();
+  const t = { id: "tp:be1", source: "traderspost", market: "nq", dir: "long", ticker: "MNQ1!", entry: 25000, initialSL: 24980, currentSL: 24980, tp: 25060, units: 5, openedAt: NY(9, 0), maxR: 0, ruleBreaks: [], notified: {} };
+  await store.hset("trades", t.id, t);
+  const r = await core.action(store, broker, { action: "moveBE", tradeId: t.id }, NY(9, 30));
+  assert.equal(r.onBroker, true);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].action, "breakeven");
+  assert.equal(sent[0].ticker, "MNQ1!");
+  assert.equal((await store.hget("trades", t.id)).currentSL, 25000);
+});
