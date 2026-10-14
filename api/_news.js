@@ -1,4 +1,4 @@
-// News that moves gold, silver, crude, natural gas and the S&P 500.
+// News that moves the markets Edge trades: every big US release blocks all of them; big EUR / GBP / JPY / AUD releases block that currency.
 //
 // Source 1: the ForexFactory weekly calendar feed (free JSON, this week only),
 //           cached for an hour.
@@ -27,7 +27,11 @@ function classify(ev) {
   const high = ev.impact === "High";
   const markets = new Set();
   let block = false;
-  if (usd && high) { for (const m of ["gold", "crude", "natgas", "silver", "es"]) markets.add(m); block = true; }
+  // a big US release moves every market Edge trades (they're all priced in dollars); a big release from
+  // Europe, the UK, Japan or Australia moves that currency's future
+  if (usd && high) { for (const m of ["gold", "crude", "natgas", "silver", "copper", "es", "nq", "ym", "rty", "6e", "6b", "6j", "6a", "zn", "zb"]) markets.add(m); block = true; }
+  const fx = { EUR: "6e", GBP: "6b", JPY: "6j", AUD: "6a" }[ev.country];
+  if (fx && high) { markets.add(fx); block = true; }
   if (/crude|oil|opec|API Weekly|petroleum/i.test(t) && ev.impact !== "Low") { markets.add("crude"); block = true; }
   if (/natural gas/i.test(t)) { markets.add("natgas"); block = true; }
   if (/rig count/i.test(t)) { markets.add("crude"); markets.add("natgas"); }

@@ -901,6 +901,24 @@
     $("#modal").showModal();
   }
 
+  // the four judgement calls the scanner can't see — ticked on the confirm screen, scored in the journal
+  const SD_JUDGE = [
+    ["disp", () => "Strong move away from the zone (displacement)"],
+    ["liq", () => "Liquidity taken before / at the zone"],
+    ["base", () => "Short time at the base (1–3 candles)"],
+    ["pd", (x) => (x.dir === "long" ? "Zone in discount (lower half of the range)" : "Zone in premium (upper half of the range)")],
+  ];
+  function judgeCard() {
+    const tr = S.journal.filter((t) => t.judge && t.resultR != null);
+    if (!tr.length) return "";
+    const g = (list, label) => { const n = list.length, R = list.reduce((s, t) => s + t.resultR, 0), w = n ? Math.round((list.filter((t) => t.resultR > 0).length / n) * 100) : null;
+      return `<div class="stat"><small>${label} (${n})</small><b class="${cls(R)}">${rs(Math.round(R * 10) / 10)}</b><small>${w == null ? "—" : `${w}% wins`}</small></div>`; };
+    const score = (t) => SD_JUDGE.filter(([k]) => t.judge[k]).length;
+    return `<section class="card"><h2>👁 Your eye vs the scanner</h2><p class="muted" style="margin-top:0">S&amp;D trades by how many of the 4 checks you ticked. After 30+ trades this tells you whether your judgement adds an edge.</p><div class="grid2">
+      ${g(tr.filter((t) => score(t) === 4), "All 4 ✓")}${g(tr.filter((t) => score(t) === 3), "3 of 4")}${g(tr.filter((t) => score(t) <= 2), "2 or fewer")}</div>
+      <div class="grid2" style="margin-top:8px">${SD_JUDGE.map(([k, l]) => g(tr.filter((t) => t.judge[k]), `✓ ${l({ dir: "long" }).split(" (")[0]}`)).join("")}</div></section>`;
+  }
+
   // scanner setup: change the limit, stop, target or contracts — risk, R and profit follow as you type
   function sdTakeDialog(x, z, moods, body) {
     const k = x.dir === "short" ? -1 : 1, pv = (CONTRACTS[x.market] || [["", PV[x.market] || 1]])[0][1];
@@ -909,6 +927,8 @@
       <p class="muted" style="margin-top:0">Change anything you want. Contracts aim for about $${z.aim} risk ($${z.lo}–$${z.hi}) until you set them yourself.</p>
       <div class="grid2">${f("entry", "Limit", x.entry)}${f("sl", "Stop", x.sl)}${f("tp", "Target", x.tp)}${f("qty", `Contracts (${esc(z.contract)})`, z.qty)}</div>
       <div class="sc-list" id="sdLive" style="margin:10px 0"></div>
+      <p style="margin-bottom:4px"><b>Your eye</b> <span class="muted">— tick what you see on the chart. Edge keeps score so you'll know if your judgement beats the scanner.</span></p>
+      <div class="sd-judge">${SD_JUDGE.map(([k, l]) => `<label><input type="checkbox" data-judge="${k}"> ${esc(l(x))}</label>`).join("")}</div>
       <p>How do you feel <b>right now</b>?</p>
       <div class="moods">${moods.map(([m, l]) => `<button type="button" data-mood="${m}">${l}</button>`).join("")}</div>
       <p class="muted">${sendsOrders() ? "Edge sends the limit with this stop and target to Tradovate." : "Place this limit yourself; Edge tracks it and tells you when it fills."} I accept the stop. I won't move it further away.</p>
@@ -932,7 +952,8 @@
     calc();
     $("#confirmTake").addEventListener("click", async () => {
       const v = calc(); $("#confirmTake").disabled = true;
-      const r = await act({ action: "take", setupId: x.id, emotion: mood, entry: v.e, sl: v.sl, tp: v.tp, qty: v.q }, "Limit in. Hands off — the stop and target do the work.");
+      const judge = Object.fromEntries(SD_JUDGE.map(([k]) => [k, !!(body.querySelector(`[data-judge="${k}"]`) || {}).checked]));
+      const r = await act({ action: "take", setupId: x.id, emotion: mood, entry: v.e, sl: v.sl, tp: v.tp, qty: v.q, judge }, "Limit in. Hands off — the stop and target do the work.");
       $("#modal").close();
       if (r) { tab = "now"; render(); }
     });
@@ -1034,7 +1055,7 @@
         ${(() => { const sc = t.practice ? [] : liveScore(t); if (!sc.length) return ""; const ok = sc.filter((c) => c.ok).length;
           return `<div class="sc-list" style="grid-column:1/-1;margin-top:4px"><span class="${ok === sc.length ? "ok" : ""}">${ok}/${sc.length} kept</span>${sc.filter((c) => !c.ok).map((c) => `<span class="no" title="${esc(c.text)}">! ${esc(c.title)}</span>`).join("")}${S.markets[t.market] ? `<button type="button" class="link" data-snap="${esc(t.id)}">View on chart ›</button>` : ""}</div>`; })()}</div>`;
     const rows = S.journal.map(jrow).join("");
-    return `${insightsCard()}${S.practice.length >= 5 ? insightsCard(S.practice, "🧠 From your practice trades") : ""}<section class="card" data-tour="results"><h2>Results</h2><div class="grid2">
+    return `${judgeCard()}${insightsCard()}${S.practice.length >= 5 ? insightsCard(S.practice, "🧠 From your practice trades") : ""}<section class="card" data-tour="results"><h2>Results</h2><div class="grid2">
         <div class="stat"><small>Total</small><b class="${cls(st.totalR)}">${rs(st.totalR)}</b><small>${st.n} trades</small></div>
         <div class="stat"><small>Win rate</small><b>${st.winRate == null ? "—" : st.winRate + "%"}</b><small>avg ${rs(st.avgR)}</small></div>
         <div class="stat"><small>Hit the target</small><b>${st.targets}</b><small>each trade's own target</small></div>

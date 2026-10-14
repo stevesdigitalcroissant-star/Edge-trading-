@@ -266,4 +266,9 @@ function mergeSettings(saved) {
   return s;
 }
 
-module.exports = { MARKETS, FUTURES, futuresSpec, marketOf, STRATEGIES, strategyPlan, DEFAULT_SETTINGS, BIAS_FACTORS, BIAS_MAX_AGE_DAYS, biasFromFactors, mergeSettings };
+// Markets that move together: a trade in one is the same bet as a trade in another of its group.
+const GROUPS = { indices: ["es", "nq", "ym", "rty"], metals: ["gold", "silver"], currencies: ["6e", "6b", "6a", "6j"], bonds: ["zn", "zb"] };
+const GROUP_NAMES = { indices: "the stock indices (S&P, Nasdaq, Dow, Russell)", metals: "gold and silver", currencies: "the currencies (euro, pound, Aussie, yen)", bonds: "the bonds (10Y, 30Y)" };
+const groupOf = (m) => Object.keys(GROUPS).find((g) => GROUPS[g].includes(m)) || null;
+
+module.exports = { GROUPS, GROUP_NAMES, groupOf, MARKETS, FUTURES, futuresSpec, marketOf, STRATEGIES, strategyPlan, DEFAULT_SETTINGS, BIAS_FACTORS, BIAS_MAX_AGE_DAYS, biasFromFactors, mergeSettings };

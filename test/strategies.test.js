@@ -131,7 +131,7 @@ test("planned strategy orders skip the loss cool-down; gas zones don't use up th
   assert.equal(take(ng).ok, true);
   const g1 = R.guardrails({ settings: s, journal: [], open: [], now, cooldownUntil: 0 });
   const silverWhileGold = R.canTake({ graded, setup: london, guard: g1, history: [], settings: s, open: [{ market: "gold" }] });
-  assert.match(silverWhileGold.why.join(" "), /Gold and silver move together/);
+  assert.match(silverWhileGold.why.join(" "), /gold and silver move together/);
 });
 
 test("contracts from the dollars you type", () => {

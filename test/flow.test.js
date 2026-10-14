@@ -115,7 +115,8 @@ test("S&D setup: your own limit, stop, target and contracts", async () => {
   await core.handleHook(store, broker, JSON.stringify(alert), now);
   const x = (await core.state(store, broker, now)).setups[0];
   await assert.rejects(core.action(store, broker, { action: "take", setupId: x.id, emotion: "calm", sl: 2655 }, now), /stop goes below/);
-  const out = await core.action(store, broker, { action: "take", setupId: x.id, emotion: "calm", entry: 2651, sl: 2647, tp: 2661, qty: 8 }, now);
+  const out = await core.action(store, broker, { action: "take", setupId: x.id, emotion: "calm", entry: 2651, sl: 2647, tp: 2661, qty: 8, judge: { disp: true, liq: false, base: true, pd: "x" } }, now);
+  assert.deepEqual(out.order.trade.judge, { disp: true, liq: false, base: true, pd: false });
   const t = out.order.trade;
   assert.deepEqual([t.entry, t.initialSL, t.tp, t.units], [2651, 2647, 2661, 8]);
   assert.equal(t.riskUSD, 320);
@@ -127,4 +128,21 @@ test("S&D alert from a crude chart is ignored", async () => {
   const r = await core.handleHook(store, broker, JSON.stringify({ secret: "s3cret", type: "setup", strategy: "sd", symbol: "MCL1!", tv: "NYMEX:MCL1!", dir: "long", entry: 60, sl: 59.8, tp: 60.6, rr: 3, validMin: 240 }), now);
   assert.equal(r.json.ignored, true);
   assert.equal((await core.state(store, broker, now)).setups.length, 0);
+});
+
+test("one trade per group of linked markets — waiting limits count too", async () => {
+  const store = memory();
+  const now = NY(9, 35);
+  const nq = { secret: "s3cret", type: "setup", strategy: "sd", symbol: "MNQ1!", tv: "CME_MINI:MNQ1!", dir: "long", entry: 20000, sl: 19980, tp: 20060, rr: 3, kind: "FVG", validMin: 240 };
+  await core.handleHook(store, broker, JSON.stringify(nq), now);
+  const a = (await core.state(store, broker, now)).setups[0];
+  await core.action(store, broker, { action: "take", setupId: a.id, emotion: "calm" }, now); // a limit, not filled yet
+  const ym = { ...nq, symbol: "MYM1!", tv: "CBOT_MINI:MYM1!", entry: 45000, sl: 44960, tp: 45120 };
+  const r = await core.handleHook(store, broker, JSON.stringify(ym), now + 60e3);
+  assert.equal(r.json.takeable, false);
+  const st = await core.state(store, broker, now + 60e3);
+  assert.match(st.setups.find((x) => x.market === "ym").g.take.why.join(" "), /stock indices/);
+  // a different group is fine
+  const eu = { ...nq, symbol: "M6E1!", tv: "CME:M6E1!", entry: 1.085, sl: 1.084, tp: 1.088 };
+  assert.equal((await core.handleHook(store, broker, JSON.stringify(eu), now + 120e3)).json.takeable, true);
 });

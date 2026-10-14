@@ -113,9 +113,11 @@ test("bias score", () => {
 });
 
 test("news relevance and the built-in weekly energy reports", () => {
-  assert.deepEqual(classify({ title: "CPI m/m", country: "USD", impact: "High" }).markets.sort(), ["crude", "es", "gold", "natgas", "silver"]);
+  assert.equal(classify({ title: "CPI m/m", country: "USD", impact: "High" }).markets.length, 15); // a big US release blocks every market
+  assert.ok(classify({ title: "CPI m/m", country: "USD", impact: "High" }).markets.includes("nq"));
   assert.deepEqual(classify({ title: "Natural Gas Storage", country: "USD", impact: "Low" }), { markets: ["natgas"], block: true });
-  assert.deepEqual(classify({ title: "German ZEW", country: "EUR", impact: "High" }).markets, []);
+  assert.deepEqual(classify({ title: "German ZEW", country: "EUR", impact: "High" }), { markets: ["6e"], block: true });
+  assert.deepEqual(classify({ title: "German ZEW", country: "EUR", impact: "Medium" }).markets, []);
   const rec = recurringForWeek(NY(9), []);
   const ng = rec.find((e) => /natural gas/i.test(e.title));
   assert.equal(new Date(ng.time).toISOString(), "2026-10-08T14:30:00.000Z"); // Thursday 10:30 NY

@@ -994,3 +994,7 @@ body.home-on main#view { padding-top: 14px; }
 .hm-tvnote { font-size: 11.5px; margin: 8px 2px 0; }
 @media (max-width: 700px) { .hm-tvgrid.row { grid-template-columns: 1fr; } }
 .hm-tvp .seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: 10px; } .hm-tvp .seg button { padding: 4px 9px; font-size: 12px; border-radius: 8px; }
+
+.sd-judge { display: grid; gap: 6px; margin: 4px 0 10px; }
+.sd-judge label { display: flex; gap: 8px; align-items: center; font-size: 13.5px; }
+.sd-judge input { width: auto; }

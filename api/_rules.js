@@ -5,7 +5,7 @@
 //   canTake      → the final yes/no (A+ and A can be taken; B and C can't)
 //   evaluateTrade→ what to do with an open trade right now (break-even, take profit — the setup's own plan or the settings)
 const { dayKey, nextDayStart, inWindow } = require("./_time");
-const { MARKETS, BIAS_MAX_AGE_DAYS, STRATEGIES } = require("./_config");
+const { MARKETS, BIAS_MAX_AGE_DAYS, STRATEGIES, groupOf, GROUP_NAMES } = require("./_config");
 
 const sign = (dir) => (dir === "short" ? -1 : 1);
 const round = (x, n = 2) => Math.round(x * 10 ** n) / 10 ** n;
@@ -215,9 +215,10 @@ function canTake({ graded, setup, guard, history, settings: s, open }) {
     if (plan && plan.extra && code === "count") return;
     why.push(r);
   });
-  if (open.some((t) => t.market === setup.market)) why.push(`You already have a ${MARKETS[setup.market].name} trade open.`);
-  const twin = { gold: "silver", silver: "gold" }[setup.market];
-  if (twin && open.some((t) => t.market === twin)) why.push(`Gold and silver move together — you already have a ${MARKETS[twin].name} trade open. One at a time.`);
+  // open trades and limits still waiting to fill both count: a waiting limit is a trade you've already decided on
+  if (open.some((t) => t.market === setup.market)) why.push(`You already have a ${MARKETS[setup.market].name} trade open or waiting.`);
+  const g = groupOf(setup.market), mate = g && open.find((t) => t.market !== setup.market && groupOf(t.market) === g);
+  if (mate) why.push(`${MARKETS[mate.market].name} is already on — ${GROUP_NAMES[g]} move together, so this would be the same bet twice. One per group.`);
   if (graded.grade === "B" || graded.grade === "C") why.push(`Grade ${graded.grade} — not your setup. Skip it.`);
   return { ok: why.length === 0, why };
 }

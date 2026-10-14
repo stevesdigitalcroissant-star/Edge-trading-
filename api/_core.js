@@ -43,9 +43,9 @@ const BAD_MOODS = { fomo: "FOMO", revenge: "revenge", bored: "boredom" };
 // ---------- shared context
 
 async function context(store, now = Date.now()) {
-  const [saved, bias, tradesH, journalH, cooldownUntil, newsDoc] = await Promise.all([
+  const [saved, bias, tradesH, journalH, cooldownUntil, newsDoc, ordersH] = await Promise.all([
     store.get("settings"), store.get("bias"), store.hgetall("trades"), store.hgetall("journal"), store.get("cooldown"),
-    loadFeed(store, now).catch(() => ({ ok: false, events: [] })),
+    loadFeed(store, now).catch(() => ({ ok: false, events: [] })), store.hgetall("orders"),
   ]);
   const settings = mergeSettings(saved);
   const open = Object.values(tradesH || {});
@@ -53,7 +53,8 @@ async function context(store, now = Date.now()) {
   const journal = all.filter((t) => !t.practice); // practice (replay) trades never count toward real limits or stats
   const practice = all.filter((t) => t.practice);
   const events = relevantEvents(newsDoc, now);
-  return { now, settings, bias: bias || {}, open, journal, practice, cooldownUntil: cooldownUntil || 0, events, newsOk: newsDoc.ok !== false, newsError: newsDoc.error };
+  const waiting = Object.values(ordersH || {}).map((o) => o.trade).filter(Boolean); // limits placed, not filled yet
+  return { now, settings, bias: bias || {}, open, waiting, journal, practice, cooldownUntil: cooldownUntil || 0, events, newsOk: newsDoc.ok !== false, newsError: newsDoc.error };
 }
 
 function gradeNow(setup, ctx) {
@@ -61,8 +62,9 @@ function gradeNow(setup, ctx) {
     settings: ctx.settings, bias: ctx.bias, now: ctx.now,
     news: blockingEvent(ctx.events, setup.market, ctx.now, ctx.settings),
   });
-  const guard = R.guardrails(ctx);
-  const take = R.canTake({ graded, setup, guard, history: [...ctx.journal, ...ctx.open], settings: ctx.settings, open: ctx.open });
+  const busy = [...ctx.open, ...(ctx.waiting || [])]; // waiting limits count toward the daily cap, open trades and the one-per-group rule
+  const guard = R.guardrails({ ...ctx, open: busy });
+  const take = R.canTake({ graded, setup, guard, history: [...ctx.journal, ...busy], settings: ctx.settings, open: busy });
   return { ...graded, take };
 }
 
@@ -655,7 +657,7 @@ async function state(store, broker, now = Date.now()) {
   };
 }
 
-async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: myRisk, sl: mySl, tp: myTp, qty: myQty }, now = Date.now()) {
+async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: myRisk, sl: mySl, tp: myTp, qty: myQty, judge }, now = Date.now()) {
   const setup = await store.hget("setups", setupId);
   if (!setup) throw new Error("Setup not found");
   if (setup.strategy === "playbook" || setup.strategy === "sd") { // the radar's / scanner's setup is a limit: it goes out like a trade you planned yourself
@@ -664,7 +666,7 @@ async function take(store, broker, { setupId, emotion, entry: myEntry, riskUSD: 
     const spec = require("./_config").futuresSpec(setup.symbol || "");
     const micro = spec ? ({ GC: "MGC", CL: "MCL", SI: "SIL", NG: "MNG", QG: "MNG", ES: "MES", NQ: "MNQ", YM: "MYM", HG: "MHG", RTY: "M2K", "6E": "M6E", "6B": "M6B", "6A": "M6A", "6J": "MJY" })[spec.root] || spec.root : null;
     const sdx = setup.strategy === "sd"; // scanner setups: your own limit / stop / target / contracts if you changed them
-    const r = await planTrade(store, broker, { market: setup.market, contract: micro, dir: setup.dir, entry: (sdx && num(myEntry)) || setup.entry, sl: (sdx && num(mySl)) || setup.sl, tp: (sdx && num(myTp)) || setup.tp, qty: sdx ? num(myQty) : null, riskUSD: myRisk, emotion, checks: require("../playbook.js").required, type: "limit", send: true, sd: setup.strategy === "sd", ...(setup.strategy === "sd" ? { riskUSD: mergeSettings(await store.get("settings")).sdRiskMax } : {}), note: setup.strategy === "sd" ? `S&D scanner · ${setup.kind}` : `radar setup ${setup.grade || ""}` }, now);
+    const r = await planTrade(store, broker, { market: setup.market, contract: micro, dir: setup.dir, entry: (sdx && num(myEntry)) || setup.entry, sl: (sdx && num(mySl)) || setup.sl, tp: (sdx && num(myTp)) || setup.tp, qty: sdx ? num(myQty) : null, judge: sdx ? judge : null, riskUSD: myRisk, emotion, checks: require("../playbook.js").required, type: "limit", send: true, sd: setup.strategy === "sd", ...(setup.strategy === "sd" ? { riskUSD: mergeSettings(await store.get("settings")).sdRiskMax } : {}), note: setup.strategy === "sd" ? `S&D scanner · ${setup.kind}` : `radar setup ${setup.grade || ""}` }, now);
     await store.hset("setups", setupId, { ...setup, status: "taken" });
     return r;
   }
@@ -789,7 +791,8 @@ async function planTrade(store, broker, body, now) {
   const lockR = !sdMode && rr > s.lockAtR + 0.25 ? s.lockToR : null;
   const trade = { id: `plan:${id()}`, market, dir, grade: "A+", source: routed ? broker.kind : "manual", symbol, ticker: symbol, entry, initialSL: sl, currentSL: sl, tp,
     strategy: sdMode ? "sd" : "playbook", tpR: R.round(rr), beR: lockR != null ? s.lockAtR : 0, lockR, units: size.qty, unitLabel: size.unit, contract: size.contract, riskUSD: size.totalRisk,
-    emotion: ["calm", "focused"].includes(body.emotion) ? body.emotion : "calm", checks, note: String(body.note || "").slice(0, 500), maxR: 0, ruleBreaks: [], notified: {}, openedAt: now };
+    emotion: ["calm", "focused"].includes(body.emotion) ? body.emotion : "calm", checks, note: String(body.note || "").slice(0, 500), maxR: 0, ruleBreaks: [], notified: {}, openedAt: now,
+    ...(body.judge && typeof body.judge === "object" ? { judge: Object.fromEntries(["disp", "liq", "base", "pd"].map((j) => [j, body.judge[j] === true])) } : {}) };
   if (routed) { const sent = await broker.order({ ticker: symbol, dir, qty: size.qty, sl, tp, price: entry, ref: trade.id, type }); if (sent && sent.orderId) trade.tv = sent; }
   const side = `${dir === "long" ? "BUY" : "SELL"} ${size.qty} ${size.contract}`;
   if (type === "market") {
