@@ -95,3 +95,27 @@ test("🔒 Break-even on a TradersPost trade sends TradersPost's breakeven for t
   assert.equal(sent[0].ticker, "MNQ1!");
   assert.equal((await store.hget("trades", t.id)).currentSL, 25000);
 });
+
+test("no webhooks: the free 1-minute prices show a TradersPost limit filling and the target hitting", async () => {
+  const store = memory(), broker = getBroker();
+  const t0 = NY(9, 0), bars = [];
+  const chart = (rows) => new Response(JSON.stringify({ chart: { result: [{ timestamp: rows.map((r) => r[0] / 1000), indicators: { quote: [{ open: rows.map((r) => r[1]), high: rows.map((r) => r[2]), low: rows.map((r) => r[3]), close: rows.map((r) => r[4]) }] } }] } }), { status: 200 });
+  const prev = global.fetch;
+  global.fetch = async (url, opts) => (String(url).includes("finance.yahoo.com") ? chart(bars) : prev(url, opts));
+  try {
+    const trade = { id: "plan:y1", market: "nq", dir: "long", grade: "A+", source: "traderspost", symbol: "MNQ1!", ticker: "MNQ1!", entry: 25000, initialSL: 24980, currentSL: 24980, tp: 25060, units: 5, maxR: 0, ruleBreaks: [], notified: {} };
+    await store.hset("orders", trade.id, { id: trade.id, market: "nq", dir: "long", entry: 25000, sl: 24980, tp: 25060, routed: true, placedAt: t0, trade });
+    bars.push([t0 + 60e3, 25010, 25012, 25004, 25006]); // not down to the limit yet
+    await core.tick(store, broker, t0 + 5 * 60e3);
+    assert.ok(await store.hget("orders", trade.id), "still waiting");
+    bars.push([t0 + 120e3, 25006, 25007, 24998, 25002]); // trades through 25000 → filled
+    await core.tick(store, broker, t0 + 6 * 60e3);
+    assert.equal(await store.hget("orders", trade.id), null);
+    assert.ok(await store.hget("trades", trade.id), "now an open trade");
+    bars.push([t0 + 600e3, 25040, 25061, 25038, 25058]); // target 25060 reached
+    await core.tick(store, broker, t0 + 15 * 60e3);
+    const j = await store.hget("journal", trade.id);
+    assert.equal(j.exit, 25060);
+    assert.equal(j.resultR, 3);
+  } finally { global.fetch = prev; }
+});

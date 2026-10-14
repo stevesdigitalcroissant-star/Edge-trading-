@@ -112,3 +112,4 @@ module.exports = async (req, res) => {
   }
 };
 module.exports.parse = parse;
+module.exports.load = load;

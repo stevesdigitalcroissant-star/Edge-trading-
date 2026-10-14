@@ -362,7 +362,8 @@ async function newsFlatCheck(store, broker, ctx) {
 
 // Edge's own clock (every minute, /api/tick): the safety rules run even when no alert comes in and the app is closed
 async function tick(store, broker, now = Date.now()) {
-  if (ROUTED(broker)) await syncTrades(store, broker, { now }).catch(() => {});
+  const fed = await feedPrices(store, now).catch(() => 0);
+  if (ROUTED(broker) || fed) await syncTrades(store, broker, { now, force: true }).catch(() => {});
   const ctx = await context(store, now);
   await newsReminders(store, ctx).catch(() => {});
   await newsFlatCheck(store, broker, ctx).catch(() => {});
@@ -370,6 +371,27 @@ async function tick(store, broker, now = Date.now()) {
   await gamePlan(store, now).catch(() => {});
   await resultAsks(store, now).catch(() => {});
   return { ok: true, open: ctx.open.length, waiting: (ctx.waiting || []).length };
+}
+
+// no TradingView heartbeat (no webhooks): the free 1-minute prices (Yahoo, a few minutes behind for CME) stand in for it,
+// so Edge still sees your limit fill and the stop or target hit. Only markets with a waiting limit or an open trade.
+async function feedPrices(store, now) {
+  const orders = Object.values((await store.hgetall("orders")) || {}), open = Object.values((await store.hgetall("trades")) || {});
+  const since = {};
+  for (const x of [...orders.map((o) => [o.market, o.placedAt]), ...open.filter((t) => !t.pending).map((t) => [t.market, t.openedAt])]) if (x[0] && MARKETS[x[0]]) since[x[0]] = Math.min(since[x[0]] ?? Infinity, x[1] || now);
+  let fed = 0;
+  for (const [mk, from] of Object.entries(since)) {
+    const cur = await store.get(`price:${mk}`);
+    if (cur && cur.source !== "yahoo" && now - cur.time < 3 * 60e3) continue; // a real heartbeat is coming in
+    const bars = await require("./candles").load(mk, 1, "1m").catch(() => []);
+    const after = Math.max(from - 60e3, cur && cur.source === "yahoo" ? cur.lastBar ?? 0 : 0);
+    const fresh = bars.filter((b) => b[0] > after);
+    if (!fresh.length) continue;
+    const mark = { price: fresh[fresh.length - 1][4], high: Math.max(...fresh.map((b) => b[2])), low: Math.min(...fresh.map((b) => b[3])), time: now, source: "yahoo", lastBar: fresh[fresh.length - 1][0] };
+    await store.set(`price:${mk}`, mark);
+    fed++;
+  }
+  return fed;
 }
 
 // trades you logged yourself (screenshot): 2 hours later, a notification asks how it went; "still open" asks again an hour later
