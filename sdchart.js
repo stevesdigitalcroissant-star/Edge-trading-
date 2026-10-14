@@ -37,6 +37,7 @@
         const span = Math.min(i - sw, 400);
         let o = i;
         for (let k = i; k >= i - span; k--) if (d === 1 ? B[k].l < B[o].l : B[k].h > B[o].h) o = k;
+        breaks[breaks.length - 1].o = { t: B[o].t, p: d === 1 ? B[o].l : B[o].h }; // where the impulse started
         const opp = (k) => k >= 0 && (d === 1 ? B[k].c < B[k].o : B[k].c > B[k].o);
         const a = !opp(o) && opp(o - 1) ? o - 1 : o;
         let n = 0, near = null, wick = null; // the zone runs wick to wick: wick = the wick edge (drawn light), near = the body edge (arms alerts)
@@ -61,7 +62,47 @@
     const overlap = zone && z2 && z2.bot <= zone.top && z2.top >= zone.bot;
     const older = z2 && cnt >= 2 && z2.d === prevDir && !overlap ? z2 : null;
     const bos = breaks.filter((x) => !x.mss).slice(-3), mss = breaks.filter((x) => x.mss).slice(-1);
-    return { trend: prevDir, cnt, zone, older, breaks: [...bos, ...mss].sort((p, q) => p.t1 - q.t1) };
+    return { trend: prevDir, cnt, zone, older, breaks: [...bos, ...mss].sort((p, q) => p.t1 - q.t1), allBreaks: breaks };
+  }
+
+  // Swing structure (how Steve reads it): an impulse makes a new extreme, price retraces, a close past that extreme
+  // is a BOS and the retracement's extreme becomes the protected level; that repeats until a close past the
+  // protected level — the MSS — flips the trend. Small wiggles inside an impulse don't count.
+  function swing(B) {
+    const out = []; if (B.length < 25) return { trend: 0, breaks: out };
+    let dir = 0, peak = null, prot = null, retr = false, pivotI = 0;
+    // start: the first close outside the first 20 candles' range sets the direction
+    let hi = -Infinity, lo = Infinity, hiI = 0, loI = 0;
+    for (let i = 0; i < 20; i++) { if (B[i].h > hi) { hi = B[i].h; hiI = i; } if (B[i].l < lo) { lo = B[i].l; loI = i; } }
+    for (let i = 20; i < B.length; i++) {
+      const b = B[i];
+      if (!dir) {
+        if (b.c > hi) { dir = 1; peak = { i, p: b.h }; prot = { i: loI, p: lo }; }
+        else if (b.c < lo) { dir = -1; peak = { i, p: b.l }; prot = { i: hiI, p: hi }; }
+        continue;
+      }
+      const up = dir === 1;
+      // MSS: a close past the protected level
+      if (up ? b.c < prot.p : b.c > prot.p) {
+        out.push({ d: -dir, lvl: prot.p, t0: B[prot.i].t, t1: b.t, mss: true, o: { t: B[peak.i].t, p: peak.p } });
+        // the new protected level is the extreme of the move that just failed
+        const np = { i: peak.i, p: peak.p };
+        let ex = i; for (let k = peak.i; k <= i; k++) if (up ? B[k].l < B[ex].l : B[k].h > B[ex].h) ex = k;
+        dir = -dir; prot = np; peak = { i: ex, p: up ? B[ex].l : B[ex].h }; retr = false;
+        continue;
+      }
+      // the impulse extends while price keeps making new extremes; a candle that fails to (a retracement) arms the BOS
+      if (up ? b.h > peak.p : b.l < peak.p) {
+        if (retr && (up ? b.c > peak.p : b.c < peak.p)) {
+          // BOS: close past the peak after a retracement; the retracement's extreme becomes protected
+          let ex = peak.i; for (let k = peak.i; k <= i; k++) if (up ? B[k].l < B[ex].l : B[k].h > B[ex].h) ex = k;
+          out.push({ d: dir, lvl: peak.p, t0: B[peak.i].t, t1: b.t, mss: false, o: { t: B[ex].t, p: up ? B[ex].l : B[ex].h } });
+          prot = { i: ex, p: up ? B[ex].l : B[ex].h }; retr = false;
+        }
+        if (!retr) peak = { i, p: up ? b.h : b.l };
+      } else if (up ? b.l < B[peak.i].l : b.h > B[peak.i].h) retr = true; // price came back below the peak candle's low
+    }
+    return { trend: dir, breaks: out };
   }
 
   function trend4h(B) {
@@ -90,6 +131,6 @@
     return { ...s, t4, zone4: s4.zone, older4: s4.older, inZone4: !!in4, inZone: !!inZ, status, ordersOpen: open, with4h: s.zone && t4 ? s.zone.d === t4 : null };
   }
 
-  const api = { sd1h, trend4h, read };
+  const api = { sd1h, swing, trend4h, read };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.EdgeSD = api;
 })(typeof window !== "undefined" ? window : globalThis);
