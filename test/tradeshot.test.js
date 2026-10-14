@@ -50,3 +50,20 @@ test("a closed trade on the screenshot goes straight to the journal with its P&L
   assert.equal(j.exit, 25020);
   assert.equal(j.resultR, -1);
 });
+
+test("passed → funded: the funded rules, a fresh $25K balance, $100 a trade, eval trades no longer count", async () => {
+  const store = memory(), broker = getBroker();
+  await core.action(store, broker, { action: "propSave", cfg: { firm: "mffu", plan: "builder25", phase: "eval", size: 25000, target: 1500, dd: 1000, ddType: "eod", dailyLoss: 600, maxMicros: 20, baseRisk: 200, anchor: { balance: 26600, hwm: 26600 } } }, NY(8, 0));
+  const r = await core.action(store, broker, { action: "propFunded", risk: 100 }, NY(9, 0));
+  assert.equal(r.prop.phase, "funded");
+  assert.equal(r.prop.target, null);
+  assert.equal(r.prop.consistencyPct, 50);
+  assert.equal(r.prop.payout.buffer, 1100);
+  assert.equal(r.prop.anchor.balance, 25000);
+  const st = await core.state(store, broker, NY(9, 5));
+  assert.equal(st.settings.sdRiskTarget, 100);
+  assert.equal(st.settings.sdRiskMax, 100);
+  assert.equal(st.prop.acct.balance, 25000);
+  assert.equal(st.prop.auto.usd, 100);
+  await assert.rejects(core.action(store, broker, { action: "propFunded", risk: 5000 }, NY(9, 0)));
+});

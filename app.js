@@ -441,6 +441,7 @@
       <div class="row between prop-top"><div><small class="muted">Balance</small><b class="num">${usd(a.balance)}</b><span class="${cls(a.profit)}">${usd(a.profit, true)}</span></div><span class="pill ${ST[1]}">${ST[0]}</span></div>
       ${tgt}${room}${day}${con}${auto}${odds}${pay}
       ${a.minDays > a.daysTraded ? `<p class="muted" style="margin:6px 0 0;font-size:12.5px">${a.minDays - a.daysTraded} more trading day${a.minDays - a.daysTraded > 1 ? "s" : ""} required before you can pass.</p>` : ""}
+      ${!funded ? `<div class="${a.status === "passed" ? "blocks" : ""}" style="margin-top:8px">${a.status === "passed" ? "<b>🎉 You passed!</b> Got your funded account? Switch Edge over — same plan, the funded rules, a fresh balance.<br>" : ""}<button class="btn small ${a.status === "passed" ? "primary" : ""}" data-gofunded style="margin-top:6px">🎉 I passed — switch to funded</button></div>` : ""}
     </section>`;
   }
   // a TradingView app alert handed to Edge by hand (no webhook without two-factor on TradingView)
@@ -1382,6 +1383,11 @@
     v.querySelectorAll("[data-propset]").forEach((b) => b.addEventListener("click", propDialog));
     v.querySelectorAll("[data-paste]").forEach((b) => b.addEventListener("click", pasteDialog));
     v.querySelectorAll("[data-shot]").forEach((b) => b.addEventListener("click", shotDialog));
+    v.querySelectorAll("[data-gofunded]").forEach((b) => b.addEventListener("click", async () => {
+      const v = prompt("Congratulations! 🎉 Risk per trade on the funded account ($):", "100"); if (v == null) return;
+      const r = await act({ action: "propFunded", risk: v }, null);
+      if (r) { toast(`Funded account set: $${Number(r.prop.baseRisk)} a trade, balance ${usd(r.prop.size)}, the funded rules. Same plan as before.`, 6000); refresh(); }
+    }));
     v.querySelectorAll("[data-gowatch]").forEach((b) => b.addEventListener("click", () => { tab = "watch"; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#watch"); render(); scrollTo(0, 0); }));
     v.querySelectorAll("[data-res]").forEach((b) => b.addEventListener("click", async () => {
       const o = b.dataset.res; let exit;

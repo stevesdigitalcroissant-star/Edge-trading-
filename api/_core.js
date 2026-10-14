@@ -905,6 +905,23 @@ async function action(store, broker, body, now = Date.now()) {
     if (next.inactivityDays > 0) { const st = (await store.get("settings")) || {}; await store.set("settings", { ...st, inactivityDays: next.inactivityDays }); }
     return { ok: true, prop: next };
   }
+  if (a === "propFunded") { // you passed: the same plan on the funded account — its rules, a fresh balance, your funded risk
+    const cur = await store.get("prop");
+    if (!cur || !cur.enabled) throw new Error("Set up your prop account first.");
+    const risk = num(body.risk) ?? 100;
+    if (!(risk >= 20 && risk <= 1000)) throw new Error("Pick a risk between $20 and $1,000 a trade.");
+    const firms = require("../firms.js"), plan = firms[cur.firm] && firms[cur.firm].plans && firms[cur.firm].plans[cur.plan];
+    const f = (plan && plan.funded) || {}, size = num(body.size) ?? (plan && plan.size) ?? cur.size;
+    const next = { ...cur, phase: "funded", size, target: null, minDays: 0,
+      dd: f.dd ?? cur.dd, ddType: f.ddType || cur.ddType, ddLockAt: f.ddLockAt ?? null, dailyLoss: f.dailyLoss ?? cur.dailyLoss,
+      consistencyPct: f.consistencyPct ?? null, maxMicros: f.maxMicros ?? cur.maxMicros, payout: f.payout || cur.payout || {}, baseRisk: risk,
+      anchor: { balance: size, hwm: size, days: 0, at: now }, evalPassedAt: now, evalAnchor: cur.anchor || null };
+    await store.set("prop", next);
+    // the scanner's sizing: aim at your risk, never above it (a stop too wide for one micro at that risk is flagged, not taken bigger)
+    const st = (await store.get("settings")) || {};
+    await store.set("settings", { ...st, sdRiskMin: Math.max(10, Math.round((risk * 0.7) / 10) * 10), sdRiskTarget: risk, sdRiskMax: risk, riskV5: true });
+    return { ok: true, prop: next };
+  }
   if (a === "pasteAlert") { // a TradingView alert handed over by hand (text, or a screenshot of it) → the same setup a webhook makes
     const AT = require("./_alerttext");
     const text = body.image ? await AT.readAlertImage(body.image) : String(body.text || "");
