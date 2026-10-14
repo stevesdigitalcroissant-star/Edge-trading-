@@ -142,7 +142,7 @@
     $("#hmTrend").innerHTML = sd ? `<span class="tr-badge">${pill("4H", sd.t4)}${pill("1H", sd.trend, sd.trend ? ` · ${sd.cnt >= 2 ? `${sd.cnt} BOS` : "1 break"}` : "")}
       ${sd.zone ? `<span class="tr-pill ${sd.zone.d > 0 ? "up" : "dn"}"><small>1H zone</small>${sd.zone.d > 0 ? "Demand" : "Supply"} ${fp(sd.zone.bot)}–${fp(sd.zone.top)}${sd.with4h === false ? " · against 4H" : ""}</span>` : ""}
       ${sd.zone4 ? `<span class="tr-pill ${sd.zone4.d > 0 ? "up" : "dn"}"><small>4H zone</small>${sd.zone4.d > 0 ? "Demand" : "Supply"} ${fp(sd.zone4.bot)}–${fp(sd.zone4.top)}</span>` : ""}
-      <span class="tr-v ${sd.inZone ? "go" : ""}">${esc(sd.status)}</span><span class="tr-hint">Orders ${sd.ordersOpen ? "open" : "closed"} · 03:00–11:00 NY</span></span>` : "";
+      <span class="tr-v ${sd.inZone ? "go" : ""}">${esc(sd.status)}</span><span class="tr-hint">Orders ${sd.ordersOpen ? "open" : "closed"} · 00:00–08:00 Vancouver (03:00–11:00 NY)</span></span>` : "";
     $("#hmPx").innerHTML = `<b class="num">${last[4].toFixed(H.prec ?? 2)}</b><span class="${ch >= 0 ? "pos" : "neg"}">${ch >= 0 ? "+" : ""}${ch.toFixed(H.prec ?? 2)} (${((ch / open) * 100).toFixed(2)}%)</span>
       ${sd && sd.inZone ? `<span class="hm-chip zone">In the 1H ${sd.zone.d > 0 ? "demand" : "supply"} zone</span>` : ""}${sd && sd.inZone4 ? `<span class="hm-chip zone">In the 4H ${sd.zone4.d > 0 ? "demand" : "supply"} zone</span>` : ""}`;
     const age = Math.round((Date.now() - last[0]) / 60e3);

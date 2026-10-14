@@ -1292,7 +1292,7 @@
     const tvCard = `<section class="card"><h2>TradingView setup</h2>
         <p class="muted" style="margin-top:0">One script, your strategy. TradingView doesn't let apps install it, so it's one copy-paste — your secret is already inside.</p>
         <div class="stat radar-pine"><small>⭐ Supply &amp; demand scanner — 1H zones, 5m confirmation, 14 markets (crude is off)</small><b style="font-size:14px">5-minute chart, one per market: ${SD_TV.map((t) => `<code>${t}</code>`).join(" · ")}</b>
-          <p class="muted" style="margin:6px 0">Draws the live 1H demand / supply zone, waits for price to come back into it and the 5m to close past its last swing, then sends Edge the limit (fair value gap or breaker), stop 2 ticks past the low / high and the nearest 5m swing target (1.5R–6R). Orders only 03:00–11:00 New York (London open → New York morning, the busy hours). Needs a paid TradingView plan: one alert per market, 14 in all.</p>
+          <p class="muted" style="margin:6px 0">Draws the live 1H demand / supply zone, waits for price to come back into it and the 5m to close past its last swing, then sends Edge the limit (fair value gap or breaker), stop 2 ticks past the low / high and the nearest 5m swing target (1.5R–6R). Orders only 03:00–11:00 New York = 00:00–08:00 Vancouver (London open → New York morning, the busy hours). Needs a paid TradingView plan: one alert per market, 14 in all.</p>
           <button class="btn small primary" data-copypine="edge_sd_scanner">Copy S&amp;D scanner</button></div>
         <ol class="steps">
           <li>Tap <b>Copy S&amp;D scanner</b>, then on a computer open TradingView on a <b>5-minute</b> chart.</li>
