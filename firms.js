@@ -329,6 +329,39 @@
     "note": "Payouts every 14 days.",
     "src": "https://help.myfundedfutures.com/en/articles/11802674-pro-plan-sim-funded-and-live-account-highlights"
    },
+   "builder25": {
+    "name": "Builder 25K",
+    "eval": {
+     "target": 1500,
+     "dd": 1000,
+     "ddType": "eod",
+     "ddLockAt": null,
+     "dailyLoss": 600,
+     "consistencyPct": null,
+     "minDays": 1,
+     "maxMicros": 20,
+     "inactivityDays": 7
+    },
+    "funded": {
+     "dd": 1000,
+     "ddType": "eod",
+     "ddLockAt": null,
+     "dailyLoss": 600,
+     "consistencyPct": 50,
+     "maxMicros": 20,
+     "payout": {
+      "minDays": 2,
+      "minWinningDays": 0,
+      "minWinningDayProfit": 0,
+      "buffer": 1100,
+      "cap": 1000,
+      "split": "80/20",
+      "processingDays": 1
+     }
+    },
+    "note": "$600 daily loss limit, 2 contracts (20 micros), trade at least every 7 calendar days. Min payout $250.",
+    "src": "https://myfundedfutures.com"
+   },
    "builder": {
     "name": "Builder 50K",
     "eval": {

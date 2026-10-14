@@ -446,15 +446,23 @@
   function propDialog() {
     const F = FIRMS(), cur = (S.prop && S.prop.cfg) || {};
     let firm = cur.firm && (F[cur.firm] || cur.firm === "custom") ? cur.firm : "tradeify", plan = cur.plan || "", phase = cur.phase || "eval";
+    let readCfg = null, readPlan = null; // filled from a screenshot of the firm's rules
     const body = $("#modalBody");
     const fld = (k, label, v, hint = "") => `<label class="f"><small>${label}${hint ? ` <span class="muted">${hint}</span>` : ""}</small><input data-pf="${k}" inputmode="decimal" value="${v == null ? "" : esc(v)}" placeholder="—"></label>`;
     const draw = (fromPreset) => {
       const f = F[firm], plans = f ? Object.entries(f.plans) : [];
       if (f && !f.plans[plan]) plan = plans[0][0];
       const p = f && f.plans[plan], r = p ? (phase === "funded" ? p.funded : p.eval) || p.funded : null;
-      const v = fromPreset && r ? { size: 50000, target: phase === "funded" ? null : r.target, ...r, payout: r.payout || {} } : { ...cur, payout: cur.payout || {} };
+      const fromRead = readCfg ? (phase === "funded" ? { ...readCfg, ...Object.fromEntries(Object.entries(readCfg.funded || {}).filter(([, x]) => x != null)), target: null } : readCfg) : null;
+      const v = fromRead ? { ...fromRead, payout: fromRead.payout || {} } : fromPreset && r ? { size: 50000, target: phase === "funded" ? null : r.target, ...r, payout: r.payout || {} } : { ...cur, payout: cur.payout || {} };
       const pay = v.payout || {}, an = (S.prop && S.prop.acct) || {};
       body.innerHTML = `<h3>🏁 Your prop account</h3>
+        <section class="card slim" style="margin:0 0 10px"><b>📸 Fastest: upload a screenshot of your rules</b>
+          <p class="muted" style="margin:4px 0 6px;font-size:12.5px">Open your plan's <b>trading rules</b> page on the firm's website (evaluation, funded and payout rules), take a screenshot and upload it. Edge reads every number, fills the form below and builds your plan. Check the numbers before you save.</p>
+          <details><summary class="muted" style="font-size:12.5px">See an example of what to upload</summary><img src="/img/rules-example.jpg" alt="Example: a prop firm's rules page — profit target, max drawdown, drawdown mode, daily loss limit, max position, inactivity, funded and payout rules" style="width:100%;border-radius:8px;margin-top:6px"></details>
+          <label class="btn small primary" style="margin-top:8px;display:inline-block">Upload screenshot<input type="file" accept="image/*" id="pShot" hidden></label> <span class="muted" id="pShotMsg" style="font-size:12.5px"></span>
+          ${readPlan ? `<div class="sc-list" style="margin-top:8px">${readPlan.lines.map((l) => `<span class="ok">✓ ${esc(l)}</span>`).join("")}${readPlan.notes ? `<span class="ok">ℹ ${esc(readPlan.notes)}</span>` : ""}</div><label style="display:block;margin-top:6px;font-size:13px"><input type="checkbox" id="pUsePlan" checked> Use this plan: risk $${readPlan.risk.min}–$${readPlan.risk.max} a trade (aim $${readPlan.risk.aim})${readPlan.inactivityDays ? `, ${readPlan.inactivityDays}-day inactivity reminders` : ""}</label>` : ""}
+        </section>
         <div class="chips">${Object.entries(F).map(([k, x]) => `<button type="button" data-pfirm="${k}" class="${firm === k ? "on" : ""}">${esc(x.name)}</button>`).join("")}<button type="button" data-pfirm="custom" class="${firm === "custom" ? "on" : ""}">Other</button></div>
         ${f ? `<label class="f" style="margin-top:8px"><small>Account</small><select data-pplan>${plans.map(([k, x]) => `<option value="${k}" ${k === plan ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>` : ""}
         <div class="seg two" style="margin:8px 0"><button type="button" data-pphase="eval" class="${phase === "eval" ? "on p1" : ""}">Evaluation</button><button type="button" data-pphase="funded" class="${phase === "funded" ? "on p1" : ""}">Funded</button></div>
@@ -469,15 +477,33 @@
         ${phase === "funded" ? `<details open><summary><b>Payout rules</b></summary><div class="grid3">${fld("p.minWinningDays", "Winning days", pay.minWinningDays)}${fld("p.minWinningDayProfit", "Winning day =", pay.minWinningDayProfit, "$+")}${fld("p.minDays", "Min days", pay.minDays)}</div><div class="grid3">${fld("p.buffer", "Buffer above start", pay.buffer)}${fld("p.cap", "Max a payout", pay.cap)}${fld("p.processingDays", "Paid within", pay.processingDays, "business days")}</div><input type="hidden" data-pf="p.split" value="${esc(pay.split || "")}"></details>` : ""}
         <p class="err" id="pErr"></p>
         <div class="row"><button class="btn primary" type="button" id="pSave">Save</button>${cur.enabled ? `<button class="btn" type="button" id="pOff">Turn off</button>` : ""}<button class="btn" value="cancel">Cancel</button></div>`;
-      body.querySelectorAll("[data-pfirm]").forEach((b) => b.addEventListener("click", () => { firm = b.dataset.pfirm; plan = ""; draw(true); }));
+      body.querySelectorAll("[data-pfirm]").forEach((b) => b.addEventListener("click", () => { firm = b.dataset.pfirm; plan = ""; readCfg = null; readPlan = null; draw(true); }));
+      $("#pShot").addEventListener("change", async (ev) => {
+        const file = ev.target.files && ev.target.files[0]; if (!file) return;
+        const msg = $("#pShotMsg"); msg.textContent = "Reading your rules…";
+        try {
+          const image = await new Promise((ok, bad) => { // shrink to ≤ 1600 px so it uploads fast
+            const im = new Image(), url = URL.createObjectURL(file);
+            im.onload = () => { const k = Math.min(1, 1600 / Math.max(im.width, im.height)), c = document.createElement("canvas"); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(url); ok(c.toDataURL("image/jpeg", 0.85)); };
+            im.onerror = () => bad(new Error("Couldn't open that image.")); im.src = url;
+          });
+          const res = await api("POST", { action: "propRead", image });
+          readCfg = res.cfg; readPlan = res; firm = "custom"; phase = "eval"; draw(false);
+          $("#pShotMsg").textContent = "Read ✓ — check the numbers below, then Save.";
+        } catch (e) { msg.textContent = e.message; }
+      });
       const ps = body.querySelector("[data-pplan]"); if (ps) ps.addEventListener("change", () => { plan = ps.value; draw(true); });
       body.querySelectorAll("[data-pphase]").forEach((b) => b.addEventListener("click", () => { phase = b.dataset.pphase; draw(true); }));
       $("#pSave").addEventListener("click", async () => {
         const g = (k) => { const el = body.querySelector(`[data-pf="${k}"]`); return el ? el.value.replace(",", ".").replace(/[$\s]/g, "") : undefined; };
         const payout = {}; body.querySelectorAll('[data-pf^="p."]').forEach((el) => (payout[el.dataset.pf.slice(2)] = el.value));
         const cfg = { enabled: true, firm, plan: F[firm] ? plan : "", phase, size: g("size"), target: g("target"), dd: g("dd"), ddType: g("ddType"), ddLockAt: g("ddLockAt"), dailyLoss: g("dailyLoss"), consistencyPct: g("consistencyPct"), minDays: g("minDays"), maxMicros: g("maxMicros"),
-          baseRisk: g("baseRisk"), setupsPerDay: g("setupsPerDay"), feePerContract: g("feePerContract"), payout: phase === "funded" ? payout : cur.payout, anchor: { balance: g("balance"), hwm: g("hwm") || g("balance"), days: g("days") } };
-        try { $("#pSave").disabled = true; await api("POST", { action: "propSave", cfg }); $("#modal").close(); toast("Saved. The autopilot sizes every trade from now on."); refresh(); }
+          baseRisk: g("baseRisk"), setupsPerDay: g("setupsPerDay"), feePerContract: g("feePerContract"), payout: phase === "funded" ? payout : cur.payout, anchor: { balance: g("balance"), hwm: g("hwm") || g("balance"), days: g("days") },
+          inactivityDays: readCfg ? readCfg.inactivityDays : F[firm] && F[firm].plans[plan] ? (F[firm].plans[plan].eval || {}).inactivityDays : cur.inactivityDays,
+          ...(readCfg ? { plan: readCfg.plan } : {}) };
+        const usePlan = readPlan && $("#pUsePlan") && $("#pUsePlan").checked;
+        try { $("#pSave").disabled = true; await api("POST", { action: "propSave", cfg });
+          if (usePlan) await api("POST", { action: "settings", patch: { sdRiskMin: readPlan.risk.min, sdRiskTarget: readPlan.risk.aim, sdRiskMax: readPlan.risk.max, ...(readPlan.inactivityDays ? { inactivityDays: readPlan.inactivityDays } : {}) } }); $("#modal").close(); toast("Saved. The autopilot sizes every trade from now on."); refresh(); }
         catch (e) { $("#pErr").textContent = e.message; $("#pSave").disabled = false; }
       });
       const off = $("#pOff"); if (off) off.addEventListener("click", async () => { await api("POST", { action: "propOff" }).catch(() => {}); $("#modal").close(); refresh(); });

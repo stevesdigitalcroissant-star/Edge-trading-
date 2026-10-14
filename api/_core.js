@@ -838,11 +838,17 @@ async function action(store, broker, body, now = Date.now()) {
     const next = { ...cur, enabled: c.enabled !== false, firm: String(c.firm || cur.firm || "custom").slice(0, 30), plan: String(c.plan || cur.plan || "").slice(0, 40), phase: c.phase === "funded" ? "funded" : "eval",
       size: n(c.size) ?? 50000, target: n(c.target), dd: n(c.dd) ?? 2000, ddType: ["eod", "intraday", "static"].includes(c.ddType) ? c.ddType : "eod", ddLockAt: n(c.ddLockAt), dailyLoss: n(c.dailyLoss),
       consistencyPct: n(c.consistencyPct), minDays: n(c.minDays) || 0, maxMicros: n(c.maxMicros), baseRisk: n(c.baseRisk) ?? cur.baseRisk ?? 250, feePerContract: n(c.feePerContract) ?? 1.5,
-      setupsPerDay: n(c.setupsPerDay) ?? cur.setupsPerDay ?? 1, payout: c.payout && typeof c.payout === "object" ? Object.fromEntries(Object.entries(c.payout).map(([k, v]) => [k, k === "split" ? String(v || "").slice(0, 12) : n(v)])) : cur.payout || {} };
+      setupsPerDay: n(c.setupsPerDay) ?? cur.setupsPerDay ?? 1, inactivityDays: n(c.inactivityDays) ?? cur.inactivityDays ?? null, payout: c.payout && typeof c.payout === "object" ? Object.fromEntries(Object.entries(c.payout).map(([k, v]) => [k, k === "split" ? String(v || "").slice(0, 12) : n(v)])) : cur.payout || {} };
     if (c.anchor || !cur.anchor) next.anchor = { balance: n(c.anchor && c.anchor.balance) ?? next.size, hwm: n(c.anchor && c.anchor.hwm) ?? n(c.anchor && c.anchor.balance) ?? next.size, days: n(c.anchor && c.anchor.days) || 0, at: now };
     if (!(next.dd > 0)) throw new Error("Enter the drawdown amount.");
     await store.set("prop", next);
+    if (next.inactivityDays > 0) { const st = (await store.get("settings")) || {}; await store.set("settings", { ...st, inactivityDays: next.inactivityDays }); }
     return { ok: true, prop: next };
+  }
+  if (a === "propRead") { // a screenshot of your firm's rules → the rules + a plan built around them (nothing saved yet)
+    const RR = require("./_rulesread");
+    const rules = await RR.readRules(body.image);
+    return { ok: true, rules, ...RR.planFromRules(rules) };
   }
   if (a === "propOff") { const cur = (await store.get("prop")) || {}; await store.set("prop", { ...cur, enabled: false }); return { ok: true }; }
   if (a === "cancelOrder") {
@@ -871,7 +877,7 @@ async function action(store, broker, body, now = Date.now()) {
   if (a === "settings") {
     const cur = mergeSettings(await store.get("settings"));
     const p = body.patch || {};
-    const nums = ["sdRiskMin", "sdRiskTarget", "sdRiskMax", "minR", "maxR", "lockAtR", "lockToR", "riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR", "coachIdleSec", "coachTradeSec", "coachDailyChecks", "flatWarnMin", "noNewTradesMin"];
+    const nums = ["sdRiskMin", "sdRiskTarget", "sdRiskMax", "minR", "maxR", "lockAtR", "lockToR", "riskPct", "accountSize", "beAtR", "beOffsetR", "tpAtR", "maxTradesPerDay", "maxDailyLossR", "cooldownMin", "maxOpen", "newsBeforeMin", "newsAfterMin", "setupExpiryMin", "maxChaseR", "coachIdleSec", "coachTradeSec", "coachDailyChecks", "flatWarnMin", "noNewTradesMin", "inactivityDays", "fallbackAfterDays"];
     for (const k of nums) if (p[k] != null && Number.isFinite(Number(p[k]))) cur[k] = Number(p[k]);
     if (cur.riskPct > 3) throw new Error("Risk per trade above 3% isn't allowed here. That's the greed talking.");
     if (cur.beAtR < 0 || (cur.beAtR > 0 && cur.tpAtR <= cur.beAtR)) throw new Error("Take-profit must be beyond the break-even trigger (or set break-even to 0 = off).");
