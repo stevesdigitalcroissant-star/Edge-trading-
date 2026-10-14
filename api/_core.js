@@ -289,25 +289,28 @@ async function pruneSetups(store, now) {
 
 async function closeOutCheck(store, broker, ctx) {
   const s = ctx.settings, ce = R.closeOut(ctx.now, s);
-  if (!ctx.open.length) return;
+  if (!ctx.open.length && !(ctx.waiting || []).length) return;
   const today = require("./_time").dayKey(ctx.now, s.tz);
   if (ce.warn && (await store.get("closeoutWarned")) !== today) {
     await store.set("closeoutWarned", today);
-    await notify(store, `⏰ ${ce.minutesLeft} min to the close-out (${s.flatBy}). You have ${ctx.open.length} open trade${ctx.open.length > 1 ? "s" : ""}. Open Edge → Close everything.`, "action");
+    await notify(store, `⏰ ${ce.minutesLeft} min to the close-out (${ce.flatAt} New York — your firm closes everything at 16:10). You have ${ctx.open.length} open trade${ctx.open.length === 1 ? "" : "s"}${(ctx.waiting || []).length ? ` and ${(ctx.waiting || []).length} limit${(ctx.waiting || []).length > 1 ? "s" : ""} waiting` : ""}. ${s.autoFlat ? "Edge closes them at the close-out." : "Open Edge → Close everything."}`, "action");
   }
   if (ce.due && (await store.get("closeoutDone")) !== today) {
     await store.set("closeoutDone", today);
+    await cancelWaiting(store, broker, null, "close-out time");
+    if (!ctx.open.length) return;
     if (s.autoFlat) { await closeAll(store, broker, { now: ctx.now, reason: "close-out time", auto: true }); return true; }
-    else await notify(store, `⛔ Close-out time (${s.flatBy}) and you're still in ${ctx.open.length} trade${ctx.open.length > 1 ? "s" : ""}. Close everything NOW — your prop firm will.`, "action");
+    else await notify(store, `⛔ Close-out time (${ce.flatAt}) and you're still in ${ctx.open.length} trade${ctx.open.length > 1 ? "s" : ""}. Close everything NOW — your prop firm will.`, "action");
   }
 }
 
 // One button to get out of everything.
 // auto: only the trades Edge can actually close (TradersPost / OANDA); hand-placed ones get a loud reminder instead.
-async function closeAll(store, broker, { now = Date.now(), reason = "Close everything", auto = false } = {}) {
+async function closeAll(store, broker, { now = Date.now(), reason = "Close everything", auto = false, markets = null } = {}) {
   const ctx = await context(store, now);
   const s = ctx.settings, sentTickers = new Set(), out = { closed: 0, failed: [], manual: 0 };
   for (const t of ctx.open) {
+    if (markets && !markets.includes(t.market)) continue;
     try {
       if (t.source === "oanda" && broker.kind === "oanda") { await broker.close(t.brokerId); out.closed++; continue; }
       if (routedTo(t, broker)) {
@@ -323,6 +326,49 @@ async function closeAll(store, broker, { now = Date.now(), reason = "Close every
   if (broker.kind === "oanda") await syncTrades(store, broker, { now, force: true }).catch(() => {});
   await notify(store, `🧹 ${reason}: ${out.closed} trade${out.closed === 1 ? "" : "s"} closed${out.manual ? ` — ${out.manual} ${out.manual === 1 ? "was" : "were"} placed by hand: close ${out.manual === 1 ? "it" : "them"} in TradingView too (Positions → Close all)` : ""}${out.failed.length ? `. ❗ Failed: ${out.failed.join("; ")} — close by hand NOW` : ""}.`, out.failed.length ? "action" : "closed");
   return out;
+}
+
+// cancel the limits still waiting (all, or only in these markets) — on Tradovate when Edge placed them
+async function cancelWaiting(store, broker, markets, reason) {
+  const out = { cancelled: 0, manual: [] };
+  for (const o of Object.values((await store.hgetall("orders")) || {})) {
+    if (markets && !markets.includes(o.market)) continue;
+    if (o.routed && ROUTED(broker)) { await broker.exit(o.trade.ticker, o.trade).catch(() => {}); out.cancelled++; }
+    else out.manual.push(MARKETS[o.market] ? MARKETS[o.market].name : o.market);
+    await store.hdel("orders", o.id);
+  }
+  if (out.cancelled || out.manual.length) await notify(store, `🧹 ${reason}: ${out.cancelled ? `${out.cancelled} limit order${out.cancelled > 1 ? "s" : ""} cancelled on Tradovate` : ""}${out.cancelled && out.manual.length ? " · " : ""}${out.manual.length ? `cancel your ${out.manual.join(", ")} limit on your platform NOW` : ""}.`, "action");
+  return out;
+}
+
+// MyFundedFutures news rule: no open trades and no working orders from 2 min before to 2 min after a big release.
+// Edge is flat newsFlatMin (10) min before: limits cancelled, trades in the markets the news moves closed.
+async function newsFlatCheck(store, broker, ctx) {
+  const s = ctx.settings, lead = (s.newsFlatMin ?? 10) * 60e3;
+  for (const e of ctx.events) {
+    const dt = e.time - ctx.now;
+    if (!e.block || dt > lead || dt < -3 * 60e3) continue;
+    const mk = e.markets || [];
+    const open = ctx.open.filter((t) => mk.includes(t.market)), waiting = (ctx.waiting || []).filter((t) => mk.includes(t.market));
+    if (!open.length && !waiting.length) continue;
+    if (await store.hget("newsFlat", e.id)) continue;
+    await store.hset("newsFlat", e.id, ctx.now);
+    const when = new Date(e.time).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
+    await notify(store, `📰 ${e.title} at ${when} New York — your firm's rule: nothing open or working 2 min before → 2 min after. Edge is getting you flat now.`, "action");
+    await cancelWaiting(store, broker, mk, `${e.title} news`);
+    if (open.length) await closeAll(store, broker, { now: ctx.now, reason: `${e.title} news (be flat before it)`, auto: true, markets: mk });
+  }
+}
+
+// Edge's own clock (every minute, /api/tick): the safety rules run even when no alert comes in and the app is closed
+async function tick(store, broker, now = Date.now()) {
+  if (ROUTED(broker)) await syncTrades(store, broker, { now }).catch(() => {});
+  const ctx = await context(store, now);
+  await newsReminders(store, ctx).catch(() => {});
+  await newsFlatCheck(store, broker, ctx).catch(() => {});
+  await closeOutCheck(store, broker, ctx).catch(() => {});
+  await gamePlan(store, now).catch(() => {});
+  return { ok: true, open: ctx.open.length, waiting: (ctx.waiting || []).length };
 }
 
 // ---------- news reminders (sent once per event, ahead of the no-trade window)
@@ -896,6 +942,8 @@ async function action(store, broker, body, now = Date.now()) {
     if (cur.riskPct > 3) throw new Error("Risk per trade above 3% isn't allowed here. That's the greed talking.");
     if (cur.beAtR < 0 || (cur.beAtR > 0 && cur.tpAtR <= cur.beAtR)) throw new Error("Take-profit must be beyond the break-even trigger (or set break-even to 0 = off).");
     cur.beV2 = true;
+    cur.flatV2 = true;
+    if (cur.flatBy > "16:00") cur.flatBy = "16:00"; // your firm closes everything at 16:10 New York
     cur.riskV5 = true;
     for (const k of ["enforceTP"]) if (typeof p[k] === "boolean") cur[k] = p[k];
     if (["warn", "close"].includes(p.newsOpenTrade)) cur.newsOpenTrade = p.newsOpenTrade;
@@ -1134,4 +1182,4 @@ async function action(store, broker, body, now = Date.now()) {
   throw new Error(`Unknown action: ${a}`);
 }
 
-module.exports = { gamePlan, guide, createSetup, createPlan, handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, context, gradeNow, stats };
+module.exports = { tick, newsFlatCheck, cancelWaiting, gamePlan, guide, createSetup, createPlan, handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, context, gradeNow, stats };

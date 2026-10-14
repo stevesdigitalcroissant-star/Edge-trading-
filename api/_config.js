@@ -184,10 +184,11 @@ const DEFAULT_SETTINGS = {
   lots: { gold: 100, crude: 1000, natgas: 10000, silver: 5000, es: 50, nq: 20, ym: 5, copper: 25000, rty: 50, "6e": 125000, "6b": 62500, "6j": 12500000, "6a": 100000, zn: 1000, zb: 1000 },
   inactivityDays: 7, // the prop account needs a trade at least every this many days
   fallbackAfterDays: 4, // after this many days without a trade, Edge also alerts setups that aren't A+
-  flatBy: "16:40", // be out of every trade by this time (your prop firm's close-out, New York time)
+  flatBy: "15:55", // be out of every trade by this time (New York). MyFundedFutures closes everything at 16:10 — Edge is out 15 min before
+  newsFlatMin: 10, // be flat, no orders working, this many minutes before a big release (MyFundedFutures: 2 min before → 2 min after)
   flatWarnMin: 15, // warn this many minutes before
   noNewTradesMin: 30, // no new trades this close to the close-out
-  autoFlat: false, // at the close-out, close Edge-managed trades by itself (TradersPost / OANDA)
+  autoFlat: true, // at the close-out, close Edge-managed trades by itself (TradersPost / OANDA)
   coachIdleSec: 60, // Coach: seconds between chart checks while waiting for a setup
   coachTradeSec: 20, // …and while a trade is open
   coachDailyChecks: 600, // cost guard: max Coach checks per day
@@ -265,6 +266,7 @@ function mergeSettings(saved) {
   s.lots = { ...DEFAULT_SETTINGS.lots, ...((saved && saved.lots) || {}) };
   s.notify = { ...DEFAULT_SETTINGS.notify, ...((saved && saved.notify) || {}) };
   if (!(saved && saved.riskV5)) { s.sdRiskMin = DEFAULT_SETTINGS.sdRiskMin; s.sdRiskTarget = DEFAULT_SETTINGS.sdRiskTarget; s.sdRiskMax = DEFAULT_SETTINGS.sdRiskMax; } // $150–250 a trade, aim $200, A+ at 1:3 (Oct 14 2026); only a value saved after that counts
+  if (!(saved && saved.flatV2)) { s.flatBy = DEFAULT_SETTINGS.flatBy; s.autoFlat = true; } // MyFundedFutures safety (Oct 14 2026): out by 15:55, before their 16:10 auto-close
   if (!(saved && saved.beV2)) s.beAtR = 0; // break-even removed (Oct 2026); only a value saved after that counts
   return s;
 }
@@ -274,4 +276,7 @@ const GROUPS = { indices: ["es", "nq", "ym", "rty"], metals: ["gold", "silver"],
 const GROUP_NAMES = { indices: "the stock indices (S&P, Nasdaq, Dow, Russell)", metals: "gold and silver", currencies: "the currencies (euro, pound, Aussie, yen)", bonds: "the bonds (10Y, 30Y)" };
 const groupOf = (m) => Object.keys(GROUPS).find((g) => GROUPS[g].includes(m)) || null;
 
-module.exports = { GROUPS, GROUP_NAMES, groupOf, MARKETS, FUTURES, futuresSpec, marketOf, STRATEGIES, strategyPlan, DEFAULT_SETTINGS, BIAS_FACTORS, BIAS_MAX_AGE_DAYS, biasFromFactors, mergeSettings };
+// US holidays / half days (New York dates): futures close early (13:00 New York or earlier) and the prop firm does NOT
+// auto-close on half days — Edge is out by 12:45 on these days.
+const EARLY_CLOSE = new Set(["2026-11-26", "2026-11-27", "2026-12-24", "2026-12-25", "2026-12-31", "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-11-26", "2027-12-24", "2027-12-31"]);
+module.exports = { EARLY_CLOSE, GROUPS, GROUP_NAMES, groupOf, MARKETS, FUTURES, futuresSpec, marketOf, STRATEGIES, strategyPlan, DEFAULT_SETTINGS, BIAS_FACTORS, BIAS_MAX_AGE_DAYS, biasFromFactors, mergeSettings };

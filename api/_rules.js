@@ -159,8 +159,11 @@ function hardBlocks(setup, ctx) {
 // Futures pause 17:00–18:00 New York time; after the close-out nothing new until the evening reopen.
 function closeOut(now, s) {
   const { hm, minutesOfDay } = require("./_time");
-  const m = minutesOfDay(now, s.tz), flat = hm(s.flatBy || "16:40"), reopen = hm("18:00");
+  const { EARLY_CLOSE } = require("./_config"), { dayKey } = require("./_time");
+  let flat = hm(s.flatBy || "15:55"); if (EARLY_CLOSE.has(dayKey(now, "America/New_York"))) flat = Math.min(flat, hm("12:45")); // half day: out by 12:45
+  const m = minutesOfDay(now, s.tz), reopen = hm("18:00");
   return {
+    flatAt: `${String(Math.floor(flat / 60)).padStart(2, "0")}:${String(flat % 60).padStart(2, "0")}`,
     minutesLeft: flat - m,
     warn: m >= flat - (s.flatWarnMin ?? 15) && m < flat,
     due: m >= flat && m < reopen,
