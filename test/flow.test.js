@@ -89,7 +89,7 @@ test("a trade that comes back after break-even closes flat, not as a loss", asyn
 test("S&D scanner alert (1H zone · 5m shift) → graded, taken as a limit", async () => {
   const store = memory();
   const now = NY(9, 35);
-  const alert = { secret: "s3cret", type: "setup", strategy: "sd", symbol: "M6E1!", tv: "CME:M6E1!", dir: "long", entry: 1.0852, sl: 1.0840, tp: 1.0876, rr: 2, kind: "FVG", zoneTop: 1.0850, zoneBot: 1.0838, mss: 1.0849, liq: 1.0862, liqR: 0.83, fill: 0.26, tpMax: 1.0912, rrMax: 5, validMin: 240 };
+  const alert = { secret: "s3cret", type: "setup", strategy: "sd", symbol: "M6E1!", tv: "CME:M6E1!", dir: "long", entry: 1.0852, sl: 1.0840, tp: 1.0876, rr: 2, kind: "FVG", zoneTop: 1.0850, zoneBot: 1.0838, mss: 1.0849, liq: 1.0862, liqR: 0.83, fill: 0.26, tpMax: 1.0912, rrMax: 5, vol: 1.8, validMin: 240 };
   const r = await core.handleHook(store, broker, JSON.stringify(alert), now);
   assert.equal(r.json.grade, "S&D");
   assert.equal(r.json.takeable, true);
@@ -99,7 +99,8 @@ test("S&D scanner alert (1H zone · 5m shift) → graded, taken as a limit", asy
   assert.equal(x.strategy, "sd");
   assert.equal(x.expires, now + 240 * 60e3);
   assert.equal(x.rrMax, 5); // the highest target (1H high the move came from, ≤ 10R) rides along
-  assert.equal(x.fill, 0.26); // how much of the zone price filled before the 5m MSS (under 30% is flagged)
+  assert.equal(x.fill, 0.26);
+  assert.equal(x.vol, 1.8); // volume on the break vs the 20-candle average // how much of the zone price filled before the 5m MSS (under 30% is flagged)
   const out = await core.action(store, broker, { action: "take", setupId: x.id, emotion: "calm", riskUSD: 425 }, now);
   assert.equal(out.order.trade.strategy, "sd");
   assert.equal(out.order.trade.lockR, null);
