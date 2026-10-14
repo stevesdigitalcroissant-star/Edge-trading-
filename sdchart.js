@@ -84,7 +84,16 @@
       const up = dir === 1;
       // MSS: a close past the protected level
       if (up ? b.c < prot.p : b.c > prot.p) {
-        out.push({ d: -dir, lvl: prot.p, t0: B[prot.i].t, t1: b.t, mss: true, o: { t: B[peak.i].t, p: peak.p } });
+        // the impulse that broke the protected level started at the last major swing before it —
+        // e.g. the last lower high in an uptrend that fails — not at the old move's extreme
+        // (a swing with SW candles each side, so small pauses inside the impulse don't count)
+        const SW = 6;
+        let st = peak.i;
+        for (let k = i - 1; k > peak.i; k--) {
+          let ok = true; for (let m = 1; m <= SW && ok; m++) ok = k - m >= 0 && (up ? B[k].h >= B[k - m].h : B[k].l <= B[k - m].l) && (k + m > i || (up ? B[k].h >= B[k + m].h : B[k].l <= B[k + m].l));
+          if (ok) { st = k; break; }
+        }
+        out.push({ d: -dir, lvl: prot.p, t0: B[prot.i].t, t1: b.t, mss: true, o: { t: B[st].t, p: up ? B[st].h : B[st].l } });
         // the new protected level is the extreme of the move that just failed
         const np = { i: peak.i, p: peak.p };
         let ex = i; for (let k = peak.i; k <= i; k++) if (up ? B[k].l < B[ex].l : B[k].h > B[ex].h) ex = k;
@@ -189,6 +198,41 @@
     return { taken, resting, bias: lastSweep ? -lastSweep.d : 0, lastSweep: lastSweep || null };
   }
 
+  // Supply & demand zones from the swing structure: every BOS / MSS is made by an impulse; the zone sits where that
+  // impulse started (the retracement's extreme), on the last 1–3 opposite candles there (older ones only if they
+  // sit inside the last one's range — a base), wick to wick: far edge = the extreme, body edge (arms alerts) and
+  // wick edge (drawn light). Skipped when taller than `maxATR` × ATR. Then followed: fresh → tested → broken.
+  function swingZones(B, sw, { maxATR = 3 } = {}) {
+    const idx = new Map(B.map((b, i) => [b.t, i])), atr = []; let a = null;
+    B.forEach((b, i) => { const tr = i ? Math.max(b.h - b.l, Math.abs(b.h - B[i - 1].c), Math.abs(b.l - B[i - 1].c)) : b.h - b.l; a = a == null ? tr : (a * 13 + tr) / 14; atr.push(a); });
+    const out = [];
+    for (const x of sw.breaks) {
+      if (!x.o) continue;
+      const d = x.d, o = idx.get(x.o.t), bi = idx.get(x.t1); if (o == null || bi == null) continue;
+      const opp = (k) => k >= 0 && (d === 1 ? B[k].c < B[k].o : B[k].c > B[k].o);
+      const s0 = !opp(o) && opp(o - 1) ? o - 1 : o;
+      const cs = [];
+      for (let k = s0; k >= Math.max(0, s0 - 2); k--) {
+        if (!opp(k)) break;
+        if (cs.length && (d === 1 ? Math.max(B[k].o, B[k].c) > B[s0].h : Math.min(B[k].o, B[k].c) < B[s0].l)) break;
+        cs.push(k);
+      }
+      if (!cs.length) cs.push(o);
+      const far = d === 1 ? Math.min(...cs.map((k) => B[k].l), B[o].l) : Math.max(...cs.map((k) => B[k].h), B[o].h);
+      const body = d === 1 ? Math.max(...cs.map((k) => Math.max(B[k].o, B[k].c))) : Math.min(...cs.map((k) => Math.min(B[k].o, B[k].c)));
+      const wick = d === 1 ? Math.max(...cs.map((k) => B[k].h)) : Math.min(...cs.map((k) => B[k].l));
+      if (Math.abs(wick - far) > maxATR * atr[bi] || Math.abs(body - far) <= 0) continue;
+      const z = { d, from: x.mss ? "MSS" : "BOS", t: B[Math.min(...cs)].t, tBreak: x.t1, far, body, wick, top: d === 1 ? wick : far, bot: d === 1 ? far : wick, status: "fresh", tEnd: null };
+      // follow it after the break: the first return into the body part = tested; a close through the far side = broken
+      for (let k = bi + 1; k < B.length; k++) {
+        if (d === 1 ? B[k].c < far : B[k].c > far) { z.status = "broken"; z.tEnd = B[k].t; break; }
+        if (z.status === "fresh" && (d === 1 ? B[k].l <= body : B[k].h >= body)) { z.status = "tested"; z.tTest = B[k].t; }
+      }
+      out.push(z);
+    }
+    return out;
+  }
+
   function trend4h(B) {
     let h = null, l = null, dir = 0;
     for (let i = 0; i < B.length; i++) {
@@ -215,6 +259,6 @@
     return { ...s, t4, zone4: s4.zone, older4: s4.older, inZone4: !!in4, inZone: !!inZ, status, ordersOpen: open, with4h: s.zone && t4 ? s.zone.d === t4 : null };
   }
 
-  const api = { sd1h, swing, sweeps, majorSweeps, liquidity, trend4h, read };
+  const api = { sd1h, swing, sweeps, majorSweeps, liquidity, swingZones, trend4h, read };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.EdgeSD = api;
 })(typeof window !== "undefined" ? window : globalThis);
