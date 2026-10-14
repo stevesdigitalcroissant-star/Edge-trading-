@@ -475,7 +475,7 @@
       if (f && !f.plans[plan]) plan = plans[0][0];
       const p = f && f.plans[plan], r = p ? (phase === "funded" ? p.funded : p.eval) || p.funded : null;
       const fromRead = readCfg ? (phase === "funded" ? { ...readCfg, ...Object.fromEntries(Object.entries(readCfg.funded || {}).filter(([, x]) => x != null)), target: null } : readCfg) : null;
-      const v = fromRead ? { ...fromRead, payout: fromRead.payout || {} } : fromPreset && r ? { size: 50000, target: phase === "funded" ? null : r.target, ...r, payout: r.payout || {} } : { ...cur, payout: cur.payout || {} };
+      const v = fromRead ? { ...fromRead, payout: fromRead.payout || {} } : fromPreset && r ? { size: p.size || 50000, target: phase === "funded" ? null : r.target, ...r, payout: r.payout || {} } : { ...cur, payout: cur.payout || {} };
       const pay = v.payout || {}, an = (S.prop && S.prop.acct) || {};
       body.innerHTML = `<h3>🏁 Your prop account</h3>
         <section class="card slim" style="margin:0 0 10px"><b>📸 Fastest: upload a screenshot of your rules</b>
@@ -493,8 +493,8 @@
         <div class="grid3"><label class="f"><small>Drawdown follows</small><select data-pf="ddType">${[["eod", "End of day"], ["intraday", "Live (intraday)"], ["static", "Static"]].map(([k, l]) => `<option value="${k}" ${v.ddType === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>${fld("ddLockAt", "Stops trailing at", v.ddLockAt, "balance")}${fld("dailyLoss", "Daily loss limit", v.dailyLoss)}</div>
         <div class="grid3">${fld("consistencyPct", "Consistency %", v.consistencyPct, "best day ≤")}${fld("minDays", "Min trading days", v.minDays)}${fld("maxMicros", "Max micros", v.maxMicros)}</div>
         <b style="display:block;margin:10px 0 4px">Where it stands now</b>
-        <div class="grid3">${fld("balance", "Balance now", an.balance != null ? Math.round(an.balance) : v.size ?? 50000)}${fld("hwm", "Highest end-of-day balance", an.peak != null ? Math.round(an.peak) : "")}${fld("days", "Days traded so far", an.daysTraded ?? 0)}</div>
-        <div class="grid3">${fld("baseRisk", "Normal risk a trade", cur.baseRisk ?? 250, "$")}${fld("setupsPerDay", "A+ setups a day", cur.setupsPerDay ?? 1, "average")}${fld("feePerContract", "Fees a contract", cur.feePerContract ?? 1.5, "$ round turn")}</div>
+        <div class="grid3">${fld("balance", "Balance now", !fromPreset && an.balance != null ? Math.round(an.balance) : v.size ?? 50000)}${fld("hwm", "Highest end-of-day balance", !fromPreset && an.peak != null ? Math.round(an.peak) : v.size ?? "")}${fld("days", "Days traded so far", an.daysTraded ?? 0)}</div>
+        <div class="grid3">${fld("baseRisk", "Normal risk a trade", (readPlan && readPlan.risk.aim) || cur.baseRisk || S.settings.sdRiskTarget || 200, "$")}${fld("setupsPerDay", "A+ setups a day", cur.setupsPerDay ?? 1, "average")}${fld("feePerContract", "Fees a contract", cur.feePerContract ?? 1.5, "$ round turn")}</div>
         ${phase === "funded" ? `<details open><summary><b>Payout rules</b></summary><div class="grid3">${fld("p.minWinningDays", "Winning days", pay.minWinningDays)}${fld("p.minWinningDayProfit", "Winning day =", pay.minWinningDayProfit, "$+")}${fld("p.minDays", "Min days", pay.minDays)}</div><div class="grid3">${fld("p.buffer", "Buffer above start", pay.buffer)}${fld("p.cap", "Max a payout", pay.cap)}${fld("p.processingDays", "Paid within", pay.processingDays, "business days")}</div><input type="hidden" data-pf="p.split" value="${esc(pay.split || "")}"></details>` : ""}
         <p class="err" id="pErr"></p>
         <div class="row"><button class="btn primary" type="button" id="pSave">Save</button>${cur.enabled ? `<button class="btn" type="button" id="pOff">Turn off</button>` : ""}<button class="btn" value="cancel">Cancel</button></div>`;

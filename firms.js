@@ -331,6 +331,7 @@
    },
    "builder25": {
     "name": "Builder 25K",
+    "size": 25000,
     "eval": {
      "target": 1500,
      "dd": 1000,
