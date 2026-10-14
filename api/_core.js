@@ -368,7 +368,19 @@ async function tick(store, broker, now = Date.now()) {
   await newsFlatCheck(store, broker, ctx).catch(() => {});
   await closeOutCheck(store, broker, ctx).catch(() => {});
   await gamePlan(store, now).catch(() => {});
+  await resultAsks(store, now).catch(() => {});
   return { ok: true, open: ctx.open.length, waiting: (ctx.waiting || []).length };
+}
+
+// trades you logged yourself (screenshot): 2 hours later, a notification asks how it went; "still open" asks again an hour later
+async function resultAsks(store, now) {
+  const open = Object.values((await store.hgetall("trades")) || {});
+  for (const t of open) {
+    if (!t || t.askAt == null || now < t.askAt || t.askedAt === t.askAt) continue;
+    t.askedAt = t.askAt;
+    await store.hset("trades", t.id, t);
+    await notify(store, `🤔 Your ${MARKETS[t.market] ? MARKETS[t.market].name : t.market} ${t.dir === "long" ? "buy" : "sell"} at ${fx(t.entry)} — did it win or lose? Tap to tell Edge.`, "action");
+  }
 }
 
 // ---------- news reminders (sent once per event, ahead of the no-trade window)
@@ -979,6 +991,47 @@ async function action(store, broker, body, now = Date.now()) {
     const t = { id: `manual:${id()}`, source: "manual", market, dir, grade: "unplanned", entry, initialSL: sl, currentSL: sl, tp: num(body.tp) ?? entry + k * s.tpAtR * Math.abs(entry - sl), units: num(body.units), openedAt: now, maxR: 0, ruleBreaks: [], notified: {} };
     await store.hset("trades", t.id, t);
     return { trade: t };
+  }
+  if (a === "shotRead") { // a screenshot of a trade you took → its numbers (nothing saved yet; the app asks for what's missing)
+    const TS = require("./_tradeshot");
+    return TS.shotFields(await TS.readTradeShot(body.image));
+  }
+  if (a === "shotLog") { // the checked numbers from that screenshot → a tracked trade (or straight to the journal if it's closed)
+    const market = body.market, dir = body.dir === "short" ? "short" : body.dir === "long" ? "long" : null;
+    const entry = num(body.entry), sl = num(body.sl), k = R.sign(dir || "long");
+    if (!MARKETS[market] || !dir || entry == null || sl == null || k * (entry - sl) <= 0) throw new Error("Need the market, buy or sell, the entry and a stop on the right side.");
+    const s = mergeSettings(await store.get("settings"));
+    const tp = num(body.tp) ?? rp(entry + k * s.tpAtR * Math.abs(entry - sl));
+    if (k * (tp - entry) <= 0) throw new Error("The target must be above the entry for a buy, below it for a sell.");
+    const units = num(body.units), cfgx = require("./_config");
+    const spec = cfgx.futuresSpec(body.symbol || "") || cfgx.FUTURES.find((f) => f.root === body.contract && f.market === market) || null;
+    // an Edge setup it came from (same market and side, entry close, last 8 hours) → it counts as that setup, not unplanned
+    const setups = Object.values((await store.hgetall("setups")) || {});
+    const from = setups.find((x) => x && x.market === market && x.dir === dir && now - x.at < 8 * 3600e3 && Math.abs(x.entry - entry) <= Math.abs(entry - sl) * 0.5);
+    const t = { id: `manual:${id()}`, source: "manual", via: "screenshot", market, dir, grade: from ? from.grade || "A+" : "unplanned", ...(from ? { setupId: from.id, strategy: from.strategy, kind: from.kind } : {}),
+      symbol: spec ? `${spec.root}1!` : body.symbol || null, contract: spec ? spec.root : null, unitLabel: "contracts", entry, initialSL: sl, currentSL: sl, tp,
+      units: units > 0 ? units : null, riskUSD: spec && units > 0 ? R.round(Math.abs(entry - sl) * spec.pv * units) : null,
+      openedAt: num(body.openedAt) || now, maxR: 0, ruleBreaks: [], notified: {}, askAt: now + 2 * 3600e3 };
+    if (from) await store.hset("setups", from.id, { ...from, status: "taken" });
+    const exit = num(body.exit), pnl = num(body.pnlUSD);
+    if (body.status === "closed" && (exit != null || pnl != null)) {
+      // closed already: no exit price but a P&L → the exit that P&L means
+      const ex = exit ?? (spec && t.units ? rp(entry + k * (pnl / (spec.pv * t.units))) : null);
+      await recordClose(store, t, ex, now, pnl, s, " (from your screenshot)");
+      return { ok: true, closed: true, tradeId: t.id };
+    }
+    await store.hset("trades", t.id, t);
+    return { ok: true, trade: t, askAt: t.askAt };
+  }
+  if (a === "tradeResult") { // "did it win or lose?" — your answer closes the trade at its target / stop / entry
+    const t = await store.hget("trades", String(body.tradeId || ""));
+    if (!t) throw new Error("Trade not found");
+    const o = body.outcome;
+    if (o === "open") { t.askAt = now + 3600e3; await store.hset("trades", t.id, t); return { ok: true, askAt: t.askAt }; }
+    const exit = o === "win" ? t.tp : o === "loss" ? t.initialSL : o === "be" ? t.entry : o === "exit" ? num(body.exit) : null;
+    if (exit == null) throw new Error(o === "exit" ? "Enter the price you got out at." : "Pick won, lost, break-even or still open.");
+    await recordClose(store, t, exit, now, num(body.pnlUSD), mergeSettings(await store.get("settings")), o === "exit" ? "" : " (you told Edge)");
+    return { ok: true };
   }
   if (a === "confirmTrade") {
     // you checked the trade Edge recorded: fix what's different, say how you feel

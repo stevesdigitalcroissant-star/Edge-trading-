@@ -464,6 +464,48 @@
     });
     $("#modal").showModal();
   }
+  // shrink a picked image to a JPEG data URL (≤1600 px) before it goes to the server
+  const shrinkImage = (file) => new Promise((ok, bad) => { const im = new Image(), url = URL.createObjectURL(file); im.onload = () => { const k = Math.min(1, 1600 / Math.max(im.width, im.height)), c = document.createElement("canvas"); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(url); ok(c.toDataURL("image/jpeg", 0.85)); }; im.onerror = () => bad(new Error("Couldn't open that image.")); im.src = url; });
+  // a trade you took, from a screenshot: Edge reads it, you fill what it couldn't see, it's tracked (or journaled if it's closed)
+  function shotDialog() {
+    const body = $("#modalBody");
+    body.innerHTML = `<h3>📸 Log a trade from a screenshot</h3>
+      <p class="muted" style="margin-top:0">Your TradingView chart with the position on it, the Trading Panel, or Tradovate. Edge reads the market, buy/sell, entry, stop, target and contracts.</p>
+      <label class="btn primary">Choose screenshot<input type="file" accept="image/*" id="shFile" hidden></label>
+      <p class="err" id="shErr"></p><div id="shForm"></div>`;
+    $("#shFile").addEventListener("change", async (ev) => {
+      const file = ev.target.files && ev.target.files[0]; if (!file) return;
+      $("#shErr").textContent = "Reading your trade…";
+      try {
+        const image = await shrinkImage(file);
+        const r = await api("POST", { action: "shotRead", image });
+        $("#shErr").textContent = ""; form(r.fields, r.missing);
+      } catch (e) { $("#shErr").textContent = e.message; }
+    });
+    function form(f, missing) {
+      const miss = new Set(missing || []);
+      const fld = (id, label, key, v) => `<label class="f"><small>${label}${miss.has(key) ? ' <b class="bad">— not on the screenshot, enter it</b>' : ""}</small><input id="${id}" inputmode="decimal" value="${v ?? ""}" ${miss.has(key) ? 'style="border-color:var(--bad)"' : ""}></label>`;
+      const closed = f.status === "closed";
+      $("#shForm").innerHTML = `${f.notes ? `<p class="muted">${esc(f.notes)}</p>` : ""}
+        <label class="f"><small>Market${miss.has("market") ? ' <b class="bad">— pick it</b>' : ""}</small><select id="shMk"><option value="">—</option>${Object.keys(S.markets).map((m) => `<option value="${m}" ${f.market === m ? "selected" : ""}>${esc(S.markets[m].name)}</option>`).join("")}</select></label>
+        <label class="f"><small>Buy or sell${miss.has("buy or sell") ? ' <b class="bad">— pick it</b>' : ""}</small><select id="shDir"><option value="">—</option><option value="long" ${f.dir === "long" ? "selected" : ""}>Buy (long)</option><option value="short" ${f.dir === "short" ? "selected" : ""}>Sell (short)</option></select></label>
+        ${fld("shE", "Entry", "entry", f.entry)}${fld("shSL", "Stop loss", "stop loss", f.sl)}${fld("shTP", "Target", "target", f.tp)}${fld("shQ", "Contracts", "contracts", f.units)}
+        <label class="f"><small>Is the trade still open?</small><select id="shSt"><option value="open" ${closed ? "" : "selected"}>Yes — I'm in it now</option><option value="closed" ${closed ? "selected" : ""}>No — it's closed</option></select></label>
+        <div id="shClosed" ${closed ? "" : "hidden"}>${fld("shX", "Exit price", "exit", f.exit)}${fld("shP", "P&L in $ (minus for a loss)", "pnl", f.pnlUSD)}</div>
+        <div class="row" style="margin-top:8px"><button class="btn primary" type="button" id="shSave">Save trade</button><button class="btn" value="cancel">Cancel</button></div>`;
+      $("#shSt").addEventListener("change", () => ($("#shClosed").hidden = $("#shSt").value !== "closed"));
+      $("#shSave").addEventListener("click", async () => {
+        const v = (id) => ($(id) ? $(id).value.trim() : "");
+        if (!v("#shMk") || !v("#shDir") || !v("#shE") || !v("#shSL")) return ($("#shErr").textContent = "Fill in the market, buy or sell, entry and stop.");
+        if (v("#shSt") === "open" && !v("#shQ")) return ($("#shErr").textContent = "How many contracts? Edge needs it to show your money.");
+        const r = await act({ action: "shotLog", market: v("#shMk"), dir: v("#shDir"), entry: v("#shE"), sl: v("#shSL"), tp: v("#shTP"), units: v("#shQ"), symbol: f.symbol, contract: f.contract, status: v("#shSt"), exit: v("#shX"), pnlUSD: v("#shP") }, null);
+        if (!r) return;
+        $("#modal").close();
+        toast(r.closed ? "Saved to your journal." : "Tracking it. In 2 hours Edge asks you how it went."); tab = r.closed ? "journal" : "now"; refresh();
+      });
+    }
+    $("#modal").showModal();
+  }
   function propDialog() {
     const F = FIRMS(), cur = (S.prop && S.prop.cfg) || {};
     let firm = cur.firm && (F[cur.firm] || cur.firm === "custom") ? cur.firm : "tradeify", plan = cur.plan || "", phase = cur.phase || "eval";
@@ -628,7 +670,8 @@
     const alerts = `<details class="card slim" data-tour="log" data-keep="alerts"><summary><b>Alerts</b> <span class="muted">${S.log.length ? `· last ${time(S.log[0].at)}` : ""}</span></summary><div class="log" style="margin-top:8px">${S.log.slice(0, 15).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></details>`;
     const gp = S.gameplan && S.now - S.gameplan.at < 10 * 3600e3 ? `<section class="card slim gameplan" data-tour="gameplan"><div class="row between"><b>${esc(S.gameplan.title)}</b><small class="muted">${time(S.gameplan.at)}</small></div>${S.gameplan.lines.map((l) => `<p>${esc(l)}</p>`).join("")}</section>` : "";
     const paste = `<section class="card slim"><div class="row between"><div><b>📋 Got an alert in the TradingView app?</b><p class="muted" style="margin:4px 0 0">Paste it (or a screenshot of it) — Edge turns it into the setup card: check, confirm, and the order goes to Tradovate.</p></div><button class="btn small primary" data-paste>Paste alert</button></div></section>`;
-    return `${ceBanner}${pend}${getSetCard()}${hero}${gp}${setups}${paste}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
+    const shot = `<section class="card slim"><div class="row between"><div><b>📸 Took a trade?</b><p class="muted" style="margin:4px 0 0">Upload a screenshot of it — Edge reads the numbers, asks for anything it can't see, and 2 hours later asks you if it won or lost.</p></div><button class="btn small primary" data-shot>Upload</button></div></section>`;
+    return `${ceBanner}${pend}${getSetCard()}${hero}${gp}${setups}${paste}${shot}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -723,6 +766,8 @@
         ${!t.beMoved && !t.pending ? `<button class="btn small primary" data-mbe="${esc(t.id)}">🔒 Break-even</button>` : ""}
         <button class="btn small danger" data-close="${esc(t.id)}">Close trade</button>
       </div>
+      ${manual && !t.pending ? `<div class="blocks" ${t.askAt && S.now >= t.askAt ? "" : 'style="opacity:.85"'}>${t.askAt && S.now >= t.askAt ? "<b>🤔 How did it go?</b>" : "Already out? Tell Edge how it ended:"}
+        <div class="row" style="margin-top:6px"><button class="btn small primary" data-res="win" data-id="${esc(t.id)}">✅ Won (target)</button><button class="btn small danger" data-res="loss" data-id="${esc(t.id)}">❌ Lost (stop)</button><button class="btn small" data-res="be" data-id="${esc(t.id)}">➖ Break-even</button><button class="btn small" data-res="exit" data-id="${esc(t.id)}">Other exit…</button>${t.askAt && S.now >= t.askAt ? `<button class="btn small" data-res="open" data-id="${esc(t.id)}">⏳ Still open</button>` : ""}</div></div>` : ""}
       <p class="muted" style="margin:8px 0 0;font-size:13px">${manual ? "Manual: Edge tells you when to act, you click in TradingView." : routed ? (e.beR > 0 ? "Sent to Tradovate. Edge moves the stop to break-even at +" + e.beR + "R. Hands off." : "Sent to Tradovate. Stop and target are set. Hands off.") : "Edge is managing this trade. Hands off."}${t.lastPriceAt ? ` · price ${time(t.lastPriceAt)}` : ""}</p>
     </div>`;
   }
@@ -1334,6 +1379,13 @@
     v.querySelectorAll("[data-suhide]").forEach((b) => b.addEventListener("click", () => { try { localStorage.setItem("edge.setupDone", "1"); } catch {} render(); }));
     v.querySelectorAll("[data-propset]").forEach((b) => b.addEventListener("click", propDialog));
     v.querySelectorAll("[data-paste]").forEach((b) => b.addEventListener("click", pasteDialog));
+    v.querySelectorAll("[data-shot]").forEach((b) => b.addEventListener("click", shotDialog));
+    v.querySelectorAll("[data-res]").forEach((b) => b.addEventListener("click", async () => {
+      const o = b.dataset.res; let exit;
+      if (o === "exit") { exit = prompt("The price you got out at:"); if (!exit) return; }
+      const r = await act({ action: "tradeResult", tradeId: b.dataset.id, outcome: o, exit }, o === "open" ? "OK — Edge asks again in an hour." : "Saved to your journal.");
+      if (r) refresh();
+    }));
     v.querySelectorAll("[data-mbe]").forEach((b) => b.addEventListener("click", async () => {
       const t = S.open.find((x) => x.id === b.dataset.mbe); if (!t) return;
       if (!confirm(`Move the stop to break-even (${fx(t.entry)})? From then on this trade can't lose.`)) return;
