@@ -186,7 +186,7 @@
   const PV = { gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500, rty: 5, "6e": 12500, "6b": 6250, "6j": 1250000, "6a": 10000, zn: 1000, zb: 1000 };
   const sdQty = (per, aim, hi) => { const top = per > 0 ? Math.floor(hi / per + 1e-9) : 0; return top < 1 ? 0 : Math.min(Math.max(1, Math.round(aim / per)), top); };
   function sdSize(x) {
-    const st = S.settings, lo = st.sdRiskMin || 160, a = S.prop && S.prop.auto, hi = Math.min(st.sdRiskMax || 210, a && a.usd > 0 ? a.usd : Infinity), aim = Math.min(st.sdRiskTarget || 190, hi);
+    const st = S.settings, lo = st.sdRiskMin || 100, a = S.prop && S.prop.auto, hi = Math.min(st.sdRiskMax || 140, a && a.usd > 0 ? a.usd : Infinity), aim = Math.min(st.sdRiskTarget || 120, hi);
     const c = (CONTRACTS[x.market] || [["", PV[x.market] || 1]])[0], per = Math.abs(x.entry - x.sl) * c[1];
     const qty = sdQty(per, aim, hi), risk = Math.round(qty * per);
     return { contract: c[0], qty, risk, per: Math.round(per), lo, hi, aim, under: qty > 0 && risk < lo };
@@ -493,7 +493,7 @@
     const g = x.g, live = x.status === "open" && !(x.expires && S.now > x.expires);
     const z = sdSize(x);
     const kind = { FVG: "fair value gap", breaker: "breaker block", mitigation: "mitigation block" }[x.kind] || x.kind || "";
-    const chips = [[`1H ${x.dir === "long" ? "demand" : "supply"} ${fx(x.zoneBot)}–${fx(x.zoneTop)}`, true], ["5m MSS" + (x.mss != null ? ` past ${fx(x.mss)}` : ""), true], ...(x.trend4h ? [[x.trend4h === (x.dir === "short" ? -1 : 1) ? "4H trend with you" : "4H trend against you — your call", x.trend4h === (x.dir === "short" ? -1 : 1)]] : []), ...(x.fill != null ? [x.fill > 1 ? ["Price wicked past the zone's far edge (no close) — deep, your call", true] : x.fill >= 0.3 ? [`Zone filled ${Math.round(x.fill * 100)}% — past the 30% line`, true] : [`Zone filled only ${Math.round(x.fill * 100)}% — under 30%, price may go deeper first`, false]] : []), [`Entry: ${kind}`, true], [`Target ${Number(x.rr || 0).toFixed(1)}R`, true], x.liq == null ? ["No 5m swing in the way", true] : x.liqR >= x.rr - 0.05 ? [`Nearest 5m swing ${fx(x.liq)} (${Number(x.liqR).toFixed(1)}R) — room for the target`, true] : [`5m swing ${fx(x.liq)} at ${Number(x.liqR).toFixed(1)}R before the target — your call`, false]];
+    const chips = [[`1H ${x.dir === "long" ? "demand" : "supply"} ${fx(x.zoneBot)}–${fx(x.zoneTop)}`, true], ["5m MSS" + (x.mss != null ? ` past ${fx(x.mss)}` : ""), true], ...(x.trend4h ? [[x.trend4h === (x.dir === "short" ? -1 : 1) ? "4H trend with you" : "4H trend against you — your call", x.trend4h === (x.dir === "short" ? -1 : 1)]] : []), ...(x.fill != null ? [x.fill > 1 ? ["Price wicked past the zone's far edge (no close) — deep, your call", true] : x.fill >= 0.3 ? [`Zone filled ${Math.round(x.fill * 100)}% — past the 30% line`, true] : [`Zone filled only ${Math.round(x.fill * 100)}% — under 30%, price may go deeper first`, false]] : []), ...(x.rrMax != null && x.rrMax > x.rr + 0.25 ? [[`Highest target ${fx(x.tpMax)} (${Number(x.rrMax).toFixed(1)}R) — the 1H ${x.dir === "long" ? "high" : "low"} the move came from`, true]] : []), [`Entry: ${kind}`, true], [`Target ${Number(x.rr || 0).toFixed(1)}R`, true], x.liq == null ? ["No 5m swing in the way", true] : x.liqR >= x.rr - 0.05 ? [`Nearest 5m swing ${fx(x.liq)} (${Number(x.liqR).toFixed(1)}R) — room for the target`, true] : [`5m swing ${fx(x.liq)} at ${Number(x.liqR).toFixed(1)}R before the target — your call`, false]];
     return `<div class="card radar ${live ? "" : "dim"}" data-tour="setup">
       <div class="row between"><div class="row"><div class="grade A">S&amp;D</div>
         <div><h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY limit" : "▼ SELL limit"}</h3><span class="muted">${time(x.at)} · ${esc(x.tv || x.symbol || "")}</span></div></div>
@@ -927,6 +927,7 @@
     body.innerHTML = `<h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY" : "▼ SELL"} limit</h3>
       <p class="muted" style="margin-top:0">Change anything you want. Contracts aim for about $${z.aim} risk ($${z.lo}–$${z.hi}) until you set them yourself.</p>
       <div class="grid2">${f("entry", "Limit", x.entry)}${f("sl", "Stop", x.sl)}${f("tp", "Target", x.tp)}${f("qty", `Contracts (${esc(z.contract)})`, z.qty)}</div>
+      ${x.tpMax != null && x.rrMax > x.rr + 0.25 ? `<div class="row" style="margin-top:6px"><button class="btn" type="button" data-tpset="${x.tp}">Target 1:${Number(x.rr).toFixed(1)}</button><button class="btn" type="button" data-tpset="${x.tpMax}">Highest ${Number(x.rrMax).toFixed(1)}R · ${fx(x.tpMax)}</button></div>` : ""}
       <div class="sc-list" id="sdLive" style="margin:10px 0"></div>
       <p style="margin-bottom:4px"><b>Your eye</b> <span class="muted">— tick what you see on the chart. Edge keeps score so you'll know if your judgement beats the scanner.</span></p>
       <div class="sd-judge">${SD_JUDGE.map(([k, l]) => `<label><input type="checkbox" data-judge="${k}"${k === "fill" && x.fill >= 0.3 ? " checked" : ""}> ${esc(l(x))}</label>`).join("")}</div>
@@ -948,6 +949,7 @@
       $("#confirmTake").disabled = !mood || !okSide || q < 1 || rr < 0.5;
       return { e, sl, tp, q };
     };
+    body.querySelectorAll("[data-tpset]").forEach((b) => b.addEventListener("click", () => { inp("tp").value = b.dataset.tpset; calc(); }));
     body.querySelectorAll("[data-sd]").forEach((el) => el.addEventListener("input", () => { if (el.dataset.sd === "qty") qtyMine = true; calc(); }));
     body.querySelectorAll("[data-mood]").forEach((b) => b.addEventListener("click", () => { mood = b.dataset.mood; body.querySelectorAll("[data-mood]").forEach((y) => y.classList.toggle("on", y === b)); calc(); }));
     calc();

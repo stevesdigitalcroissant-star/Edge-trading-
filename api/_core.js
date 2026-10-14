@@ -120,7 +120,7 @@ async function radarSetup(store, market, msg, now, s) {
   const sd = msg.strategy === "sd";
   if (sd && market === "crude") return { ignored: true, why: "Crude is off for supply & demand — it lost money in every test." };
   const setup = { id: id(), market, source: sd ? "scanner" : "radar", strategy: sd ? "sd" : "playbook", symbol: msg.symbol, tv: msg.tv, dir: msg.dir === "short" ? "short" : "long",
-    kind: String(msg.kind || "").slice(0, 20), mss: num(msg.mss), liq: sd ? num(msg.liq) : undefined, liqR: sd ? num(msg.liqR) : undefined, fill: sd ? num(msg.fill) : undefined,
+    kind: String(msg.kind || "").slice(0, 20), mss: num(msg.mss), liq: sd ? num(msg.liq) : undefined, liqR: sd ? num(msg.liqR) : undefined, fill: sd ? num(msg.fill) : undefined, tpMax: sd ? num(msg.tpMax) : undefined, rrMax: sd ? num(msg.rrMax) : undefined,
     entry: num(msg.entry), sl: num(msg.sl), tp: num(msg.tp), rr: num(msg.rr), zoneTop: num(msg.zoneTop), zoneBot: num(msg.zoneBot), trendD: num(msg.trendD), trend4h: num(msg.trend4h),
     withTrend: b(msg.withTrend), fromHtfZone: b(msg.fromHtfZone), fresh: msg.fresh !== false && msg.fresh !== "false", ...(sd ? {} : { liq: b(msg.liq) }), session: String(msg.session || ""), near: String(msg.near || "").slice(0, 80),
     at: now, expires: now + (num(msg.validMin) || s.radarValidMin || 180) * 60e3, status: "open" };
@@ -134,7 +134,7 @@ async function radarSetup(store, market, msg, now, s) {
   setup.grade = g.grade; await store.hset("setups", setup.id, setup);
   const name = MARKETS[market].name, side = setup.dir === "long" ? "BUY" : "SELL";
   if (sd) await notify(store, g.take.ok
-    ? `📣 ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R) · 1H ${setup.dir === "long" ? "demand" : "supply"} ${fx(setup.zoneBot)}–${fx(setup.zoneTop)} · 4H ${setup.trend4h === R.sign(setup.dir) ? "with you" : setup.trend4h ? "against you" : "?"} · 5m MSS → ${setup.kind}${setup.liqR != null && setup.liqR < setup.rr ? ` · ⚠️ 5m swing at ${R.round(setup.liqR, 1)}R` : ""}${setup.fill != null ? ` · zone filled ${Math.round(setup.fill * 100)}%${setup.fill < 0.3 ? " ⚠️ under 30%" : ""}` : ""}. Tap to see it and send it.`
+    ? `📣 ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R) · 1H ${setup.dir === "long" ? "demand" : "supply"} ${fx(setup.zoneBot)}–${fx(setup.zoneTop)} · 4H ${setup.trend4h === R.sign(setup.dir) ? "with you" : setup.trend4h ? "against you" : "?"} · 5m MSS → ${setup.kind}${setup.liqR != null && setup.liqR < setup.rr ? ` · ⚠️ 5m swing at ${R.round(setup.liqR, 1)}R` : ""}${setup.rrMax != null && setup.rrMax > setup.rr + 0.25 ? ` · highest target ${fx(setup.tpMax)} (${R.round(setup.rrMax, 1)}R)` : ""}${setup.fill != null ? ` · zone filled ${Math.round(setup.fill * 100)}%${setup.fill < 0.3 ? " ⚠️ under 30%" : ""}` : ""}. Tap to see it and send it.`
     : `👀 ${name} ${side} setup @ ${fx(setup.entry)} — not now: ${g.take.why[0]}`, g.take.ok ? "setup" : "skip");
   else await notify(store, g.take.ok
     ? `📣 ${g.grade} ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R)${setup.liq ? " · liquidity taken" : ""}. Open Edge to confirm.`
@@ -854,6 +854,7 @@ async function action(store, broker, body, now = Date.now()) {
     if (cur.riskPct > 3) throw new Error("Risk per trade above 3% isn't allowed here. That's the greed talking.");
     if (cur.beAtR < 0 || (cur.beAtR > 0 && cur.tpAtR <= cur.beAtR)) throw new Error("Take-profit must be beyond the break-even trigger (or set break-even to 0 = off).");
     cur.beV2 = true;
+    cur.riskV3 = true;
     for (const k of ["enforceTP"]) if (typeof p[k] === "boolean") cur[k] = p[k];
     if (["warn", "close"].includes(p.newsOpenTrade)) cur.newsOpenTrade = p.newsOpenTrade;
     if (typeof p.flatBy === "string" && /^\d{1,2}:\d{2}$/.test(p.flatBy)) cur.flatBy = p.flatBy;
