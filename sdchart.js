@@ -198,39 +198,107 @@
     return { taken, resting, bias: lastSweep ? -lastSweep.d : 0, lastSweep: lastSweep || null };
   }
 
-  // Supply & demand zones from the swing structure: every BOS / MSS is made by an impulse; the zone sits where that
-  // impulse started (the retracement's extreme), on the last 1–3 opposite candles there (older ones only if they
-  // sit inside the last one's range — a base), wick to wick: far edge = the extreme, body edge (arms alerts) and
-  // wick edge (drawn light). Skipped when taller than `maxATR` × ATR. Then followed: fresh → tested → broken.
-  function swingZones(B, sw, { maxATR = 3 } = {}) {
-    const idx = new Map(B.map((b, i) => [b.t, i])), atr = []; let a = null;
+  // Supply & demand zones (how Steve draws them): the base an impulse leaves from — the last 1–3 opposite candles
+  // (older ones only if they sit inside the last one's range), wick to wick: far edge = the extreme, body edge (arms
+  // alerts) and wick edge (drawn light). Two kinds:
+  //  · "BOS" / "MSS": the base of every impulse that broke structure (from the swing structure);
+  //  · "fuel": every other base inside a trend that created a move — a displacement out of it that takes out the
+  //    recent high (demand) / low (supply). Trends are fuelled by several of these until fatigue.
+  // A base taller than `refineATR` × ATR is refined on the lower timeframe (`lower` bars) to the 1–3 opposite candles
+  // at the extreme; without lower bars, bases taller than `maxATR` × ATR are skipped. Then followed after the leg:
+  // fresh → tested (with how deep the deepest touch went, 0–100 % of the zone, and how many touches) → broken
+  // (a close through the far edge).
+  function swingZones(B, sw, { maxATR = 3, refineATR = 1.5, lower = null, fuel = true } = {}) {
+    const n = B.length, idx = new Map(B.map((b, i) => [b.t, i])), atr = []; let a = null;
     B.forEach((b, i) => { const tr = i ? Math.max(b.h - b.l, Math.abs(b.h - B[i - 1].c), Math.abs(b.l - B[i - 1].c)) : b.h - b.l; a = a == null ? tr : (a * 13 + tr) / 14; atr.push(a); });
-    const out = [];
-    for (const x of sw.breaks) {
-      if (!x.o) continue;
-      const d = x.d, o = idx.get(x.o.t), bi = idx.get(x.t1); if (o == null || bi == null) continue;
-      const opp = (k) => k >= 0 && (d === 1 ? B[k].c < B[k].o : B[k].c > B[k].o);
-      const s0 = !opp(o) && opp(o - 1) ? o - 1 : o;
-      const cs = [];
+    const tf = n > 1 ? Math.min(...B.slice(1, 50).map((b, i) => b.t - B[i].t)) : 0;
+    const isOpp = (X, k, d) => k >= 0 && k < X.length && (d === 1 ? X[k].c < X[k].o : X[k].c > X[k].o);
+    // the base candles at index o (the leg's extreme) of bars X
+    const baseAt = (X, o, d) => {
+      const s0 = !isOpp(X, o, d) && isOpp(X, o - 1, d) ? o - 1 : o, cs = [];
       for (let k = s0; k >= Math.max(0, s0 - 2); k--) {
-        if (!opp(k)) break;
-        if (cs.length && (d === 1 ? Math.max(B[k].o, B[k].c) > B[s0].h : Math.min(B[k].o, B[k].c) < B[s0].l)) break;
+        if (!isOpp(X, k, d)) break;
+        if (cs.length && (d === 1 ? Math.max(X[k].o, X[k].c) > X[s0].h : Math.min(X[k].o, X[k].c) < X[s0].l)) break;
         cs.push(k);
       }
       if (!cs.length) cs.push(o);
-      const far = d === 1 ? Math.min(...cs.map((k) => B[k].l), B[o].l) : Math.max(...cs.map((k) => B[k].h), B[o].h);
-      const body = d === 1 ? Math.max(...cs.map((k) => Math.max(B[k].o, B[k].c))) : Math.min(...cs.map((k) => Math.min(B[k].o, B[k].c)));
-      const wick = d === 1 ? Math.max(...cs.map((k) => B[k].h)) : Math.min(...cs.map((k) => B[k].l));
-      if (Math.abs(wick - far) > maxATR * atr[bi] || Math.abs(body - far) <= 0) continue;
-      const z = { d, from: x.mss ? "MSS" : "BOS", t: B[Math.min(...cs)].t, tBreak: x.t1, far, body, wick, top: d === 1 ? wick : far, bot: d === 1 ? far : wick, status: "fresh", tEnd: null };
-      // follow it after the break: the first return into the body part = tested; a close through the far side = broken
-      for (let k = bi + 1; k < B.length; k++) {
-        if (d === 1 ? B[k].c < far : B[k].c > far) { z.status = "broken"; z.tEnd = B[k].t; break; }
-        if (z.status === "fresh" && (d === 1 ? B[k].l <= body : B[k].h >= body)) { z.status = "tested"; z.tTest = B[k].t; }
+      const far = d === 1 ? Math.min(...cs.map((k) => X[k].l), X[o].l) : Math.max(...cs.map((k) => X[k].h), X[o].h);
+      const body = d === 1 ? Math.max(...cs.map((k) => Math.max(X[k].o, X[k].c))) : Math.min(...cs.map((k) => Math.min(X[k].o, X[k].c)));
+      const wick = d === 1 ? Math.max(...cs.map((k) => X[k].h)) : Math.min(...cs.map((k) => X[k].l));
+      return { t: X[Math.min(...cs)].t, far, body, wick, n: cs.length };
+    };
+    // refine a tall base on the lower timeframe: the lower candles inside it, the one at the extreme, its base
+    const refine = (z, o, d) => {
+      const t0 = z.t, t1 = B[o].t + tf, L = lower.filter((x) => x.t >= t0 && x.t < t1);
+      if (L.length < 2) return null;
+      let e = 0; for (let k = 1; k < L.length; k++) if (d === 1 ? L[k].l < L[e].l : L[k].h > L[e].h) e = k;
+      const r = baseAt(L, e, d); r.refined = true; return r;
+    };
+    const make = (o, d, from, tBreak, start) => {
+      let z = baseAt(B, o, d);
+      const h = Math.abs(z.wick - z.far);
+      if (h > refineATR * atr[o] && lower) z = refine(z, o, d) || z;
+      if (Math.abs(z.wick - z.far) > maxATR * atr[o] || Math.abs(z.body - z.far) <= 0) return null;
+      const r = { d, from, t: z.t, tBreak, far: z.far, body: z.body, wick: z.wick, top: d === 1 ? z.wick : z.far, bot: d === 1 ? z.far : z.wick, i: o, refined: !!z.refined, status: "fresh", tEnd: null, touches: 0, depth: 0 };
+      // follow it after the leg: each return into the zone is a touch; depth = deepest touch (0 = wick edge, 1 = far)
+      // liquidity taken INTO the zone: minor swing highs (supply) / lows (demand) formed after the leg, run by the
+      // move that came back to the zone — buy stops above for a sell, sell stops below for a buy (the fuel)
+      let inside = false; const minor = []; r.liq = [];
+      for (let k = start + 1; k < n; k++) {
+        const j = k - 3;
+        if (j > start + 3) { let ok = true; for (let m = 1; m <= 3 && ok; m++) ok = d === 1 ? B[j].l < B[j - m].l && B[j].l <= B[j + m].l : B[j].h > B[j - m].h && B[j].h >= B[j + m].h; if (ok) minor.push({ p: d === 1 ? B[j].l : B[j].h, t: B[j].t, i: j }); }
+        for (let q = minor.length - 1; q >= 0; q--) if (minor[q].i < k - 3 && (d === 1 ? B[k].l < minor[q].p : B[k].h > minor[q].p)) {
+          // counts when that run reaches the zone within 6 candles
+          let to = -1; for (let m = k; m <= Math.min(n - 1, k + 6); m++) if (d === 1 ? B[m].l <= r.wick : B[m].h >= r.wick) { to = m; break; }
+          // only the pools in front of the zone, taken on the way to its first touch
+          if (to >= 0 && !r.touches && (d === 1 ? minor[q].p > r.wick : minor[q].p < r.wick)) r.liq.push({ lvl: minor[q].p, t0: minor[q].t, t1: B[k].t });
+          minor.splice(q, 1);
+        }
+        if (d === 1 ? B[k].c < r.far : B[k].c > r.far) { r.status = "broken"; r.tEnd = B[k].t; break; }
+        const hit = d === 1 ? B[k].l <= r.wick : B[k].h >= r.wick;
+        if (hit) {
+          if (!inside) { r.touches++; if (!r.tTest) r.tTest = B[k].t; }
+          const dp = (d === 1 ? r.wick - B[k].l : B[k].h - r.wick) / Math.abs(r.wick - r.far);
+          r.depth = Math.max(r.depth, Math.min(1, dp));
+          if (d === 1 ? B[k].l <= r.body : B[k].h >= r.body) r.status = "tested";
+        }
+        inside = hit;
       }
-      out.push(z);
+      r.liq = r.liq.slice(-2);
+      return r;
+    };
+    const out = [];
+    for (const x of sw.breaks) {
+      if (!x.o) continue;
+      const o = idx.get(x.o.t), bi = idx.get(x.t1); if (o == null || bi == null) continue;
+      const z = make(o, x.d, x.mss ? "MSS" : "BOS", x.t1, bi); if (z) out.push(z);
     }
-    return out;
+    if (fuel) {
+      // the trend at each bar from the swing structure
+      const tr = new Array(n).fill(0); let bi = 0, dir = 0;
+      const bs = [...sw.breaks].sort((p, q) => p.t1 - q.t1);
+      for (let i = 0; i < n; i++) { while (bi < bs.length && bs[bi].t1 <= B[i].t) dir = bs[bi++].d; tr[i] = dir; }
+      for (let e = 10; e < n - 3; e++) {
+        const d = tr[e]; if (!d) continue;
+        // the base sits at a turn: the extreme of the 3 candles each side
+        let turn = true; for (let k = e - 3; k <= e + 3 && turn; k++) if (k !== e) turn = d === 1 ? B[e].l <= B[k].l : B[e].h >= B[k].h;
+        if (!turn) continue;
+        const z = baseAt(B, e, d);
+        // displacement: within 3 candles a close beyond the base by ≥ 1 ATR and past the last 10 candles' high / low
+        let prior = d === 1 ? -Infinity : Infinity; for (let k = e - 10; k < e; k++) prior = d === 1 ? Math.max(prior, B[k].h) : Math.min(prior, B[k].l);
+        let leg = -1;
+        for (let k = e + 1; k <= Math.min(n - 1, e + 3); k++) {
+          if (d === 1 ? B[k].c < z.far : B[k].c > z.far) break;
+          if ((d === 1 ? B[k].c - z.wick : z.wick - B[k].c) >= atr[e] && (d === 1 ? B[k].c > prior : B[k].c < prior)) { leg = k; break; }
+        }
+        if (leg < 0) continue;
+        // not a duplicate of a zone already there (same side, overlapping, made within 3 candles)
+        const dup = out.some((q) => q.d === d && Math.abs(q.i - e) <= 6 && q.bot <= Math.max(z.far, z.wick) && q.top >= Math.min(z.far, z.wick));
+        if (dup) continue;
+        const r = make(e, d, "fuel", B[leg].t, leg); if (r) out.push(r);
+      }
+    }
+    return out.sort((p, q) => p.t - q.t);
   }
 
   function trend4h(B) {
