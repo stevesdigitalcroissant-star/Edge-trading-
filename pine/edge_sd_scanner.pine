@@ -30,6 +30,8 @@
 //                    entry when it is there (tested: +177R → +199R on 9 markets).
 //  11. No ranging  : no setup when price moved less than 1× the 1H average range in the 2 hours before the
 //                    break (stagnant / consolidating). Tested: win rate 36% → 38%, +199R → +254R.
+//  12. A+ only    : (default) only setups where price came into the zone fast or trended hard before the
+//                    break (choppiness ≤ 40 / ≤ 45). Tested: 44–47% win vs 38%, ~7–8 a month. Switch off for all.
 //   Orders only 03:00–11:00 New York (London open → New York morning: the busy, high-volume hours). Edge keeps the setup 4 hours;
 //   trades can run until your close-out (16:40 New York in Edge).
 //
@@ -62,6 +64,7 @@ showFill = input.bool(true, "Dotted 30% line inside the 1H zone", group = "Chart
 showTrade = input.bool(true, "Draw the latest setup: liquidity taken, MSS 5m, FVG and the entry", group = "Chart")
 showBoxes = input.bool(false, "Long / short boxes instead of the entry line + text", group = "Chart")
 maxPast = input.float(1.0, "No setup if price pushed this far past the zone (× 1H average range); a small sweep is fine", step = 0.25, group = "Rules")
+onlyAPlus = input.bool(true, "Only A+ setups: price came into the zone fast, or trended hard (not choppy) before the break", group = "Rules", tooltip = "Tested: A+ setups won 44–47% vs 38% for all, ~7–8 a month. Off = every setup.")
 minMove = input.float(1.0, "No trading in a range: price must have moved at least this × 1H average range in the last 2 hours", step = 0.25, group = "Rules")
 showBB = input.bool(true, "Breaker block entries (swing low → swing high → LOWER low → quick close above)", group = "Rules")
 showMB = input.bool(true, "Mitigation block entries (swing low → swing high → higher low → strong close above)", group = "Rules")
@@ -289,6 +292,15 @@ volAvg = ta.sma(volume, 20)[1]
 // ranging / stagnant: the 2 hours (24 five-minute candles) before this one moved less than minMove × the 1H average range
 rng2h = ta.highest(high, 24)[1] - ta.lowest(low, 24)[1]
 stagnant = rng2h < minMove * atr1h
+// choppiness of the 24 five-minute candles ending here (low = trending / fast, high = choppy). A+ = the 2 hours before
+// the break were trending (≤ 45) or price came into the zone fast (the 2 hours up to the extreme ≤ 40)
+chopRng = ta.highest(high, 24) - ta.lowest(low, 24)
+ciCur = chopRng > 0 ? 100 * math.log10(math.sum(ta.tr(true), 24) / chopRng) / math.log10(24) : 100.0
+aPlusNow() =>
+    int back = bar_index - extBar
+    float ciB = ciCur[1]
+    float ciE = back >= 0 and back < 590 ? ciCur[back] : na
+    ciB <= 45 or (not na(ciE) and ciE <= 40)
 volX = volAvg > 0 ? volume / volAvg : na
 volTxt = na(volX) ? "" : "volume " + str.tostring(volX, "#.#") + "× average" + (volX >= 1.5 ? " ✓" : volX < 1 ? " (weak)" : "")
 
@@ -449,7 +461,8 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     float msl = (d == 1 ? low[kL] : high[kL]) - d * 2 * tick
                     float mr = math.abs(me - msl)
                     bool mFar = (d == 1 ? hFar - ext : ext - hFar) > maxPast * atr1h
-                    if d * (me - msl) > 0 and mr >= 4 * tick and not mFar and twoPlus and not stagnant
+                    bool mPlus = aPlusNow()
+                    if d * (me - msl) > 0 and mr >= 4 * tick and not mFar and twoPlus and not stagnant and (mPlus or not onlyAPlus)
                         float mtp = me + d * tpR * mr
                         float mtpMax = na(legExt) ? mtp : me + d * math.max(tpR * mr, math.min(d * (legExt - me), maxR * mr))
                         float mrrMax = math.abs(mtpMax - me) / mr
@@ -464,11 +477,11 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                             mbEnt := line.new(bar_index - kEnd, me, bar_index + 30, me, color = color.new(#8e44ad, 0), width = 2)
                             mbStop := line.new(bar_index, msl, bar_index + 30, msl, color = color.new(#ef5350, 0), style = line.style_dotted, width = 1)
                             mbMss := line.new(bar_index - kH, d == 1 ? high[kH] : low[kH], bar_index, d == 1 ? high[kH] : low[kH], color = color.new(#e0b000, 0), width = 2)
-                            mbLab := label.new(bar_index + 30, me, (d == 1 ? "BUY" : "SELL") + " ENTRY " + str.tostring(me, format.mintick) + " (MB)\nstop " + str.tostring(msl, format.mintick) + "\ntarget 1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(mtp, format.mintick) + "  ✓ recommended" + (mrrMax > tpR + 0.25 ? "\nhighest 1:" + str.tostring(mrrMax, "#.#") + " → " + str.tostring(mtpMax, format.mintick) : "") + (volTxt == "" ? "" : "\n" + volTxt), style = label.style_label_left, color = color.new(#000000, 100), textcolor = #8e44ad, size = size.normal, textalign = text.align_left)
+                            mbLab := label.new(bar_index + 30, me, (mPlus ? "A+ " : "") + (d == 1 ? "BUY" : "SELL") + " ENTRY " + str.tostring(me, format.mintick) + " (MB)\nstop " + str.tostring(msl, format.mintick) + "\ntarget 1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(mtp, format.mintick) + "  ✓ recommended" + (mrrMax > tpR + 0.25 ? "\nhighest 1:" + str.tostring(mrrMax, "#.#") + " → " + str.tostring(mtpMax, format.mintick) : "") + (volTxt == "" ? "" : "\n" + volTxt), style = label.style_label_left, color = color.new(#000000, 100), textcolor = #8e44ad, size = size.normal, textalign = text.align_left)
                         string mside = d == 1 ? "long" : "short"
-                        string mtxt = syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(me, format.mintick) + " · SL " + str.tostring(msl, format.mintick) + " · TP " + str.tostring(mtp, format.mintick) + " (1:" + str.tostring(tpR, "#.#") + ", MITIGATION BLOCK) · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + (mrrMax > tpR + 0.25 ? " · highest target " + str.tostring(mtpMax, format.mintick) + " (" + str.tostring(mrrMax, "#.#") + "R)" : "") + (na(mfill) ? "" : " · " + fillTxt(mfill)) + (volTxt == "" ? "" : " · " + volTxt)
+                        string mtxt = (mPlus ? "A+ " : "") + syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(me, format.mintick) + " · SL " + str.tostring(msl, format.mintick) + " · TP " + str.tostring(mtp, format.mintick) + " (1:" + str.tostring(tpR, "#.#") + ", MITIGATION BLOCK) · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + (mrrMax > tpR + 0.25 ? " · highest target " + str.tostring(mtpMax, format.mintick) + " (" + str.tostring(mrrMax, "#.#") + "R)" : "") + (na(mfill) ? "" : " · " + fillTxt(mfill)) + (volTxt == "" ? "" : " · " + volTxt)
                         if alertMode == "Edge webhook"
-                            alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + mside + '","entry":' + str.tostring(me) + ',"sl":' + str.tostring(msl) + ',"tp":' + str.tostring(mtp) + ',"rr":' + str.tostring(tpR, "#.##") + ',"kind":"MB","vol":' + (na(volX) ? "null" : str.tostring(volX, "#.##")) + ',"zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(d == 1 ? high[kH] : low[kH]) + ',"liq":null,"liqR":null,"trend4h":' + str.tostring(t4) + ',"tpMax":' + str.tostring(mtpMax) + ',"rrMax":' + str.tostring(mrrMax, "#.##") + ',"fill":' + (na(mfill) ? "null" : str.tostring(mfill, "#.##")) + ',"validMin":240}', alert.freq_once_per_bar_close)
+                            alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + mside + '","entry":' + str.tostring(me) + ',"sl":' + str.tostring(msl) + ',"tp":' + str.tostring(mtp) + ',"rr":' + str.tostring(tpR, "#.##") + ',"kind":"MB","aplus":' + (mPlus ? "true" : "false") + ',"vol":' + (na(volX) ? "null" : str.tostring(volX, "#.##")) + ',"zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(d == 1 ? high[kH] : low[kH]) + ',"liq":null,"liqR":null,"trend4h":' + str.tostring(t4) + ',"tpMax":' + str.tostring(mtpMax) + ',"rrMax":' + str.tostring(mrrMax, "#.##") + ',"fill":' + (na(mfill) ? "null" : str.tostring(mfill, "#.##")) + ',"validMin":240}', alert.freq_once_per_bar_close)
                         else
                             alert(mtxt, alert.freq_once_per_bar_close)
         if not na(swV) and (d == 1 ? close > swV : close < swV)
@@ -545,7 +558,8 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                             bHi := tTop
                             bLo := tBot
                 float r = math.abs(e - sl)
-                if d * (e - sl) > 0 and r >= 4 * tick and not tooFar and not stagnant
+                bool aPlus = aPlusNow()
+                if d * (e - sl) > 0 and r >= 4 * tick and not tooFar and not stagnant and (aPlus or not onlyAPlus)
                     // target 1:3; the nearest 5m swing in the way is sent so you can judge the room
                     float tp = e + d * tpR * r
                     float liq = na
@@ -613,7 +627,7 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                             // no boxes: the entry line at the FVG edge, the stop dotted, and the plan written next to it
                             sEnt := line.new(x1, e, x2, e, color = color.new(#8e44ad, 0), width = 2)
                             sStop := line.new(bar_index, sl, x2, sl, color = color.new(#ef5350, 0), style = line.style_dotted, width = 1)
-                            string plan = (d == 1 ? "BUY" : "SELL") + " ENTRY " + str.tostring(e, format.mintick) + " (" + kind + ")\nstop " + str.tostring(sl, format.mintick) + "\ntarget 1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(tp, format.mintick) + "  ✓ recommended" + (rrMax > tpR + 0.25 ? "\nhighest 1:" + str.tostring(rrMax, "#.#") + " → " + str.tostring(tpMax, format.mintick) : "") + (not na(fill) and fill < 0.3 ? "\n⚠ zone filled " + str.tostring(math.round(fill * 100)) + "% (under 30%)" : "") + (volTxt == "" ? "" : "\n" + volTxt)
+                            string plan = (aPlus ? "A+ " : "") + (d == 1 ? "BUY" : "SELL") + " ENTRY " + str.tostring(e, format.mintick) + " (" + kind + ")\nstop " + str.tostring(sl, format.mintick) + "\ntarget 1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(tp, format.mintick) + "  ✓ recommended" + (rrMax > tpR + 0.25 ? "\nhighest 1:" + str.tostring(rrMax, "#.#") + " → " + str.tostring(tpMax, format.mintick) : "") + (not na(fill) and fill < 0.3 ? "\n⚠ zone filled " + str.tostring(math.round(fill * 100)) + "% (under 30%)" : "") + (volTxt == "" ? "" : "\n" + volTxt)
                             sEntT := label.new(x2, e, plan, style = label.style_label_left, color = color.new(#000000, 100), textcolor = #8e44ad, size = size.normal, textalign = text.align_left)
                         if kind == "breaker"
                             sFvg := box.new(bar_index - bbK0, bHi, x2, bLo, border_color = color.new(#5aa9e6, 20), bgcolor = color.new(#5aa9e6, 80), text = "BREAKER", text_size = size.tiny, text_color = #3b8fd6, text_halign = text.align_left)
@@ -630,9 +644,9 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     string liqJ = na(liq) ? "null" : str.tostring(liq)
                     string liqRJ = na(liq) ? "null" : str.tostring(math.abs(liq - e) / r, "#.##")
                     string side4 = t4 == 0 ? "4H trend unclear" : t4 == d ? "with the 4H trend" : "AGAINST the 4H trend"
-                    string txt = syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(e, format.mintick) + " · SL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R, " + kind + ") · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + " · 5m MSS at " + str.tostring(swV, format.mintick) + " · " + side4 + (na(liq) ? "" : " · 5m swing at " + str.tostring(math.abs(liq - e) / r, "#.#") + "R") + (rrMax > tpR + 0.25 ? " · highest target " + str.tostring(tpMax, format.mintick) + " (" + str.tostring(rrMax, "#.#") + "R)" : "") + (na(fill) ? "" : " · " + fillTxt(fill)) + (volTxt == "" ? "" : " · " + volTxt)
+                    string txt = (aPlus ? "A+ " : "") + syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(e, format.mintick) + " · SL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R, " + kind + ") · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + " · 5m MSS at " + str.tostring(swV, format.mintick) + " · " + side4 + (na(liq) ? "" : " · 5m swing at " + str.tostring(math.abs(liq - e) / r, "#.#") + "R") + (rrMax > tpR + 0.25 ? " · highest target " + str.tostring(tpMax, format.mintick) + " (" + str.tostring(rrMax, "#.#") + "R)" : "") + (na(fill) ? "" : " · " + fillTxt(fill)) + (volTxt == "" ? "" : " · " + volTxt)
                     if alertMode == "Edge webhook"
-                        alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + side + '","entry":' + str.tostring(e) + ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) + ',"rr":' + str.tostring(rr, "#.##") + ',"kind":"' + kind + '","vol":' + (na(volX) ? "null" : str.tostring(volX, "#.##")) + ',"zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(swV) + ',"liq":' + liqJ + ',"liqR":' + liqRJ + ',"trend4h":' + str.tostring(t4) + ',"tpMax":' + str.tostring(tpMax) + ',"rrMax":' + str.tostring(rrMax, "#.##") + ',"fill":' + (na(fill) ? "null" : str.tostring(fill, "#.##")) + ',"validMin":240}', alert.freq_once_per_bar_close)
+                        alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + side + '","entry":' + str.tostring(e) + ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) + ',"rr":' + str.tostring(rr, "#.##") + ',"kind":"' + kind + '","aplus":' + (aPlus ? "true" : "false") + ',"vol":' + (na(volX) ? "null" : str.tostring(volX, "#.##")) + ',"zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(swV) + ',"liq":' + liqJ + ',"liqR":' + liqRJ + ',"trend4h":' + str.tostring(t4) + ',"tpMax":' + str.tostring(tpMax) + ',"rrMax":' + str.tostring(rrMax, "#.##") + ',"fill":' + (na(fill) ? "null" : str.tostring(fill, "#.##")) + ',"validMin":240}', alert.freq_once_per_bar_close)
                     else
                         alert(txt, alert.freq_once_per_bar_close)
 
