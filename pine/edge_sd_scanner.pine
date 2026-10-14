@@ -21,8 +21,10 @@
 //   Orders only 02:00–11:30 New York. Edge keeps the setup 4 hours and closes everything by 14:20.
 //
 // CLEAN chart (default): only the live 1H zone with its 30% line and, when a setup fires, the latest one:
-// the 5m liquidity taken ($$$), the MSS 5m line, the FVG, the limit / stop / target boxes and the highest
-// target. The 4H zone, older zones and the 1H BOS / MSS labels can be switched on in the settings.
+// the 5m liquidity taken ($$$), the MSS 5m line, the FVG (extended right) and the ENTRY line with the plan
+// written next to it: entry, stop, 1:3 target (recommended) and the highest target. No long / short boxes
+// (switch "Long / short boxes" on if you want them). The 4H zone, older zones and the 1H BOS / MSS labels
+// can be switched on in the settings. Orders 02:00–11:30 New York = London + New York sessions.
 //
 // For the Edge app, create ONE alert on this chart:
 //   Condition: this script → "Any alert() function call"
@@ -44,7 +46,8 @@ showOlder = input.bool(false, "Draw an older 1H zone too", group = "Chart")
 showBos = input.bool(false, "Label 1H BOS / MSS", group = "Chart")
 showPanel = input.bool(true, "Trend panel (top right)", group = "Chart")
 showFill = input.bool(true, "Dotted 30% line inside the 1H zone", group = "Chart", tooltip = "Price usually fills about 30% of a fresh zone before it turns. A 5m MSS before that line: it may go deeper first (you could become the liquidity).")
-showTrade = input.bool(true, "Draw the latest setup: liquidity taken, MSS 5m, FVG, limit / stop / target boxes", group = "Chart")
+showTrade = input.bool(true, "Draw the latest setup: liquidity taken, MSS 5m, FVG and the entry", group = "Chart")
+showBoxes = input.bool(false, "Long / short boxes instead of the entry line + text", group = "Chart")
 maxR = input.float(10, "Highest target (R) — the 1H high / low the move came from, capped here", step = 0.5, group = "Rules")
 showTradeLabel = input.bool(false, "Price label next to the trade", group = "Chart")
 
@@ -209,6 +212,9 @@ var line sMss = na
 var line sLiq = na
 var label sMssT = na
 var box sFvg = na
+var line sEnt = na
+var line sStop = na
+var label sEntT = na
 var line sSw = na
 var label sSwT = na
 var line sMax = na
@@ -447,6 +453,9 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                         kind := (d == 1 ? leg < prevExt : leg > prevExt) ? "breaker" : "mitigation"
                     // the long / short box at the limit — only the latest setup stays on the chart
                     box.delete(sFvg)
+                    line.delete(sEnt)
+                    line.delete(sStop)
+                    label.delete(sEntT)
                     line.delete(sSw)
                     label.delete(sSwT)
                     line.delete(sMax)
@@ -458,20 +467,30 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     line.delete(sLiq)
                     label.delete(sMssT)
                     if showTrade
-                        sTp := box.new(bar_index, d == 1 ? tp : e, bar_index + 36, d == 1 ? e : tp, border_color = color.new(#26a69a, 20), bgcolor = color.new(#26a69a, 85), text = "target " + str.tostring(tp, format.mintick) + " (1:" + str.tostring(tpR, "#.#") + ")", text_size = size.small, text_color = #26a69a, text_halign = text.align_left, text_valign = d == 1 ? text.align_top : text.align_bottom)
-                        sSl := box.new(bar_index, d == 1 ? e : sl, bar_index + 36, d == 1 ? sl : e, border_color = color.new(#ef5350, 20), bgcolor = color.new(#ef5350, 85), text = "limit " + str.tostring(e, format.mintick) + " · stop " + str.tostring(sl, format.mintick), text_size = size.small, text_color = #ef5350, text_halign = text.align_left, text_valign = d == 1 ? text.align_bottom : text.align_top)
-                        if rrMax > tpR + 0.25
-                            sMax := line.new(bar_index, tpMax, bar_index + 36, tpMax, color = color.new(#26a69a, 0), style = line.style_dashed, width = 2)
-                            sMaxT := label.new(bar_index + 36, tpMax, "highest target " + str.tostring(tpMax, format.mintick) + " (" + str.tostring(rrMax, "#.#") + "R)", style = label.style_label_left, color = color.new(#000000, 100), textcolor = #26a69a, size = size.small)
+                        int x2 = bar_index + 30
+                        int x1 = na(fvgK) ? bar_index : bar_index - fvgK - 2
+                        if showBoxes
+                            sTp := box.new(bar_index, d == 1 ? tp : e, x2, d == 1 ? e : tp, border_color = color.new(#26a69a, 20), bgcolor = color.new(#26a69a, 85), text = "target " + str.tostring(tp, format.mintick) + " (1:" + str.tostring(tpR, "#.#") + ")", text_size = size.small, text_color = #26a69a, text_halign = text.align_left, text_valign = d == 1 ? text.align_top : text.align_bottom)
+                            sSl := box.new(bar_index, d == 1 ? e : sl, x2, d == 1 ? sl : e, border_color = color.new(#ef5350, 20), bgcolor = color.new(#ef5350, 85), text = "limit " + str.tostring(e, format.mintick) + " · stop " + str.tostring(sl, format.mintick), text_size = size.small, text_color = #ef5350, text_halign = text.align_left, text_valign = d == 1 ? text.align_bottom : text.align_top)
+                            if rrMax > tpR + 0.25
+                                sMax := line.new(bar_index, tpMax, x2, tpMax, color = color.new(#26a69a, 0), style = line.style_dashed, width = 2)
+                                sMaxT := label.new(x2, tpMax, "highest target " + str.tostring(tpMax, format.mintick) + " (" + str.tostring(rrMax, "#.#") + "R)", style = label.style_label_left, color = color.new(#000000, 100), textcolor = #26a69a, size = size.small)
+                        else
+                            // no boxes: the entry line at the FVG edge, the stop dotted, and the plan written next to it
+                            sEnt := line.new(x1, e, x2, e, color = color.new(#8e44ad, 0), width = 2)
+                            sStop := line.new(bar_index, sl, x2, sl, color = color.new(#ef5350, 0), style = line.style_dotted, width = 1)
+                            string plan = (d == 1 ? "BUY" : "SELL") + " ENTRY " + str.tostring(e, format.mintick) + " (" + kind + ")\nstop " + str.tostring(sl, format.mintick) + "\ntarget 1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(tp, format.mintick) + "  ✓ recommended" + (rrMax > tpR + 0.25 ? "\nhighest 1:" + str.tostring(rrMax, "#.#") + " → " + str.tostring(tpMax, format.mintick) : "") + (not na(fill) and fill < 0.3 ? "\n⚠ zone filled " + str.tostring(math.round(fill * 100)) + "% (under 30%)" : "")
+                            sEntT := label.new(x2, e, plan, style = label.style_label_left, color = color.new(#000000, 100), textcolor = #8e44ad, size = size.normal, textalign = text.align_left)
                         if not na(fvgK)
-                            sFvg := box.new(bar_index - fvgK - 2, d == 1 ? low[fvgK] : low[fvgK + 2], bar_index - fvgK, d == 1 ? high[fvgK + 2] : high[fvgK], border_color = color.new(#8e44ad, 20), bgcolor = color.new(#8e44ad, 80), text = "FVG", text_size = size.tiny, text_color = #8e44ad)
+                            // the FVG, extended to the right: the limit sits at its edge
+                            sFvg := box.new(x1, d == 1 ? low[fvgK] : low[fvgK + 2], x2, d == 1 ? high[fvgK + 2] : high[fvgK], border_color = color.new(#8e44ad, 30), bgcolor = color.new(#8e44ad, 85), text = "FVG", text_size = size.tiny, text_color = #8e44ad, text_halign = text.align_left)
                         if not na(sweepI)
                             sSw := line.new(sweepI, sweepV, extBar, sweepV, color = color.new(#9aa3ad, 0), style = line.style_dotted, width = 2)
-                            sSwT := label.new(extBar, sweepV, "$$$ taken", style = d == 1 ? label.style_label_up : label.style_label_down, color = color.new(#000000, 100), textcolor = #9aa3ad, size = size.small)
+                            sSwT := label.new(sweepI, sweepV, "$$$", style = d == 1 ? label.style_label_up : label.style_label_down, color = color.new(#000000, 100), textcolor = #9aa3ad, size = size.small)
                     if showTrade and showTradeLabel
                         sLab := label.new(bar_index + 48, e, (d == 1 ? "BUY LIMIT " : "SELL LIMIT ") + str.tostring(e, format.mintick) + " (" + kind + ")\nafter MSS 5m at " + str.tostring(swV, format.mintick) + "\nSL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R)" + (na(liq) ? "" : "\n5m swing " + str.tostring(liq, format.mintick) + " (" + str.tostring(math.abs(liq - e) / r, "#.#") + "R)"), style = label.style_label_left, color = color.new(#111923, 0), textcolor = color.white, size = size.normal)
                     sMss := line.new(swI, swV, bar_index, swV, color = color.new(#e0b000, 0), width = 2)
-                    sMssT := label.new(swI, swV, "MSS 5m — candle CLOSED " + (d == 1 ? "above " : "below ") + str.tostring(swV, format.mintick), style = d == 1 ? label.style_label_lower_left : label.style_label_upper_left, color = color.new(#000000, 100), textcolor = #e0b000, size = size.small)
+                    sMssT := label.new(swI, swV, "MSS 5m", style = d == 1 ? label.style_label_lower_left : label.style_label_upper_left, color = color.new(#000000, 100), textcolor = #e0b000, size = size.small)
                     string liqJ = na(liq) ? "null" : str.tostring(liq)
                     string liqRJ = na(liq) ? "null" : str.tostring(math.abs(liq - e) / r, "#.##")
                     string side4 = t4 == 0 ? "4H trend unclear" : t4 == d ? "with the 4H trend" : "AGAINST the 4H trend"
