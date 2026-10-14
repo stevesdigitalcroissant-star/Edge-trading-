@@ -13,8 +13,8 @@
 //   4. 5m shift    : a 5m candle closes past the last 5m swing made before the low (high).
 //   5. Entry       : limit at the top of the last fair value gap of that move; if none, at the
 //                    breaker / mitigation block (the candles of the broken swing).
-//   6. Stop        : 2 ticks past the low of the move. Target: 1:2 (A+ setups win ~47–51% at 1:2), plus the
-//                    HIGHEST target: the 1H high (low) the move came from, at most 10R — your call.
+//   6. Stop        : 2 ticks past the low of the move. Target: 1:3, plus the HIGHEST target: the 1H high
+//                    (low) the move came from, at most 10R — your call.
 //   7. 30% fill    : price usually fills ~30% of a fresh zone before it turns (dotted line). A 5m MSS
 //                    before that is flagged "may go deeper" — not blocked (tested: blocking it doesn't
 //                    raise the win rate).
@@ -30,14 +30,15 @@
 //                    entry when it is there (tested: +177R → +199R on 9 markets).
 //  11. No ranging  : no setup when price moved less than 1× the 1H average range in the 2 hours before the
 //                    break (stagnant / consolidating). Tested: win rate 36% → 38%, +199R → +254R.
-//  12. A+ only    : (default) only setups where price came into the zone fast or trended hard before the
-//                    break (choppiness ≤ 40 / ≤ 45). Tested: 44–47% win vs 38%, ~7–8 a month. Switch off for all.
+//  12. A+         : setups where price came into the zone fast or trended hard before the break (choppiness
+//                    ≤ 40 / ≤ 45) are marked A+ (tested 44–47% win vs 38%). Every setup is sent; Edge alerts you to
+//                    A+ ones, and to the others only after 4 days without a trade (the account's 7-day rule).
 //   Orders only 03:00–11:00 New York (London open → New York morning: the busy, high-volume hours). Edge keeps the setup 4 hours;
 //   trades can run until your close-out (16:40 New York in Edge).
 //
 // CLEAN chart (default): only the live 1H zone with its 30% line and, when a setup fires, the latest one:
 // the 5m liquidity taken ($$$), the MSS 5m line, the FVG (extended right) and the ENTRY line with the plan
-// written next to it: entry, stop, 1:2 target (recommended) and the highest target. No long / short boxes
+// written next to it: entry, stop, 1:3 target (recommended) and the highest target. No long / short boxes
 // (switch "Long / short boxes" on if you want them). The 4H zone, older zones and the 1H BOS / MSS labels
 // can be switched on in the settings. Orders 03:00–11:00 New York = London open → New York morning.
 //
@@ -52,7 +53,7 @@ indicator("Edge — Supply & Demand scanner (1H · 5m)", shorttitle = "Edge S&D"
 secret = input.string("change-me", "Edge webhook secret", group = "Edge app alerts")
 alertMode = input.string("Edge webhook", "Alerts go to", options = ["Edge webhook", "TradingView app (plain text)"], group = "Edge app alerts", tooltip = "No two-factor authentication on TradingView yet? Pick the TradingView app: you get a readable notification on your phone instead of the Edge webhook.")
 htf = input.timeframe("60", "Zone timeframe", group = "Rules")
-tpR = input.float(2, "Target (R)", step = 0.5, group = "Rules")
+tpR = input.float(3, "Target (R)", step = 0.5, group = "Rules")
 fromH = input.int(3, "Orders from (New York hour)", group = "Rules")
 toHM = input.int(1100, "Orders until (New York, HHMM)", group = "Rules")
 showZone = input.bool(true, "Draw the 1H zone", group = "Chart")
@@ -64,7 +65,7 @@ showFill = input.bool(true, "Dotted 30% line inside the 1H zone", group = "Chart
 showTrade = input.bool(true, "Draw the latest setup: liquidity taken, MSS 5m, FVG and the entry", group = "Chart")
 showBoxes = input.bool(false, "Long / short boxes instead of the entry line + text", group = "Chart")
 maxPast = input.float(1.0, "No setup if price pushed this far past the zone (× 1H average range); a small sweep is fine", step = 0.25, group = "Rules")
-onlyAPlus = input.bool(true, "Only A+ setups: price came into the zone fast, or trended hard (not choppy) before the break", group = "Rules", tooltip = "Tested: A+ setups won 44–47% vs 38% for all, ~7–8 a month. Off = every setup.")
+onlyAPlus = input.bool(false, "Only send A+ setups (off = send all; Edge alerts A+ always and the others only when you need a trade for the 7-day rule)", group = "Rules", tooltip = "A+: price came into the zone fast, or trended hard before the break. Tested: 44–47% win vs 38% for all, ~7–8 a month.")
 minMove = input.float(1.0, "No trading in a range: price must have moved at least this × 1H average range in the last 2 hours", step = 0.25, group = "Rules")
 showBB = input.bool(true, "Breaker block entries (swing low → swing high → LOWER low → quick close above)", group = "Rules")
 showMB = input.bool(true, "Mitigation block entries (swing low → swing high → higher low → strong close above)", group = "Rules")

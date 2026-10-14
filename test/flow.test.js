@@ -106,7 +106,7 @@ test("S&D scanner alert (1H zone · 5m shift) → graded, taken as a limit", asy
   assert.equal(out.order.trade.strategy, "sd");
   assert.equal(out.order.trade.lockR, null);
   assert.equal(out.order.trade.contract, "M6E");
-  assert.equal(out.order.trade.units, 15); // $15 a contract → 15 = $225, the aim, under the $250 max
+  assert.equal(out.order.trade.units, 13); // $15 a contract → 13 = $195, closest to the $200 aim, under the $250 max
   // outside 03:00–11:00 New York it is graded C and not takeable
   const late = await core.handleHook(store, broker, JSON.stringify(alert), NY(15));
   assert.equal(late.json.takeable, false);
@@ -121,6 +121,22 @@ test("S&D mitigation block alert is its own setup next to the FVG one", async ()
   const st = await core.state(store, broker, now + 60e3);
   assert.deepEqual(st.setups.map((x) => x.kind).sort(), ["FVG", "MB"]);
   assert.ok(st.setups.every((x) => x.takeable !== false));
+});
+
+test("S&D: A+ setups always alert; others only after 4 days without a trade (7-day inactivity rule)", async () => {
+  const store = memory();
+  const now = NY(9, 35);
+  const base = { secret: "s3cret", type: "setup", strategy: "sd", symbol: "M6E1!", tv: "CME:M6E1!", dir: "long", entry: 1.0852, sl: 1.0840, tp: 1.0888, rr: 3, kind: "FVG", zoneTop: 1.0850, zoneBot: 1.0838, mss: 1.0849, validMin: 240 };
+  const quiet = await core.handleHook(store, broker, JSON.stringify({ ...base, aplus: false }), now);
+  assert.equal(quiet.json.quiet, true);
+  assert.match((await store.lrange("log", 5))[0].text, /Not A\+/);
+  const loud = await core.handleHook(store, broker, JSON.stringify({ ...base, aplus: true }), now + 60e3);
+  assert.notEqual(loud.json.quiet, true);
+  assert.match((await store.lrange("log", 5))[0].text, /A\+ Euro/);
+  const later = NY(9, 35) + 4 * 864e5 + 3600e3; // 4 days on, still no trade
+  const fb = await core.handleHook(store, broker, JSON.stringify({ ...base, aplus: false }), later);
+  assert.notEqual(fb.json.quiet, true);
+  assert.match((await store.lrange("log", 5))[0].text, /days without a trade/);
 });
 
 test("S&D setup: your own limit, stop, target and contracts", async () => {

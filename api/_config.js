@@ -147,8 +147,8 @@ const DEFAULT_SETTINGS = {
   tz: "America/New_York",
   riskPct: 1, // % of the account risked per trade
   accountSize: 10000, // used for sizing when no broker is connected
-  sdRiskMin: 200, // supply & demand scanner trades: risk band in dollars — contracts picked to land
-  sdRiskTarget: 225, // as close to the target as the stop allows, never over the max;
+  sdRiskMin: 150, // supply & demand scanner trades: risk band in dollars — contracts picked to land
+  sdRiskTarget: 200, // as close to the target as the stop allows, never over the max;
   sdRiskMax: 250, // flagged when even that is under the min
   beAtR: 0, // move the stop to break-even at +R (0 = never — the 2019-2026 tests did better without it)
   beOffsetR: 0.05, // break-even + a hair, so the spread doesn't turn a BE into a small loss
@@ -182,6 +182,8 @@ const DEFAULT_SETTINGS = {
     rty: ["09:30", "15:30"], "6e": ["02:00", "12:00"], "6b": ["02:00", "12:00"], "6j": ["02:00", "12:00"], "6a": ["02:00", "12:00"], zn: ["08:00", "14:30"], zb: ["08:00", "14:30"],
   },
   lots: { gold: 100, crude: 1000, natgas: 10000, silver: 5000, es: 50, nq: 20, ym: 5, copper: 25000, rty: 50, "6e": 125000, "6b": 62500, "6j": 12500000, "6a": 100000, zn: 1000, zb: 1000 },
+  inactivityDays: 7, // the prop account needs a trade at least every this many days
+  fallbackAfterDays: 4, // after this many days without a trade, Edge also alerts setups that aren't A+
   flatBy: "16:40", // be out of every trade by this time (your prop firm's close-out, New York time)
   flatWarnMin: 15, // warn this many minutes before
   noNewTradesMin: 30, // no new trades this close to the close-out
@@ -262,7 +264,7 @@ function mergeSettings(saved) {
   s.sessions = { ...DEFAULT_SETTINGS.sessions, ...((saved && saved.sessions) || {}) };
   s.lots = { ...DEFAULT_SETTINGS.lots, ...((saved && saved.lots) || {}) };
   s.notify = { ...DEFAULT_SETTINGS.notify, ...((saved && saved.notify) || {}) };
-  if (!(saved && saved.riskV4)) { s.sdRiskMin = DEFAULT_SETTINGS.sdRiskMin; s.sdRiskTarget = DEFAULT_SETTINGS.sdRiskTarget; s.sdRiskMax = DEFAULT_SETTINGS.sdRiskMax; } // $200–250 a trade with A+ setups at 1:2 (Oct 14 2026); only a value saved after that counts
+  if (!(saved && saved.riskV5)) { s.sdRiskMin = DEFAULT_SETTINGS.sdRiskMin; s.sdRiskTarget = DEFAULT_SETTINGS.sdRiskTarget; s.sdRiskMax = DEFAULT_SETTINGS.sdRiskMax; } // $150–250 a trade, aim $200, A+ at 1:3 (Oct 14 2026); only a value saved after that counts
   if (!(saved && saved.beV2)) s.beAtR = 0; // break-even removed (Oct 2026); only a value saved after that counts
   return s;
 }
