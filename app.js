@@ -443,6 +443,27 @@
       ${a.minDays > a.daysTraded ? `<p class="muted" style="margin:6px 0 0;font-size:12.5px">${a.minDays - a.daysTraded} more trading day${a.minDays - a.daysTraded > 1 ? "s" : ""} required before you can pass.</p>` : ""}
     </section>`;
   }
+  // a TradingView app alert handed to Edge by hand (no webhook without two-factor on TradingView)
+  function pasteDialog() {
+    const body = $("#modalBody");
+    body.innerHTML = `<h3>📋 Paste a TradingView alert</h3>
+      <p class="muted" style="margin-top:0">In the TradingView app: <b>Alerts → Log</b> → press and hold the Edge S&D message → <b>Copy</b>. Paste it here — or upload a screenshot of the alert.</p>
+      <textarea id="paText" rows="5" style="width:100%" placeholder="A+ MNQ1! BUY limit 29187.50 · SL 29159.00 · TP 29273.00 (3.0R, FVG) · 1H demand …"></textarea>
+      <div class="row" style="margin-top:8px"><button class="btn primary" type="button" id="paGo">Make the setup</button><label class="btn">Screenshot instead<input type="file" accept="image/*" id="paShot" hidden></label><button class="btn" value="cancel">Cancel</button></div>
+      <p class="err" id="paErr"></p>`;
+    const send = async (payload) => {
+      $("#paErr").textContent = "Reading…"; $("#paGo").disabled = true;
+      try { const r = await api("POST", { action: "pasteAlert", ...payload }); $("#modal").close(); toast(r.existing ? "That setup is already in Edge." : r.takeable ? "Setup ready — check it and confirm." : `Added, but not takeable now: ${(r.why || [])[0] || "check the card"}`); tab = "now"; refresh(); }
+      catch (e) { $("#paErr").textContent = e.message; $("#paGo").disabled = false; }
+    };
+    $("#paGo").addEventListener("click", () => { const t = $("#paText").value.trim(); if (t) send({ text: t }); else $("#paErr").textContent = "Paste the alert text first."; });
+    $("#paShot").addEventListener("change", async (ev) => {
+      const file = ev.target.files && ev.target.files[0]; if (!file) return;
+      const image = await new Promise((ok, bad) => { const im = new Image(), url = URL.createObjectURL(file); im.onload = () => { const k = Math.min(1, 1600 / Math.max(im.width, im.height)), c = document.createElement("canvas"); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(url); ok(c.toDataURL("image/jpeg", 0.85)); }; im.onerror = () => bad(new Error("Couldn't open that image.")); im.src = url; }).catch((e) => { $("#paErr").textContent = e.message; return null; });
+      if (image) send({ image });
+    });
+    $("#modal").showModal();
+  }
   function propDialog() {
     const F = FIRMS(), cur = (S.prop && S.prop.cfg) || {};
     let firm = cur.firm && (F[cur.firm] || cur.firm === "custom") ? cur.firm : "tradeify", plan = cur.plan || "", phase = cur.phase || "eval";
@@ -606,7 +627,8 @@
     const news = nextNews.length ? `<section class="card slim" data-tour="news"><div class="card-head"><h2>📰 Big news</h2><span class="muted">no trades ${s.newsBeforeMin} min either side</span></div><div class="news">${nextNews.map((e) => { const liveN = S.now >= e.time - s.newsBeforeMin * 60e3 && S.now <= e.time + s.newsAfterMin * 60e3; return `<div class="ev ${liveN ? "live" : ""}"><span class="num">${day(e.time).split(",")[0]} ${time(e.time)}</span><span>${esc(e.title)}<br><small class="muted">${e.markets.map(mname).join(" · ")}</small></span><span class="pill ${liveN ? "bad" : "warn"}">${liveN ? "NO TRADES" : e.impact}</span></div>`; }).join("")}</div></section>` : "";
     const alerts = `<details class="card slim" data-tour="log" data-keep="alerts"><summary><b>Alerts</b> <span class="muted">${S.log.length ? `· last ${time(S.log[0].at)}` : ""}</span></summary><div class="log" style="margin-top:8px">${S.log.slice(0, 15).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></details>`;
     const gp = S.gameplan && S.now - S.gameplan.at < 10 * 3600e3 ? `<section class="card slim gameplan" data-tour="gameplan"><div class="row between"><b>${esc(S.gameplan.title)}</b><small class="muted">${time(S.gameplan.at)}</small></div>${S.gameplan.lines.map((l) => `<p>${esc(l)}</p>`).join("")}</section>` : "";
-    return `${ceBanner}${pend}${getSetCard()}${hero}${gp}${setups}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
+    const paste = `<section class="card slim"><div class="row between"><div><b>📋 Got an alert in the TradingView app?</b><p class="muted" style="margin:4px 0 0">Paste it (or a screenshot of it) — Edge turns it into the setup card: check, confirm, and the order goes to Tradovate.</p></div><button class="btn small primary" data-paste>Paste alert</button></div></section>`;
+    return `${ceBanner}${pend}${getSetCard()}${hero}${gp}${setups}${paste}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -1291,6 +1313,7 @@
     }));
     v.querySelectorAll("[data-suhide]").forEach((b) => b.addEventListener("click", () => { try { localStorage.setItem("edge.setupDone", "1"); } catch {} render(); }));
     v.querySelectorAll("[data-propset]").forEach((b) => b.addEventListener("click", propDialog));
+    v.querySelectorAll("[data-paste]").forEach((b) => b.addEventListener("click", pasteDialog));
     v.querySelectorAll("[data-traildone]").forEach((b) => b.addEventListener("click", () => act({ action: "trailDone", tradeId: b.dataset.traildone }, "Stop trailed. Profit locked — hands off.")));
     v.querySelectorAll("[data-cancelord]").forEach((b) => b.addEventListener("click", () => act({ action: "cancelOrder", id: b.dataset.cancelord }, "Order cancelled — cancel it on your platform too if you placed it yourself.")));
     v.querySelectorAll("[data-take]").forEach((b) => b.addEventListener("click", () => takeDialog(b.dataset.take)));

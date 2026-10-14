@@ -845,6 +845,20 @@ async function action(store, broker, body, now = Date.now()) {
     if (next.inactivityDays > 0) { const st = (await store.get("settings")) || {}; await store.set("settings", { ...st, inactivityDays: next.inactivityDays }); }
     return { ok: true, prop: next };
   }
+  if (a === "pasteAlert") { // a TradingView alert handed over by hand (text, or a screenshot of it) → the same setup a webhook makes
+    const AT = require("./_alerttext");
+    const text = body.image ? await AT.readAlertImage(body.image) : String(body.text || "");
+    const msg = AT.parseAlert(text);
+    const market = marketOf(msg.symbol);
+    if (!market) throw new Error(`${msg.symbol} isn't a market Edge trades.`);
+    const all = Object.values((await store.hgetall("setups")) || {});
+    const same = all.find((x) => x && x.market === market && x.dir === msg.dir && x.entry === msg.entry && x.sl === msg.sl && now - x.at < 4 * 3600e3);
+    if (same) return { setupId: same.id, existing: true, text };
+    const r = await createSetup(store, market, msg, now);
+    if (r.error) throw new Error(r.error);
+    if (r.ignored) throw new Error(r.why);
+    return { setupId: r.setup.id, grade: r.grade, takeable: r.takeable, why: r.why, text };
+  }
   if (a === "propRead") { // a screenshot of your firm's rules → the rules + a plan built around them (nothing saved yet)
     const RR = require("./_rulesread");
     const rules = await RR.readRules(body.image);
