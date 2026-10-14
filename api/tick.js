@@ -1,4 +1,4 @@
-// /api/tick — Edge's own clock. Vercel Cron calls it every minute so the safety rules run on time even when no
+// /api/tick — Edge's own clock. An outside scheduler (cron-job.org, free) calls it every minute so the safety rules run on time even when no
 // TradingView alert reaches Edge and the app is closed: news (flat 10 min before a big release), the daily close-out
 // (out by 15:55 New York, 12:45 on half days), the London / New York briefs and the inactivity warning.
 // It only does what the clock says is due, so calling it more often changes nothing.

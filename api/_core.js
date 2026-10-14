@@ -436,6 +436,7 @@ async function syncTrades(store, broker, { now = Date.now(), market = null, mark
   const s = ctx.settings;
   const out = { managed: 0, closed: 0, actions: [] };
   await newsReminders(store, ctx).catch(() => {});
+  await newsFlatCheck(store, broker, ctx).catch(() => {});
   if (await closeOutCheck(store, broker, ctx).catch(() => false)) return { ...out, closedAll: true };
 
   if (broker.kind === "oanda") {
@@ -697,6 +698,7 @@ async function state(store, broker, now = Date.now()) {
   if (broker.kind === "oanda" || broker.kind === "tradovate") await syncTrades(store, broker, { now }).catch(() => {});
   const ctx = await context(store, now);
   await newsReminders(store, ctx).catch(() => {});
+  await newsFlatCheck(store, broker, ctx).catch(() => {});
   await closeOutCheck(store, broker, ctx).catch(() => {});
   const setupsH = await store.hgetall("setups");
   const setups = Object.values(setupsH).sort((a, b) => b.at - a.at).slice(0, 25).map((x) => ({ ...x, g: gradeNow(x, ctx), size: R.orderSize(x, ctx.settings), story: story(x, ctx.settings), xp: R.exits(x, ctx.settings) }));
