@@ -10,8 +10,8 @@ const SCHEMA = {
   type: "object",
   properties: {
     readable: { type: "boolean" },
-    symbol: { type: ["string", "null"] },
-    dir: { type: ["string", "null"], enum: ["long", "short", null] },
+    symbol: { type: "string" },
+    dir: { type: "string", enum: ["long", "short", "unknown"] },
     entry: N, stop: N, target: N, contracts: N,
     status: { type: "string", enum: ["open", "closed", "unknown"] },
     exit: N, pnlUSD: N,
@@ -22,8 +22,8 @@ const SCHEMA = {
 };
 
 const SYSTEM = `You read screenshots of a futures trade (TradingView chart with a long/short position tool or order lines, the Trading Panel, Tradovate, or a prop-firm dashboard) and return the trade's numbers exactly as shown.
-- symbol: the ticker as shown (e.g. "MNQ1!", "MGCZ2026", "M6E1!"). null if not visible.
-- dir: "long" for buy / long position tool, "short" for sell. null if you can't tell.
+- symbol: the ticker as shown (e.g. "MNQ1!", "MGCZ2026", "M6E1!"). "" if not visible.
+- dir: "long" for buy / long position tool, "short" for sell, "unknown" if you can't tell.
 - entry = average fill / entry price; stop = stop loss price; target = take-profit price. A long/short position tool: entry is the line between the red and green boxes, stop the far edge of the red box, target the far edge of the green box.
 - contracts: the position size (quantity). null if not shown.
 - status: "closed" if the screenshot shows the trade finished (closed position, filled exit, realized P&L, trade history row); "open" if it shows a live position; otherwise "unknown".
@@ -52,7 +52,7 @@ async function readTradeShot(image, client = null) {
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError) throw new Error("The ANTHROPIC_API_KEY isn't valid.");
     if (e instanceof Anthropic.RateLimitError) throw new Error("Claude is busy — try again in a minute.");
-    if (e instanceof Anthropic.APIError) throw new Error(`Claude couldn't read the screenshot (${e.status}).`);
+    if (e instanceof Anthropic.APIError) throw new Error(`Claude couldn't read the screenshot (${e.status}${e.status === 400 && e.message ? `: ${String(e.message).slice(0, 160)}` : ""}). You can enter the trade by hand below.`);
     throw e;
   }
   if (response.stop_reason === "refusal") throw new Error("Claude declined this screenshot.");
@@ -65,7 +65,7 @@ async function readTradeShot(image, client = null) {
 // what Claude read → the fields of Edge's trade form, plus the list of what you still have to fill in
 function shotFields(r) {
   const market = marketOf(r.symbol || ""), spec = futuresSpec(r.symbol || "");
-  const f = { market, symbol: r.symbol || null, contract: spec ? spec.root : null, dir: r.dir, entry: r.entry, sl: r.stop, tp: r.target, units: r.contracts, status: r.status, exit: r.exit, pnlUSD: r.pnlUSD, notes: r.notes || "" };
+  const f = { market, symbol: r.symbol || null, contract: spec ? spec.root : null, dir: r.dir === "long" || r.dir === "short" ? r.dir : null, entry: r.entry, sl: r.stop, tp: r.target, units: r.contracts, status: r.status, exit: r.exit, pnlUSD: r.pnlUSD, notes: r.notes || "" };
   const missing = [["market", "market"], ["dir", "buy or sell"], ["entry", "entry"], ["sl", "stop loss"], ["tp", "target"], ["units", "contracts"]].filter(([k]) => f[k] == null).map(([, label]) => label);
   return { fields: f, missing };
 }

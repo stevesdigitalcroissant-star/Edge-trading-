@@ -471,8 +471,9 @@
     const body = $("#modalBody");
     body.innerHTML = `<h3>📸 Log a trade from a screenshot</h3>
       <p class="muted" style="margin-top:0">Your TradingView chart with the position on it, the Trading Panel, or Tradovate. Edge reads the market, buy/sell, entry, stop, target and contracts.</p>
-      <label class="btn primary">Choose screenshot<input type="file" accept="image/*" id="shFile" hidden></label>
+      <div class="row"><label class="btn primary">Choose screenshot<input type="file" accept="image/*" id="shFile" hidden></label><button class="btn" type="button" id="shHand">Enter it by hand</button></div>
       <p class="err" id="shErr"></p><div id="shForm"></div>`;
+    $("#shHand").addEventListener("click", () => { $("#shErr").textContent = ""; form({ status: "closed" }, []); });
     $("#shFile").addEventListener("change", async (ev) => {
       const file = ev.target.files && ev.target.files[0]; if (!file) return;
       $("#shErr").textContent = "Reading your trade…";
