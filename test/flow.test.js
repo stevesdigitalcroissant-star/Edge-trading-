@@ -89,7 +89,7 @@ test("a trade that comes back after break-even closes flat, not as a loss", asyn
 test("S&D scanner alert (1H zone · 5m shift) → graded, taken as a limit", async () => {
   const store = memory();
   const now = NY(9, 35);
-  const alert = { secret: "s3cret", type: "setup", strategy: "sd", symbol: "M6E1!", tv: "CME:M6E1!", dir: "long", entry: 1.0852, sl: 1.0840, tp: 1.0876, rr: 2, kind: "FVG", zoneTop: 1.0850, zoneBot: 1.0838, mss: 1.0849, liq: 1.0862, liqR: 0.83, validMin: 240 };
+  const alert = { secret: "s3cret", type: "setup", strategy: "sd", symbol: "M6E1!", tv: "CME:M6E1!", dir: "long", entry: 1.0852, sl: 1.0840, tp: 1.0876, rr: 2, kind: "FVG", zoneTop: 1.0850, zoneBot: 1.0838, mss: 1.0849, liq: 1.0862, liqR: 0.83, fill: 0.26, validMin: 240 };
   const r = await core.handleHook(store, broker, JSON.stringify(alert), now);
   assert.equal(r.json.grade, "S&D");
   assert.equal(r.json.takeable, true);
@@ -98,6 +98,7 @@ test("S&D scanner alert (1H zone · 5m shift) → graded, taken as a limit", asy
   assert.equal(x.market, "6e");
   assert.equal(x.strategy, "sd");
   assert.equal(x.expires, now + 240 * 60e3);
+  assert.equal(x.fill, 0.26); // how much of the zone price filled before the 5m MSS (under 30% is flagged)
   const out = await core.action(store, broker, { action: "take", setupId: x.id, emotion: "calm", riskUSD: 425 }, now);
   assert.equal(out.order.trade.strategy, "sd");
   assert.equal(out.order.trade.lockR, null);
@@ -116,7 +117,7 @@ test("S&D setup: your own limit, stop, target and contracts", async () => {
   const x = (await core.state(store, broker, now)).setups[0];
   await assert.rejects(core.action(store, broker, { action: "take", setupId: x.id, emotion: "calm", sl: 2655 }, now), /stop goes below/);
   const out = await core.action(store, broker, { action: "take", setupId: x.id, emotion: "calm", entry: 2651, sl: 2647, tp: 2661, qty: 8, judge: { disp: true, liq: false, base: true, pd: "x" } }, now);
-  assert.deepEqual(out.order.trade.judge, { disp: true, liq: false, base: true, pd: false });
+  assert.deepEqual(out.order.trade.judge, { disp: true, liq: false, base: true, fill: false, pd: false });
   const t = out.order.trade;
   assert.deepEqual([t.entry, t.initialSL, t.tp, t.units], [2651, 2647, 2661, 8]);
   assert.equal(t.riskUSD, 320);

@@ -317,14 +317,27 @@
   function read(h1, h4, price, nyMin) {
     const s = sd1h(h1.slice(0, -1)), t4 = trend4h(h4.slice(0, -1)), s4 = sd1h(h4.slice(0, -1)); // the 4H zones follow the same rules on 4H candles
     const inZ = s.zone && price != null && price <= s.zone.top && price >= s.zone.bot;
+    // how much of the 1H zone price has filled since the break that made it (drawn zone: wick edge → far edge);
+    // price usually fills ~30% of a fresh zone before it turns — a 5m MSS before that may go deeper first
+    let fill = null;
+    if (s.zone) {
+      const z = s.zone, near = z.d > 0 ? Math.max(z.top, z.wick ?? z.top) : Math.min(z.bot, z.wick ?? z.bot), far = z.d > 0 ? z.bot : z.top;
+      const br = (s.allBreaks || []).filter((b) => b.d === z.d && b.t1 > z.t).pop(), from = br ? br.t1 : z.t;
+      const after = h1.filter((b) => b.t > from);
+      if (after.length && near !== far) {
+        const ext = z.d > 0 ? Math.min(...after.map((b) => b.l)) : Math.max(...after.map((b) => b.h));
+        fill = Math.max(0, (z.d > 0 ? near - ext : ext - near) / Math.abs(near - far));
+      }
+      z.l30 = near - z.d * 0.3 * Math.abs(near - far);
+    }
     const status = !s.trend ? "Wait: no 1H trend yet"
       : s.cnt < 2 ? "Wait: 1H needs a 2nd BOS"
       : !s.zone ? "Wait: no fresh 1H zone"
-      : inZ ? "IN ZONE — waiting for 5m MSS"
+      : inZ ? `IN ZONE · ${fill > 1 ? "wicked past the far edge" : `filled ${Math.round((fill || 0) * 100)}%${fill != null && fill < 0.3 ? " (under 30%)" : ""}`} — waiting for 5m MSS`
       : "Wait: price not in the zone yet";
     const open = nyMin != null && nyMin >= 120 && nyMin < 690;
     const in4 = s4.zone && price != null && price <= s4.zone.top && price >= s4.zone.bot;
-    return { ...s, t4, zone4: s4.zone, older4: s4.older, inZone4: !!in4, inZone: !!inZ, status, ordersOpen: open, with4h: s.zone && t4 ? s.zone.d === t4 : null };
+    return { ...s, t4, zone4: s4.zone, older4: s4.older, inZone4: !!in4, inZone: !!inZ, fill, status, ordersOpen: open, with4h: s.zone && t4 ? s.zone.d === t4 : null };
   }
 
   const api = { sd1h, swing, sweeps, majorSweeps, liquidity, swingZones, trend4h, read };

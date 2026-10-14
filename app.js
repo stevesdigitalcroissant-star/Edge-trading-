@@ -493,7 +493,7 @@
     const g = x.g, live = x.status === "open" && !(x.expires && S.now > x.expires);
     const z = sdSize(x);
     const kind = { FVG: "fair value gap", breaker: "breaker block", mitigation: "mitigation block" }[x.kind] || x.kind || "";
-    const chips = [[`1H ${x.dir === "long" ? "demand" : "supply"} ${fx(x.zoneBot)}–${fx(x.zoneTop)}`, true], ["5m MSS" + (x.mss != null ? ` past ${fx(x.mss)}` : ""), true], ...(x.trend4h ? [[x.trend4h === (x.dir === "short" ? -1 : 1) ? "4H trend with you" : "4H trend against you — your call", x.trend4h === (x.dir === "short" ? -1 : 1)]] : []), [`Entry: ${kind}`, true], [`Target ${Number(x.rr || 0).toFixed(1)}R`, true], x.liq == null ? ["No 5m swing in the way", true] : x.liqR >= x.rr - 0.05 ? [`Nearest 5m swing ${fx(x.liq)} (${Number(x.liqR).toFixed(1)}R) — room for the target`, true] : [`5m swing ${fx(x.liq)} at ${Number(x.liqR).toFixed(1)}R before the target — your call`, false]];
+    const chips = [[`1H ${x.dir === "long" ? "demand" : "supply"} ${fx(x.zoneBot)}–${fx(x.zoneTop)}`, true], ["5m MSS" + (x.mss != null ? ` past ${fx(x.mss)}` : ""), true], ...(x.trend4h ? [[x.trend4h === (x.dir === "short" ? -1 : 1) ? "4H trend with you" : "4H trend against you — your call", x.trend4h === (x.dir === "short" ? -1 : 1)]] : []), ...(x.fill != null ? [x.fill > 1 ? ["Price wicked past the zone's far edge (no close) — deep, your call", true] : x.fill >= 0.3 ? [`Zone filled ${Math.round(x.fill * 100)}% — past the 30% line`, true] : [`Zone filled only ${Math.round(x.fill * 100)}% — under 30%, price may go deeper first`, false]] : []), [`Entry: ${kind}`, true], [`Target ${Number(x.rr || 0).toFixed(1)}R`, true], x.liq == null ? ["No 5m swing in the way", true] : x.liqR >= x.rr - 0.05 ? [`Nearest 5m swing ${fx(x.liq)} (${Number(x.liqR).toFixed(1)}R) — room for the target`, true] : [`5m swing ${fx(x.liq)} at ${Number(x.liqR).toFixed(1)}R before the target — your call`, false]];
     return `<div class="card radar ${live ? "" : "dim"}" data-tour="setup">
       <div class="row between"><div class="row"><div class="grade A">S&amp;D</div>
         <div><h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY limit" : "▼ SELL limit"}</h3><span class="muted">${time(x.at)} · ${esc(x.tv || x.symbol || "")}</span></div></div>
@@ -906,6 +906,7 @@
     ["disp", () => "Strong move away from the zone (displacement)"],
     ["liq", () => "Liquidity taken before / at the zone"],
     ["base", () => "Short time at the base (1–3 candles)"],
+    ["fill", () => "Price filled 30%+ of the zone before the 5m MSS"],
     ["pd", (x) => (x.dir === "long" ? "Zone in discount (lower half of the range)" : "Zone in premium (upper half of the range)")],
   ];
   function judgeCard() {
@@ -928,7 +929,7 @@
       <div class="grid2">${f("entry", "Limit", x.entry)}${f("sl", "Stop", x.sl)}${f("tp", "Target", x.tp)}${f("qty", `Contracts (${esc(z.contract)})`, z.qty)}</div>
       <div class="sc-list" id="sdLive" style="margin:10px 0"></div>
       <p style="margin-bottom:4px"><b>Your eye</b> <span class="muted">— tick what you see on the chart. Edge keeps score so you'll know if your judgement beats the scanner.</span></p>
-      <div class="sd-judge">${SD_JUDGE.map(([k, l]) => `<label><input type="checkbox" data-judge="${k}"> ${esc(l(x))}</label>`).join("")}</div>
+      <div class="sd-judge">${SD_JUDGE.map(([k, l]) => `<label><input type="checkbox" data-judge="${k}"${k === "fill" && x.fill >= 0.3 ? " checked" : ""}> ${esc(l(x))}</label>`).join("")}</div>
       <p>How do you feel <b>right now</b>?</p>
       <div class="moods">${moods.map(([m, l]) => `<button type="button" data-mood="${m}">${l}</button>`).join("")}</div>
       <p class="muted">${sendsOrders() ? "Edge sends the limit with this stop and target to Tradovate." : "Place this limit yourself; Edge tracks it and tells you when it fills."} I accept the stop. I won't move it further away.</p>

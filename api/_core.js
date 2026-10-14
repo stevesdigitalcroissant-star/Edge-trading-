@@ -120,7 +120,7 @@ async function radarSetup(store, market, msg, now, s) {
   const sd = msg.strategy === "sd";
   if (sd && market === "crude") return { ignored: true, why: "Crude is off for supply & demand — it lost money in every test." };
   const setup = { id: id(), market, source: sd ? "scanner" : "radar", strategy: sd ? "sd" : "playbook", symbol: msg.symbol, tv: msg.tv, dir: msg.dir === "short" ? "short" : "long",
-    kind: String(msg.kind || "").slice(0, 20), mss: num(msg.mss), liq: sd ? num(msg.liq) : undefined, liqR: sd ? num(msg.liqR) : undefined,
+    kind: String(msg.kind || "").slice(0, 20), mss: num(msg.mss), liq: sd ? num(msg.liq) : undefined, liqR: sd ? num(msg.liqR) : undefined, fill: sd ? num(msg.fill) : undefined,
     entry: num(msg.entry), sl: num(msg.sl), tp: num(msg.tp), rr: num(msg.rr), zoneTop: num(msg.zoneTop), zoneBot: num(msg.zoneBot), trendD: num(msg.trendD), trend4h: num(msg.trend4h),
     withTrend: b(msg.withTrend), fromHtfZone: b(msg.fromHtfZone), fresh: msg.fresh !== false && msg.fresh !== "false", ...(sd ? {} : { liq: b(msg.liq) }), session: String(msg.session || ""), near: String(msg.near || "").slice(0, 80),
     at: now, expires: now + (num(msg.validMin) || s.radarValidMin || 180) * 60e3, status: "open" };
@@ -134,7 +134,7 @@ async function radarSetup(store, market, msg, now, s) {
   setup.grade = g.grade; await store.hset("setups", setup.id, setup);
   const name = MARKETS[market].name, side = setup.dir === "long" ? "BUY" : "SELL";
   if (sd) await notify(store, g.take.ok
-    ? `📣 ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R) · 1H ${setup.dir === "long" ? "demand" : "supply"} ${fx(setup.zoneBot)}–${fx(setup.zoneTop)} · 4H ${setup.trend4h === R.sign(setup.dir) ? "with you" : setup.trend4h ? "against you" : "?"} · 5m MSS → ${setup.kind}${setup.liqR != null && setup.liqR < setup.rr ? ` · ⚠️ 5m swing at ${R.round(setup.liqR, 1)}R` : ""}. Tap to see it and send it.`
+    ? `📣 ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R) · 1H ${setup.dir === "long" ? "demand" : "supply"} ${fx(setup.zoneBot)}–${fx(setup.zoneTop)} · 4H ${setup.trend4h === R.sign(setup.dir) ? "with you" : setup.trend4h ? "against you" : "?"} · 5m MSS → ${setup.kind}${setup.liqR != null && setup.liqR < setup.rr ? ` · ⚠️ 5m swing at ${R.round(setup.liqR, 1)}R` : ""}${setup.fill != null ? ` · zone filled ${Math.round(setup.fill * 100)}%${setup.fill < 0.3 ? " ⚠️ under 30%" : ""}` : ""}. Tap to see it and send it.`
     : `👀 ${name} ${side} setup @ ${fx(setup.entry)} — not now: ${g.take.why[0]}`, g.take.ok ? "setup" : "skip");
   else await notify(store, g.take.ok
     ? `📣 ${g.grade} ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R)${setup.liq ? " · liquidity taken" : ""}. Open Edge to confirm.`
@@ -792,7 +792,7 @@ async function planTrade(store, broker, body, now) {
   const trade = { id: `plan:${id()}`, market, dir, grade: "A+", source: routed ? broker.kind : "manual", symbol, ticker: symbol, entry, initialSL: sl, currentSL: sl, tp,
     strategy: sdMode ? "sd" : "playbook", tpR: R.round(rr), beR: lockR != null ? s.lockAtR : 0, lockR, units: size.qty, unitLabel: size.unit, contract: size.contract, riskUSD: size.totalRisk,
     emotion: ["calm", "focused"].includes(body.emotion) ? body.emotion : "calm", checks, note: String(body.note || "").slice(0, 500), maxR: 0, ruleBreaks: [], notified: {}, openedAt: now,
-    ...(body.judge && typeof body.judge === "object" ? { judge: Object.fromEntries(["disp", "liq", "base", "pd"].map((j) => [j, body.judge[j] === true])) } : {}) };
+    ...(body.judge && typeof body.judge === "object" ? { judge: Object.fromEntries(["disp", "liq", "base", "fill", "pd"].map((j) => [j, body.judge[j] === true])) } : {}) };
   if (routed) { const sent = await broker.order({ ticker: symbol, dir, qty: size.qty, sl, tp, price: entry, ref: trade.id, type }); if (sent && sent.orderId) trade.tv = sent; }
   const side = `${dir === "long" ? "BUY" : "SELL"} ${size.qty} ${size.contract}`;
   if (type === "market") {

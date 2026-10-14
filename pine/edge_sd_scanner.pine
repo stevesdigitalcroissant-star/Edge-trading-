@@ -40,6 +40,7 @@ showZone = input.bool(true, "Draw the 1H zone", group = "Chart")
 showZone4 = input.bool(true, "Draw the 4H zone", group = "Chart")
 showBos = input.bool(true, "Label 1H BOS / MSS", group = "Chart")
 showPanel = input.bool(true, "Trend panel (top right)", group = "Chart")
+showFill = input.bool(true, "Dotted 30% line inside the 1H zone", group = "Chart", tooltip = "Price usually fills about 30% of a fresh zone before it turns. A 5m MSS before that line: it may go deeper first (you could become the liquidity).")
 showTrade = input.bool(false, "Draw the long / short boxes (off = you place your own)", group = "Chart")
 showTradeLabel = input.bool(false, "Price label next to the trade", group = "Chart")
 
@@ -186,6 +187,11 @@ trendState() =>
 
 [hDir, hTop, hBot, hId, hZT, bLvl, bT0, bT1, bDir, bCh, bId, hTrend, hCnt, h2Dir, h2Top, h2Bot, h2T, hW, h2W] = request.security(syminfo.tickerid, htf, sdState(), lookahead = barmerge.lookahead_on)
 t4 = request.security(syminfo.tickerid, "240", trendState(), lookahead = barmerge.lookahead_on)
+// how much of the 1H zone price has filled, measured on the drawn zone (wick edge → far edge): 0 = just touched, 1 = all
+hFar = hDir == 1 ? hBot : hTop
+hNear = hDir == 1 ? (na(hW) ? hTop : math.max(hTop, hW)) : (na(hW) ? hBot : math.min(hBot, hW))
+fillOf(float px) => hDir == 0 or hNear == hFar ? na : math.max(0.0, (hDir == 1 ? hNear - px : px - hNear) / math.abs(hNear - hFar))
+fillTxt(float f) => na(f) ? "" : f > 1 ? "price wicked past the zone's far edge" : "zone filled " + str.tostring(math.round(f * 100)) + "%" + (f < 0.3 ? " (under 30%: may go deeper)" : "")
 // the 4H zones: the same rules on 4H candles (drawn in their own colours, for context — alerts come from the 1H zone)
 [x4Dir, x4Top, x4Bot, x4Id, x4ZT, x4bLvl, x4bT0, x4bT1, x4bDir, x4bCh, x4bId, x4Trend, x4Cnt, x42Dir, x42Top, x42Bot, x42T, x4W, x42W] = request.security(syminfo.tickerid, "240", sdState(), lookahead = barmerge.lookahead_on)
 htfName = htf == "60" ? "1H" : htf == "240" ? "4H" : htf + "m"
@@ -229,6 +235,8 @@ tick = syminfo.mintick
 var box zBox = na
 var label zLab = na
 var array<box> wickBoxes = array.new<box>()
+var array<line> wickLines = array.new<line>()
+var array<label> wickLabels = array.new<label>()
 // the wick part of a zone (between the body edge and the wick edge), drawn lighter than the body part
 wickPart(int t0, float body, float wick, color c) =>
     box.new(t0, math.max(body, wick), time, math.min(body, wick), xloc = xloc.bar_time, extend = extend.right, border_color = color.new(c, 70), bgcolor = color.new(c, 94), border_style = line.style_dotted)
@@ -242,6 +250,10 @@ var label z42Lab = na
 if barstate.islast
     while array.size(wickBoxes) > 0
         box.delete(array.pop(wickBoxes))
+    while array.size(wickLines) > 0
+        line.delete(array.pop(wickLines))
+    while array.size(wickLabels) > 0
+        label.delete(array.pop(wickLabels))
 if showZone4 and barstate.islast
     box.delete(z4Box)
     label.delete(z4Lab)
@@ -282,6 +294,10 @@ if showZone and barstate.islast
         zBox := box.new(nz(hZT, time - 150 * 300000), hTop, time, hBot, xloc = xloc.bar_time, extend = extend.right, border_color = hDir == 1 ? color.new(#5aa9e6, 30) : color.new(#f08a4b, 30), bgcolor = hDir == 1 ? color.new(#5aa9e6, 85) : color.new(#f08a4b, 85))
         if not na(hW)
             array.push(wickBoxes, wickPart(nz(hZT, time - 150 * 300000), hDir == 1 ? hTop : hBot, hW, hDir == 1 ? #5aa9e6 : #f08a4b))
+        if showFill
+            float l30 = hNear - (hDir == 1 ? 1 : -1) * 0.3 * math.abs(hNear - hFar)
+            array.push(wickLines, line.new(nz(hZT, time - 150 * 300000), l30, time, l30, xloc = xloc.bar_time, extend = extend.right, color = color.new(hDir == 1 ? #5aa9e6 : #f08a4b, 10), style = line.style_dotted, width = 1))
+            array.push(wickLabels, label.new(rightX, l30, "30%", xloc = xloc.bar_time, style = label.style_label_left, color = color.new(#000000, 100), textcolor = hDir == 1 ? #5aa9e6 : #f08a4b, size = size.small))
         zLab := label.new(rightX, hDir == 1 ? hTop : hBot, zName, xloc = xloc.bar_time, style = label.style_label_left, color = hDir == 1 ? color.new(#5aa9e6, 0) : color.new(#f08a4b, 0), textcolor = color.white, size = size.normal)
 
 // 1H breaks: only the last 3 BOS and the last MSS stay on the chart
@@ -344,6 +360,7 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                 for k = 0 to back
                     leg := d == 1 ? math.min(leg, low[k]) : math.max(leg, high[k])
                 float sl = leg - d * 2 * tick
+                float fill = fillOf(leg)
                 // fair value gap (the last one of the move)
                 float fvg = na
                 if back >= 2
@@ -404,9 +421,9 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     string liqJ = na(liq) ? "null" : str.tostring(liq)
                     string liqRJ = na(liq) ? "null" : str.tostring(math.abs(liq - e) / r, "#.##")
                     string side4 = t4 == 0 ? "4H trend unclear" : t4 == d ? "with the 4H trend" : "AGAINST the 4H trend"
-                    string txt = syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(e, format.mintick) + " · SL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R, " + kind + ") · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + " · 5m MSS at " + str.tostring(swV, format.mintick) + " · " + side4 + (na(liq) ? "" : " · 5m swing at " + str.tostring(math.abs(liq - e) / r, "#.#") + "R")
+                    string txt = syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(e, format.mintick) + " · SL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R, " + kind + ") · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + " · 5m MSS at " + str.tostring(swV, format.mintick) + " · " + side4 + (na(liq) ? "" : " · 5m swing at " + str.tostring(math.abs(liq - e) / r, "#.#") + "R") + (na(fill) ? "" : " · " + fillTxt(fill))
                     if alertMode == "Edge webhook"
-                        alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + side + '","entry":' + str.tostring(e) + ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) + ',"rr":' + str.tostring(rr, "#.##") + ',"kind":"' + kind + '","zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(swV) + ',"liq":' + liqJ + ',"liqR":' + liqRJ + ',"trend4h":' + str.tostring(t4) + ',"validMin":240}', alert.freq_once_per_bar_close)
+                        alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + side + '","entry":' + str.tostring(e) + ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) + ',"rr":' + str.tostring(rr, "#.##") + ',"kind":"' + kind + '","zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(swV) + ',"liq":' + liqJ + ',"liqR":' + liqRJ + ',"trend4h":' + str.tostring(t4) + ',"fill":' + (na(fill) ? "null" : str.tostring(fill, "#.##")) + ',"validMin":240}', alert.freq_once_per_bar_close)
                     else
                         alert(txt, alert.freq_once_per_bar_close)
 
@@ -416,7 +433,7 @@ tt(v) => v == 1 ? "▲ Bullish" : v == -1 ? "▼ Bearish" : "— none yet"
 var table panel = table.new(position.top_right, 2, 6, bgcolor = color.new(#111923, 10), border_width = 0, frame_color = color.new(#334155, 0), frame_width = 1)
 if showPanel and barstate.islast
     string zTxt = hDir == 0 ? "no valid zone" : (hDir == 1 ? "Demand " : "Supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick)
-    string st = hDir == 0 ? (hCnt < 2 ? "Wait: 1H needs a 2nd BOS" : "Wait: no fresh 1H zone") : hId == usedId ? "Zone used — wait for the next" : armId == hId ? "IN ZONE — waiting for 5m MSS" : "Wait: price not in the zone yet"
+    string st = hDir == 0 ? (hCnt < 2 ? "Wait: 1H needs a 2nd BOS" : "Wait: no fresh 1H zone") : hId == usedId ? "Zone used — wait for the next" : armId == hId ? "IN ZONE · " + (nz(fillOf(ext)) > 1 ? "past the far edge" : "filled " + str.tostring(math.round(nz(fillOf(ext)) * 100)) + "%") + " — waiting for 5m MSS" : "Wait: price not in the zone yet"
     string wTxt = hDir == 0 or t4 == 0 ? "" : hDir == t4 ? "  (with 4H)" : "  (against 4H)"
     table.cell(panel, 0, 0, "4H trend", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
     table.cell(panel, 1, 0, tt(t4), text_color = tc(t4), text_size = size.small, text_halign = text.align_left)

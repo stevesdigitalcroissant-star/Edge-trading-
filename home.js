@@ -167,6 +167,9 @@
       // the wick part (body edge → wick edge), lighter: the zone runs wick to wick, alerts arm at the body
       const yw = z.wick != null ? H.series.priceToCoordinate(z.wick) : null, yb = H.series.priceToCoordinate(z.d > 0 ? z.top : z.bot);
       if (yw != null && yb != null && Math.abs(yw - yb) >= 1) out += `<div class="hm-z" style="left:${x}px;top:${Math.min(yw, yb)}px;height:${Math.abs(yw - yb)}px;background:rgba(${c},0.05);border-color:rgba(${c},0.3)"></div>`;
+      // the 30% line: price usually fills about 30% of a fresh zone before it turns
+      const y30 = !older && tf === "1H" && z.l30 != null ? H.series.priceToCoordinate(z.l30) : null;
+      if (y30 != null) out += `<div class="hm-bos" style="left:${x}px;top:${y30}px;width:${Math.max(6, W - x)}px;border-color:rgba(${c},0.8);border-top-style:dotted"></div><span class="hm-zl" style="left:${x + 4}px;top:${y30 + (z.d > 0 ? 2 : -13)}px;color:rgb(${c})">30%</span>`;
       let ly = z.d > 0 ? top + h + 2 : top - 14; while (used.some((u) => Math.abs(u - ly) < 12)) ly += z.d > 0 ? 12 : -12; used.push(ly);
       out += `<span class="hm-zl" style="left:${Math.max(0, (ts.logicalToCoordinate((H.times || []).length + 1) ?? W - 200))}px;top:${ly}px;color:rgb(${c});opacity:${older ? 0.7 : 1}">${tf} ${z.d > 0 ? "DEMAND" : "SUPPLY"}${older ? " (older)" : ""}</span>`;
     };
