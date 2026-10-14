@@ -335,7 +335,7 @@
       : !s.zone ? "Wait: no fresh 1H zone"
       : inZ ? `IN ZONE · ${fill > 1 ? "wicked past the far edge" : `filled ${Math.round((fill || 0) * 100)}%${fill != null && fill < 0.3 ? " (under 30%)" : ""}`} — waiting for 5m MSS`
       : "Wait: price not in the zone yet";
-    const open = nyMin != null && nyMin >= 120 && nyMin < 690;
+    const open = nyMin != null && nyMin >= 180 && nyMin < 840;
     const in4 = s4.zone && price != null && price <= s4.zone.top && price >= s4.zone.bot;
     return { ...s, t4, zone4: s4.zone, older4: s4.older, inZone4: !!in4, inZone: !!inZ, fill, status, ordersOpen: open, with4h: s.zone && t4 ? s.zone.d === t4 : null };
   }

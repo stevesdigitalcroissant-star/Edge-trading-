@@ -1041,7 +1041,7 @@
     const rr = t.tpR || (t.initialSL != null && t.tp != null ? Math.abs(t.tp - t.entry) / Math.abs(t.entry - t.initialSL) : null);
     out.push({ id: "rr", title: "3R – 10R", ok: rr != null && rr >= S.settings.minR - 0.05 && rr <= S.settings.maxR + 0.05, text: rr == null ? "No target recorded." : `Planned ${rr.toFixed(1)}R.` });
     const m = nyMinOf(t.openedAt);
-    out.push({ id: "session", title: "Session & limits", ok: m >= 120 && m < 690, text: m >= 120 && m < 690 ? "" : "Taken outside London / New York." });
+    out.push({ id: "session", title: "Session & limits", ok: m >= 180 && m < 840, text: m >= 180 && m < 840 ? "" : "Taken outside London / New York." });
     const lock = S.settings.lockAtR || 3, breaks = t.ruleBreaks || [];
     const gaveBack = (t.maxR || 0) >= lock && (t.resultR || 0) < 0.5;
     out.push({ id: "manage", title: "Management", ok: !breaks.length && !gaveBack, text: breaks.length ? `Rule break: ${breaks.join(", ")}.` : gaveBack ? `It reached +${lock}R and came back — lock in profit at +${lock}R.` : "" });
@@ -1170,7 +1170,7 @@
     const tvCard = `<section class="card"><h2>TradingView setup</h2>
         <p class="muted" style="margin-top:0">One script, your strategy. TradingView doesn't let apps install it, so it's one copy-paste — your secret is already inside.</p>
         <div class="stat radar-pine"><small>⭐ Supply &amp; demand scanner — 1H zones, 5m confirmation, 14 markets (crude is off)</small><b style="font-size:14px">5-minute chart, one per market: ${SD_TV.map((t) => `<code>${t}</code>`).join(" · ")}</b>
-          <p class="muted" style="margin:6px 0">Draws the live 1H demand / supply zone, waits for price to come back into it and the 5m to close past its last swing, then sends Edge the limit (fair value gap or breaker), stop 2 ticks past the low / high and the nearest 5m swing target (1.5R–6R). Orders only 02:00–11:30 New York. Needs a paid TradingView plan: one alert per market, 14 in all.</p>
+          <p class="muted" style="margin:6px 0">Draws the live 1H demand / supply zone, waits for price to come back into it and the 5m to close past its last swing, then sends Edge the limit (fair value gap or breaker), stop 2 ticks past the low / high and the nearest 5m swing target (1.5R–6R). Orders only 03:00–14:00 New York (London open → New York session). Needs a paid TradingView plan: one alert per market, 14 in all.</p>
           <button class="btn small primary" data-copypine="edge_sd_scanner">Copy S&amp;D scanner</button></div>
         <ol class="steps">
           <li>Tap <b>Copy S&amp;D scanner</b>, then on a computer open TradingView on a <b>5-minute</b> chart.</li>

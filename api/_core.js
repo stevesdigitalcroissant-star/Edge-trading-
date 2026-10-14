@@ -30,7 +30,7 @@ async function propNow(store, ctx, now) {
 function tilt(ctx, now, riskUSD) {
   const nyMin = (() => { const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date(now)); return Number(p.find((x) => x.type === "hour").value) * 60 + Number(p.find((x) => x.type === "minute").value); })();
   const s = ctx.settings;
-  if (s.sessionGuard !== false && !(nyMin >= 120 && nyMin < 690)) return { block: "Outside your sessions (London / New York, 02:00–11:30 New York). That's not your edge — wait for tomorrow's session." };
+  if (s.sessionGuard !== false && !(nyMin >= 180 && nyMin < 840)) return { block: "Outside your sessions (London open → New York, 03:00–14:00 New York). That's not your edge — wait for tomorrow's session." };
   const recent = [...ctx.journal, ...ctx.open].filter((t) => t.openedAt && now - t.openedAt < 30 * 60e3);
   if (recent.length >= 2) return { block: "Two trades in the last 30 minutes. Slow down — step away for a few minutes, the next setup will come." };
   const today = Prop.tradingDay(now), lastLoss = ctx.journal.filter((t) => t.closedAt && Prop.tradingDay(t.closedAt) === today && (t.resultR || 0) < -0.1).sort((a, b) => b.closedAt - a.closedAt)[0];
@@ -322,7 +322,7 @@ async function newsReminders(store, ctx) {
 
 // ---------- your 5-minute game plan: a brief when London (02:00 New York) and New York (08:00) open, a recap after (11:30)
 // Sent once each from the TradingView heartbeat — so it arrives even when the app is closed.
-const GP_SLOTS = [["london", 120, "🇬🇧 London is open"], ["ny", 480, "🇺🇸 New York is open"], ["recap", 690, "🏁 Session over"]];
+const GP_SLOTS = [["london", 180, "🇬🇧 London is open"], ["ny", 480, "🇺🇸 New York is open"], ["recap", 840, "🏁 Session over"]];
 async function gamePlan(store, now = Date.now()) {
   const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", weekday: "short", hourCycle: "h23" }).formatToParts(new Date(now));
   const g = (k) => (p.find((x) => x.type === k) || {}).value, m = Number(g("hour")) * 60 + Number(g("minute"));

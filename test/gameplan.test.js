@@ -13,16 +13,16 @@ test("brief at the London open (once), with the prop account and markets near a 
   const store = memory();
   await core.action(store, broker, { action: "propSave", cfg: { firm: "tradeify", plan: "select-flex", size: 50000, target: 3000, dd: 2000, consistencyPct: 40, baseRisk: 250 } }, NY(1));
   const bar = (h, m, near) => core.handleHook(store, broker, { secret: "s3cret", type: "bar", symbol: "MGC1!", price: 2400, high: 2401, low: 2399, near }, NY(h, m));
-  await bar(1, 50, "4H demand 2380–2386");
+  await bar(2, 50, "4H demand 2380–2386");
   assert.equal(await store.get("gameplan"), null);
-  await bar(2, 5, "4H demand 2380–2386");
+  await bar(3, 5, "4H demand 2380–2386");
   const gp = await store.get("gameplan");
   assert.equal(gp.slot, "london");
   assert.match(gp.text, /2 trades left today · risk \$250/);
   assert.match(gp.text, /\$3,000 to the target/);
   assert.match(gp.text, /Gold: 4H demand 2380–2386/);
-  await bar(2, 10); assert.equal((await store.get("gameplan")).at, NY(2, 5)); // once per session
-  await bar(11, 35);
+  await bar(3, 10); assert.equal((await store.get("gameplan")).at, NY(3, 5)); // once per session
+  await bar(14, 5);
   assert.equal((await store.get("gameplan")).slot, "recap");
   assert.match((await store.get("gameplan")).text, /No trades today/);
 });
