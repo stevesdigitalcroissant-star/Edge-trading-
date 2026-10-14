@@ -186,7 +186,7 @@
   const PV = { gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500, rty: 5, "6e": 12500, "6b": 6250, "6j": 1250000, "6a": 10000, zn: 1000, zb: 1000 };
   const sdQty = (per, aim, hi) => { const top = per > 0 ? Math.floor(hi / per + 1e-9) : 0; return top < 1 ? 0 : Math.min(Math.max(1, Math.round(aim / per)), top); };
   function sdSize(x) {
-    const st = S.settings, lo = st.sdRiskMin || 100, a = S.prop && S.prop.auto, hi = Math.min(st.sdRiskMax || 140, a && a.usd > 0 ? a.usd : Infinity), aim = Math.min(st.sdRiskTarget || 120, hi);
+    const st = S.settings, lo = st.sdRiskMin || 200, a = S.prop && S.prop.auto, hi = Math.min(st.sdRiskMax || 250, a && a.usd > 0 ? a.usd : Infinity), aim = Math.min(st.sdRiskTarget || 225, hi);
     const c = (CONTRACTS[x.market] || [["", PV[x.market] || 1]])[0], per = Math.abs(x.entry - x.sl) * c[1];
     const qty = sdQty(per, aim, hi), risk = Math.round(qty * per);
     return { contract: c[0], qty, risk, per: Math.round(per), lo, hi, aim, under: qty > 0 && risk < lo };
@@ -875,7 +875,7 @@
     const q = sd ? z.qty : radar ? Math.floor(risk / (Math.abs(x.entry - x.sl) * ({ gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500 }[x.market] || 1)) + 1e-9) : qtyFor(x.size, risk);
     const mic = sd ? z.contract : radar ? (CONTRACTS[x.market] || [[""]])[0][0] : x.size && x.size.contract;
     const riskTxt = sd ? `$${z.risk}` : radar && q > 0 ? `$${Math.round(q * Math.abs(x.entry - x.sl) * ({ gold: 10, silver: 1000, crude: 100, natgas: 1000, es: 5, nq: 2, ym: 0.5, copper: 2500 }[x.market] || 1))}` : `$${risk}`;
-    const beTxt = sd ? "No break-even, no lock: the stop and the 1:3 target stay where they are." : radar ? `At +${S.settings.lockAtR || 3}R Edge locks in profit, then trails behind each new 15m swing.` : e.beR > 0 ? `At +${e.beR}R ${S.broker.kind === "manual" ? "Edge tells you to move the stop to break-even" : "the stop moves to break-even"}.` : "No break-even in this plan.";
+    const beTxt = sd ? "No break-even, no lock: the stop and the target stay where they are." : radar ? `At +${S.settings.lockAtR || 3}R Edge locks in profit, then trails behind each new 15m swing.` : e.beR > 0 ? `At +${e.beR}R ${S.broker.kind === "manual" ? "Edge tells you to move the stop to break-even" : "the stop moves to break-even"}.` : "No break-even in this plan.";
     const moods = [["calm", "😌 Calm"], ["focused", "🎯 Focused"], ["fomo", "😬 Afraid to miss it"], ["revenge", "😤 Want my money back"], ["bored", "🥱 Bored"]];
     const body = $("#modalBody");
     if (sd) return sdTakeDialog(x, z, moods, body);

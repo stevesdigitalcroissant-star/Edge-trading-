@@ -320,7 +320,7 @@ async function newsReminders(store, ctx) {
   }
 }
 
-// ---------- your 5-minute game plan: a brief when London (02:00 New York) and New York (08:00) open, a recap after (11:30)
+// ---------- your 5-minute game plan: a brief when London (03:00 New York) and New York (08:00) open, a recap after (11:00)
 // Sent once each from the TradingView heartbeat — so it arrives even when the app is closed.
 const GP_SLOTS = [["london", 180, "🇬🇧 London is open"], ["ny", 480, "🇺🇸 New York is open"], ["recap", 660, "🏁 Session over"]];
 async function gamePlan(store, now = Date.now()) {
@@ -854,7 +854,7 @@ async function action(store, broker, body, now = Date.now()) {
     if (cur.riskPct > 3) throw new Error("Risk per trade above 3% isn't allowed here. That's the greed talking.");
     if (cur.beAtR < 0 || (cur.beAtR > 0 && cur.tpAtR <= cur.beAtR)) throw new Error("Take-profit must be beyond the break-even trigger (or set break-even to 0 = off).");
     cur.beV2 = true;
-    cur.riskV3 = true;
+    cur.riskV4 = true;
     for (const k of ["enforceTP"]) if (typeof p[k] === "boolean") cur[k] = p[k];
     if (["warn", "close"].includes(p.newsOpenTrade)) cur.newsOpenTrade = p.newsOpenTrade;
     if (typeof p.flatBy === "string" && /^\d{1,2}:\d{2}$/.test(p.flatBy)) cur.flatBy = p.flatBy;

@@ -147,9 +147,9 @@ const DEFAULT_SETTINGS = {
   tz: "America/New_York",
   riskPct: 1, // % of the account risked per trade
   accountSize: 10000, // used for sizing when no broker is connected
-  sdRiskMin: 100, // supply & demand scanner trades: risk band in dollars — contracts picked to land
-  sdRiskTarget: 120, // as close to the target as the stop allows, never over the max;
-  sdRiskMax: 140, // flagged when even that is under the min
+  sdRiskMin: 200, // supply & demand scanner trades: risk band in dollars — contracts picked to land
+  sdRiskTarget: 225, // as close to the target as the stop allows, never over the max;
+  sdRiskMax: 250, // flagged when even that is under the min
   beAtR: 0, // move the stop to break-even at +R (0 = never — the 2019-2026 tests did better without it)
   beOffsetR: 0.05, // break-even + a hair, so the spread doesn't turn a BE into a small loss
   tpAtR: 3.2, // full exit
@@ -262,7 +262,7 @@ function mergeSettings(saved) {
   s.sessions = { ...DEFAULT_SETTINGS.sessions, ...((saved && saved.sessions) || {}) };
   s.lots = { ...DEFAULT_SETTINGS.lots, ...((saved && saved.lots) || {}) };
   s.notify = { ...DEFAULT_SETTINGS.notify, ...((saved && saved.notify) || {}) };
-  if (!(saved && saved.riskV3)) { s.sdRiskMin = DEFAULT_SETTINGS.sdRiskMin; s.sdRiskTarget = DEFAULT_SETTINGS.sdRiskTarget; s.sdRiskMax = DEFAULT_SETTINGS.sdRiskMax; } // $100–140 a trade (Oct 14 2026); only a value saved after that counts
+  if (!(saved && saved.riskV4)) { s.sdRiskMin = DEFAULT_SETTINGS.sdRiskMin; s.sdRiskTarget = DEFAULT_SETTINGS.sdRiskTarget; s.sdRiskMax = DEFAULT_SETTINGS.sdRiskMax; } // $200–250 a trade with A+ setups at 1:2 (Oct 14 2026); only a value saved after that counts
   if (!(saved && saved.beV2)) s.beAtR = 0; // break-even removed (Oct 2026); only a value saved after that counts
   return s;
 }

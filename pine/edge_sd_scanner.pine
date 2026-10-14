@@ -13,8 +13,8 @@
 //   4. 5m shift    : a 5m candle closes past the last 5m swing made before the low (high).
 //   5. Entry       : limit at the top of the last fair value gap of that move; if none, at the
 //                    breaker / mitigation block (the candles of the broken swing).
-//   6. Stop        : 2 ticks past the low of the move. Target: 1:3, plus the HIGHEST target: the 1H high
-//                    (low) the move came from, at most 10R — take the 1:3 or go for more, your call.
+//   6. Stop        : 2 ticks past the low of the move. Target: 1:2 (A+ setups win ~47–51% at 1:2), plus the
+//                    HIGHEST target: the 1H high (low) the move came from, at most 10R — your call.
 //   7. 30% fill    : price usually fills ~30% of a fresh zone before it turns (dotted line). A 5m MSS
 //                    before that is flagged "may go deeper" — not blocked (tested: blocking it doesn't
 //                    raise the win rate).
@@ -37,7 +37,7 @@
 //
 // CLEAN chart (default): only the live 1H zone with its 30% line and, when a setup fires, the latest one:
 // the 5m liquidity taken ($$$), the MSS 5m line, the FVG (extended right) and the ENTRY line with the plan
-// written next to it: entry, stop, 1:3 target (recommended) and the highest target. No long / short boxes
+// written next to it: entry, stop, 1:2 target (recommended) and the highest target. No long / short boxes
 // (switch "Long / short boxes" on if you want them). The 4H zone, older zones and the 1H BOS / MSS labels
 // can be switched on in the settings. Orders 03:00–11:00 New York = London open → New York morning.
 //
@@ -52,7 +52,7 @@ indicator("Edge — Supply & Demand scanner (1H · 5m)", shorttitle = "Edge S&D"
 secret = input.string("change-me", "Edge webhook secret", group = "Edge app alerts")
 alertMode = input.string("Edge webhook", "Alerts go to", options = ["Edge webhook", "TradingView app (plain text)"], group = "Edge app alerts", tooltip = "No two-factor authentication on TradingView yet? Pick the TradingView app: you get a readable notification on your phone instead of the Edge webhook.")
 htf = input.timeframe("60", "Zone timeframe", group = "Rules")
-tpR = input.float(3, "Target (R)", step = 0.5, group = "Rules")
+tpR = input.float(2, "Target (R)", step = 0.5, group = "Rules")
 fromH = input.int(3, "Orders from (New York hour)", group = "Rules")
 toHM = input.int(1100, "Orders until (New York, HHMM)", group = "Rules")
 showZone = input.bool(true, "Draw the 1H zone", group = "Chart")
@@ -560,7 +560,7 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                 float r = math.abs(e - sl)
                 bool aPlus = aPlusNow()
                 if d * (e - sl) > 0 and r >= 4 * tick and not tooFar and not stagnant and (aPlus or not onlyAPlus)
-                    // target 1:3; the nearest 5m swing in the way is sent so you can judge the room
+                    // target 1:tpR (default 1:2); the nearest 5m swing in the way is sent so you can judge the room
                     float tp = e + d * tpR * r
                     float liq = na
                     tids = d == 1 ? phI : plI
@@ -574,7 +574,7 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                             if d * (v - e) > 0
                                 liq := na(liq) ? v : (d == 1 ? math.min(liq, v) : math.max(liq, v))
                     float rr = math.abs(tp - e) / r
-                    // the highest target: the 1H high (buy) / low (sell) the move came from, at least the 1:3, at most maxR
+                    // the highest target: the 1H high (buy) / low (sell) the move came from, at least the 1:tpR target, at most maxR
                     float tpMax = na(legExt) ? tp : e + d * math.max(tpR * r, math.min(d * (legExt - e), maxR * r))
                     float rrMax = math.abs(tpMax - e) / r
                     // the 5m liquidity the leg took: the last 5m low (buy) / high (sell) before the extreme that it ran
