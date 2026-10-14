@@ -30,14 +30,14 @@
 //                    entry when it is there (tested: +177R → +199R on 9 markets).
 //  11. No ranging  : no setup when price moved less than 1× the 1H average range in the 2 hours before the
 //                    break (stagnant / consolidating). Tested: win rate 36% → 38%, +199R → +254R.
-//   Orders only 03:00–14:00 New York (London open → New York session). Edge keeps the setup 4 hours;
+//   Orders only 03:00–11:00 New York (London open → New York morning: the busy, high-volume hours). Edge keeps the setup 4 hours;
 //   trades can run until your close-out (16:40 New York in Edge).
 //
 // CLEAN chart (default): only the live 1H zone with its 30% line and, when a setup fires, the latest one:
 // the 5m liquidity taken ($$$), the MSS 5m line, the FVG (extended right) and the ENTRY line with the plan
 // written next to it: entry, stop, 1:3 target (recommended) and the highest target. No long / short boxes
 // (switch "Long / short boxes" on if you want them). The 4H zone, older zones and the 1H BOS / MSS labels
-// can be switched on in the settings. Orders 03:00–14:00 New York = London open → New York session.
+// can be switched on in the settings. Orders 03:00–11:00 New York = London open → New York morning.
 //
 // For the Edge app, create ONE alert on this chart:
 //   Condition: this script → "Any alert() function call"
@@ -52,7 +52,7 @@ alertMode = input.string("Edge webhook", "Alerts go to", options = ["Edge webhoo
 htf = input.timeframe("60", "Zone timeframe", group = "Rules")
 tpR = input.float(3, "Target (R)", step = 0.5, group = "Rules")
 fromH = input.int(3, "Orders from (New York hour)", group = "Rules")
-toHM = input.int(1400, "Orders until (New York, HHMM)", group = "Rules")
+toHM = input.int(1100, "Orders until (New York, HHMM)", group = "Rules")
 showZone = input.bool(true, "Draw the 1H zone", group = "Chart")
 showZone4 = input.bool(false, "Draw the 4H zone", group = "Chart")
 showOlder = input.bool(false, "Draw an older 1H zone too", group = "Chart")
@@ -658,4 +658,4 @@ if showPanel and barstate.islast
     table.cell(panel, 0, 4, "Edge", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
     table.cell(panel, 1, 4, st, text_color = armId == hId and hDir != 0 ? color.new(#f0c94b, 0) : color.white, text_size = size.small, text_halign = text.align_left)
     table.cell(panel, 0, 5, "Orders", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 1, 5, inWin ? "open (03:00–14:00 NY)" : "closed (03:00–14:00 NY)", text_color = inWin ? color.new(#4ade80, 0) : color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 1, 5, inWin ? "open (03:00–11:00 NY)" : "closed (03:00–11:00 NY)", text_color = inWin ? color.new(#4ade80, 0) : color.gray, text_size = size.small, text_halign = text.align_left)

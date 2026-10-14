@@ -107,7 +107,7 @@ function gradePlaybook(setup, ctx) {
     { id: "entry", label: "5m change of character · limit at the start of the gap", pass: true },
     { id: "stop", label: "Stop behind the swing of the move", pass: true },
     { id: "rr", label: `${s.minR}R to ${s.maxR}R to the opposing liquidity`, pass: rr >= s.minR - 0.01 && rr <= s.maxR + 0.01, note: Number.isFinite(rr) ? `${round(rr, 1)}R` : "" },
-    { id: "session", label: "London or New York session", pass: nyMin >= 180 && nyMin < 840 },
+    { id: "session", label: "London or New York session", pass: nyMin >= 180 && nyMin < 660 },
     { id: "liq", label: "Liquidity taken (bonus)", pass: setup.liq === true, bonus: true },
   ];
   const hard = checks.filter((c) => !c.pass && !c.bonus).length;
@@ -124,7 +124,7 @@ function gradeSD(setup, ctx) {
     { id: "mss", label: "5m market structure shift inside the zone", pass: true, note: setup.mss != null ? `past ${setup.mss}` : "" },
     { id: "entry", label: "Limit at the fair value gap / breaker / mitigation block", pass: true, note: setup.kind || "" },
     { id: "rr", label: "Target 1:3 (you decide if the room is there)", pass: rr >= 1, note: Number.isFinite(rr) ? `${round(rr, 1)}R` : "" },
-    { id: "session", label: "Orders 03:00–14:00 New York (London open → New York session)", pass: nyMin >= 180 && nyMin < 840 },
+    { id: "session", label: "Orders 03:00–11:00 New York (London open → New York morning, the busy hours)", pass: nyMin >= 180 && nyMin < 660 },
   ];
   const ok = checks.every((c) => c.pass);
   return { grade: ok ? "S&D" : "C", checks, blocks: hardBlocks(setup, ctx), info: "" };

@@ -22,7 +22,7 @@ test("brief at the London open (once), with the prop account and markets near a 
   assert.match(gp.text, /\$3,000 to the target/);
   assert.match(gp.text, /Gold: 4H demand 2380–2386/);
   await bar(3, 10); assert.equal((await store.get("gameplan")).at, NY(3, 5)); // once per session
-  await bar(14, 5);
+  await bar(11, 5);
   assert.equal((await store.get("gameplan")).slot, "recap");
   assert.match((await store.get("gameplan")).text, /No trades today/);
 });
