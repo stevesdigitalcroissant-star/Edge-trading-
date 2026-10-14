@@ -7,23 +7,23 @@
   const root = $("#coach");
   const canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
   let stream = null, video = null, timer = null, busy = false, lastSent = 0, lastThumb = null, last = null, inTrade = false;
-  let engine = "reader";
-  try { engine = localStorage.getItem("edge.coachEngine") || "reader"; } catch {}
+  let engine = "ai"; // the voice coach reads any chart; the old "reader" needs the EDGE line of the previous script
+  try { engine = localStorage.getItem("edge.coachEngine2") || "ai"; } catch {}
   let mode = "live", muted = false, spokenAt = 0, spoken = "", history = [], pip = null, errors = 0;
   try { mode = localStorage.getItem("edge.coachMode") || "live"; muted = localStorage.getItem("edge.mute") === "1"; } catch {}
 
   const settings = () => (window.Edge && window.Edge.state() ? window.Edge.state().settings : { coachIdleSec: 60, coachTradeSec: 20, beAtR: 2, tpAtR: 3.2 });
 
   const engineHtml = () => `<div class="seg" style="margin:0 0 12px;grid-template-columns:1fr 1fr" id="cEngine">
-      <button type="button" class="${engine === "reader" ? "on p1" : ""}" data-e="reader">Chart reader (live)</button>
+      <button type="button" class="${engine === "ai" ? "on z" : ""}" data-e="ai">🎙️ Live voice coach</button>
       <button type="button" class="${engine === "replay" ? "on p1" : ""}" data-e="replay">Replay (Edge finds it)</button>
       <button type="button" class="${engine === "practice" ? "on p1" : ""}" data-e="practice">FX Replay checklist</button>
-      <button type="button" class="${engine === "ai" ? "on z" : ""}" data-e="ai">AI coach (FX Replay)</button></div>`;
+      <button type="button" class="${engine === "reader" ? "on p1" : ""}" data-e="reader">Old script reader</button></div>`;
   function bindEngine() {
     root.querySelectorAll("#cEngine [data-e]").forEach((b) => b.addEventListener("click", () => {
       if (b.dataset.e === engine) return;
       if ((engine === "reader" && window.EdgeReader && window.EdgeReader.active()) || (engine === "ai" && stream)) return window.Edge.toast("Stop the one that's running first.");
-      engine = b.dataset.e; try { localStorage.setItem("edge.coachEngine", engine); } catch {}
+      engine = b.dataset.e; try { localStorage.setItem("edge.coachEngine2", engine); } catch {}
       render();
     }));
   }

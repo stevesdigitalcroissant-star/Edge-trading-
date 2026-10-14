@@ -671,7 +671,8 @@
     const gp = S.gameplan && S.now - S.gameplan.at < 10 * 3600e3 ? `<section class="card slim gameplan" data-tour="gameplan"><div class="row between"><b>${esc(S.gameplan.title)}</b><small class="muted">${time(S.gameplan.at)}</small></div>${S.gameplan.lines.map((l) => `<p>${esc(l)}</p>`).join("")}</section>` : "";
     const paste = `<section class="card slim"><div class="row between"><div><b>📋 Got an alert in the TradingView app?</b><p class="muted" style="margin:4px 0 0">Paste it (or a screenshot of it) — Edge turns it into the setup card: check, confirm, and the order goes to Tradovate.</p></div><button class="btn small primary" data-paste>Paste alert</button></div></section>`;
     const shot = `<section class="card slim"><div class="row between"><div><b>📸 Took a trade?</b><p class="muted" style="margin:4px 0 0">Upload a screenshot of it — Edge reads the numbers, asks for anything it can't see, and 2 hours later asks you if it won or lost.</p></div><button class="btn small primary" data-shot>Upload</button></div></section>`;
-    return `${ceBanner}${pend}${getSetCard()}${hero}${gp}${setups}${paste}${shot}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
+    const coachBtn = `<section class="card slim"><div class="row between"><div><b>🎙️ Live coach</b><p class="muted" style="margin:4px 0 0">On your computer: share your TradingView window — Edge watches your chart and tells you out loud what to do, by your rules.</p></div><button class="btn small primary" data-gowatch>Open</button></div></section>`;
+    return `${ceBanner}${pend}${getSetCard()}${hero}${gp}${setups}${paste}${shot}${coachBtn}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -1380,6 +1381,7 @@
     v.querySelectorAll("[data-propset]").forEach((b) => b.addEventListener("click", propDialog));
     v.querySelectorAll("[data-paste]").forEach((b) => b.addEventListener("click", pasteDialog));
     v.querySelectorAll("[data-shot]").forEach((b) => b.addEventListener("click", shotDialog));
+    v.querySelectorAll("[data-gowatch]").forEach((b) => b.addEventListener("click", () => { tab = "watch"; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#watch"); render(); scrollTo(0, 0); }));
     v.querySelectorAll("[data-res]").forEach((b) => b.addEventListener("click", async () => {
       const o = b.dataset.res; let exit;
       if (o === "exit") { exit = prompt("The price you got out at:"); if (!exit) return; }

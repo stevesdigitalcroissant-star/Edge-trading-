@@ -11,7 +11,7 @@ const IMG = "data:image/jpeg;base64,AAAA";
 
 const read = (o = {}) => ({
   chartReadable: true, platform: "TradingView", symbol: "MGC1!", market: "gold", timeframe: "5m", phase: "no_setup", direction: "none",
-  checklist: Object.fromEntries(["trend4h", "freshZone", "liquidity", "bos15", "close5", "room", "stop"].map((k) => [k, { status: "pass", note: "" }])),
+  checklist: Object.fromEntries(["zone1h", "notTooFar", "notRanging", "entry5m", "fill30", "room", "stop"].map((k) => [k, { status: "pass", note: "" }])),
   grade: "none", position: { open: false, dir: "none", entry: null, stop: null, target: null, price: null },
   instruction: "No setup. Wait.", urgency: "info", reasoning: "", memory: "", ...o,
 });
@@ -21,10 +21,16 @@ const fake = (outs) => {
 };
 const pos = (o) => ({ open: true, dir: "long", entry: 2400, stop: 2390, target: 2432, price: 2405, ...o });
 
-test("rules override the model: break-even at 2R, target put back, no stop, A+ only", () => {
+test("rules override the model: the trade's own break-even and target, targets up to 1:10, no stop, A+ only", () => {
   const ctx = { settings: s, mode: "live" };
-  assert.match(coach.applyRules(read({ phase: "in_trade", position: pos({ price: 2421 }) }), {}, ctx).instruction, /break-even, 2400\.50/);
-  assert.match(coach.applyRules(read({ phase: "in_trade", position: pos({ target: 2460 }) }), {}, ctx).instruction, /back to 2432\.00/);
+  // an Edge trade at that entry: its own plan (break-even at 2R, target 3.2R)
+  const edge = { ...ctx, open: [{ dir: "long", entry: 2400, strategy: "sd", tpR: 3.2, beR: 2 }] };
+  assert.match(coach.applyRules(read({ phase: "in_trade", position: pos({ price: 2421 }) }), {}, edge).instruction, /break-even, 2400\.50/);
+  assert.match(coach.applyRules(read({ phase: "in_trade", position: pos({ target: 2460 }) }), {}, edge).instruction, /back to 2432\.00/);
+  // a trade Edge didn't place: no break-even nagging (that's your button), a 1:6 target is fine, past 1:10 goes back to 1:3
+  assert.equal(coach.applyRules(read({ phase: "in_trade", position: pos({ price: 2421 }), instruction: "Let it work." }), {}, ctx).instruction, "Let it work.");
+  assert.equal(coach.applyRules(read({ phase: "in_trade", position: pos({ target: 2460 }), instruction: "Let it work." }), {}, ctx).instruction, "Let it work.");
+  assert.match(coach.applyRules(read({ phase: "in_trade", position: pos({ target: 2520 }) }), {}, ctx).instruction, /back to 2430\.00/);
   assert.match(coach.applyRules(read({ phase: "in_trade", position: pos({ price: 2433 }) }), {}, ctx).instruction, /Take the profit/);
   const remembered = { trade: { dir: "long", entry: 2400, initialSL: 2390, maxR: 0 } };
   assert.match(coach.applyRules(read({ position: pos({ stop: 2385 }) }), remembered, ctx).instruction, /further away/);

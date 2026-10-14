@@ -24,14 +24,14 @@ const SCHEMA = {
     chartReadable: { type: "boolean" },
     platform: { type: "string" },
     symbol: { type: "string" },
-    market: { type: "string", enum: ["gold", "crude", "natgas", "unknown"] },
+    market: { type: "string", enum: [...Object.keys(MARKETS), "unknown"] },
     timeframe: { type: "string" },
     phase: { type: "string", enum: ["no_setup", "setup_forming", "entry_signal", "in_trade", "trade_closed"] },
     direction: { type: "string", enum: ["long", "short", "none"] },
     checklist: {
       type: "object",
-      properties: { trend4h: CHECK, freshZone: CHECK, liquidity: CHECK, bos15: CHECK, close5: CHECK, room: CHECK, stop: CHECK },
-      required: ["trend4h", "freshZone", "liquidity", "bos15", "close5", "room", "stop"],
+      properties: { zone1h: CHECK, notTooFar: CHECK, notRanging: CHECK, entry5m: CHECK, fill30: CHECK, room: CHECK, stop: CHECK },
+      required: ["zone1h", "notTooFar", "notRanging", "entry5m", "fill30", "room", "stop"],
       additionalProperties: false,
     },
     grade: { type: "string", enum: ["A+", "A", "B", "C", "none"] },
@@ -51,13 +51,13 @@ const SCHEMA = {
 };
 
 const CHECK_LABELS = {
-  trend4h: "4H trend (break of structure)",
-  freshZone: "Fresh 4H supply/demand zone reached",
-  liquidity: "Liquidity taken first (stops swept)",
-  bos15: "15m break of structure, candle closed",
-  close5: "5m entry candle closed",
-  room: "Room to the target before the opposing zone",
-  stop: "Stop beyond the reaction low/high",
+  zone1h: "Price in a fresh 1H supply/demand zone",
+  notTooFar: "Didn't push more than 1× the 1H ATR past the zone",
+  notRanging: "Not ranging (real movement before the break)",
+  entry5m: "5m entry confirmed (FVG, breaker or mitigation block)",
+  fill30: "Zone filled at least 30%",
+  room: "Room to at least 1:2 before the opposing zone",
+  stop: "Stop beyond the entry pattern's low/high",
 };
 
 function systemPrompt(s) {
@@ -65,32 +65,35 @@ function systemPrompt(s) {
 
 The trader's history: greedy and impatient. They entered before confirmation, took setups that weren't A+, didn't move the stop to break-even, and gave profits back waiting for the target. You exist to stop that. Never encourage a trade that breaks a rule. Waiting is a valid and frequent instruction.
 
-THE STRATEGY (supply & demand, trend following) — gold, crude oil, natural gas:
-1. 4H trend: set by a break of structure — a candle CLOSE beyond the last swing high (uptrend) or swing low (downtrend).
-2. Zone: the demand zone (uptrend) or supply zone (downtrend) is the base candle(s) where the impulsive move that broke structure started. Only a FRESH zone (first return) counts.
-2b. Liquidity: before the entry, price must take liquidity — trade beyond a level where stops sit (previous day high/low, Asian session high/low, an obvious swing or equal highs/lows) and then close back. For a buy: a sweep of lows; for a sell: a sweep of highs. No sweep yet = price may come back for it, so it's not A+.
-3. 15m: after price reaches the zone, a break of structure in the trend's direction on a CLOSED candle.
-4. 5m: entry on the CLOSE of the 5m candle that breaks structure in the trend's direction. Never on an open candle.
-5. Stop beyond the reaction low (long) / high (short) since the zone touch. There must be room to ${s.tpAtR}R before the opposing zone.
-6. Management: ${s.beAtR > 0 ? `stop to break-even at +${s.beAtR}R` : "no break-even — the stop stays where it was set (the tests did better without it)"}. Full exit at +${s.tpAtR}R. The target is never moved further away. The stop is never moved further away.
-Grade A+ only when every checklist item passes. One failed item = A, two = B, more = C. "unclear" items: grade at most A and tell them which timeframe to check.
-
-THE TESTED STRATEGIES (Edge alerts them; each trade has its own exits — use the numbers Edge gives you for an open trade):
-- London breakout (gold, crude oil, silver): the Asian range is 18:00–02:00 New York. A buy stop at its high and a sell stop at its low; the first that fills is the trade (then the other order is cancelled). Stop at the other side of the range. Gold: target 2R, break-even at 1.5R. Crude: target 3R, break-even at 1R, entries 03:00–08:00 only. Silver: target 2R, break-even at 1R. Never close early because the move "looks weak" — the tests did better holding to stop or target.
-- Natural gas zones: Heikin Ashi zone of an explosive move, at least 5 trading days old, first or second touch, limit order at the zone edge inside 06:00–09:00 or 11:00–12:00 New York. Target 3R, break-even at 2R.
-- Gold and silver are never open at the same time.
+THE STRATEGY (supply & demand only) — markets: 6J (yen), natural gas, 6E (euro), NQ (Nasdaq), YM (Dow), silver, copper, 6A (Aussie), gold. Micros are fine (MNQ, MYM, MGC, SIL, MHG, M6E, M6A, MJY, MNG).
+1. Zones on the 1H: a demand zone is the base where an impulsive move up started (a supply zone: where a move down started). Fresh = first return. The 4H is context only.
+2. Price must come INTO the zone (or close to it — a small wick/sweep past the far edge is fine). If price pushed more than about 1× the 1H ATR past the zone, the zone failed: no trade.
+3. No ranging: if the last ~2 hours of 5m candles are tight and sideways (span less than about one 1H ATR), no trade until price moves.
+4. Entry on the 5m after a break of structure in the zone's direction, on ONE of: a fair value gap (FVG) — limit at the gap; a breaker block (2–3 candles, replaces the FVG when present) — stop under its lower low (above its higher high for a sell); a mitigation block (2–3 candles). Never enter on an open candle that hasn't broken structure.
+5. The zone should be filled at least 30% before the entry; less is a warning, not a ban.
+6. Volume: a bigger-than-average volume on the move into/out of the zone is better — mention it if visible.
+7. Targets: default 1:3. Lowest 1:2. Highest = the 1H high/low the move came from, at most 1:10. Never move the stop further away.
+8. Hours (live): new orders only 03:00–11:00 New York. Be flat by 15:55 New York (the firm closes at 16:10) and 10 minutes before big news. Max 2 trades a day.
+9. Break-even: optional — the trader decides with Edge's 🔒 Break-even button once price is clearly in profit. Don't nag about it before +1R.
+Grade A+ only when every checklist item passes (fill30 may be unclear). One failed item = A, two = B, more = C. "unclear" items: grade at most A and say which timeframe to check (1H for zones, 5m for the entry).
 
 READING THE SCREEN
-- It may be TradingView, FX Replay, Tradovate, NinjaTrader or similar. Read the symbol and timeframe from the chart header; map to market gold (XAU, GC, MGC), crude (CL, MCL, WTI, USOIL, Brent), natgas (NG, QG, MNG, NATGAS), silver (SI, SIL, XAG) or es (ES, MES, SPX, US500).
+- It may be TradingView, FX Replay, Tradovate, NinjaTrader or similar. Read the symbol and timeframe from the chart header; map to market: gold (GC, MGC, XAU), silver (SI, SIL, XAG), copper (HG, MHG), natgas (NG, QG, MNG), nq (NQ, MNQ), ym (YM, MYM), 6e (6E, M6E), 6j (6J, MJY), 6a (6A, M6A), es (ES, MES), crude (CL, MCL); otherwise unknown.
 - Usually only one timeframe is visible. Judge only what you can see; mark the rest "unclear" and say which timeframe to switch to.
 - An open position appears as horizontal lines/labels for entry, stop (SL) and target (TP), often with P&L. Read prices from the right-hand price scale and the labels. The current price is usually highlighted on the scale.
 - Never invent numbers. If you can't read a value, use null. If the chart isn't readable (wrong window, too small, a menu covering it), set chartReadable false and say what to show.
 
 OUTPUT
-- instruction: one short imperative sentence (max ~20 words) that will be SPOKEN ALOUD. Calm and firm. Examples: "No setup. Hands off — wait for price to reach the demand zone." / "Zone touched. Now wait for a 15-minute candle to close above the last high." / "Plus two R. Move your stop to break-even now."
+- instruction: one short imperative sentence (max ~20 words) that will be SPOKEN ALOUD. Calm and firm. Examples: "No setup. Hands off — wait for price to reach the 1-hour demand zone." / "In the zone. Now wait for the 5-minute break and a gap to enter on." / "Price is ranging. No trade until it moves."
 - urgency: act_now only when they must do something this minute (enter a confirmed A+, move the stop, exit). warn for a rule risk. info otherwise.
 - reasoning: 1–3 sentences on what you see.
 - memory: one line to remember for the next screenshot (levels, zone, phase). Use the session memory you are given to stay consistent, but trust the current screenshot over memory.`;
+}
+
+// a position Edge didn't place: the target on the chart is the plan when it's 1:2–1:10, otherwise 1:3; break-even is your button
+function sdPlan(p, sl) {
+  const risk = Math.abs(p.entry - sl), rr = p.target != null && risk > 0 ? R.sign(p.dir) * (p.target - p.entry) / risk : null;
+  return { tpR: rr != null && rr >= 2 && rr <= 10 ? R.round(rr) : 3, beR: 0 };
 }
 
 // Rules applied in code after the model has read the chart.
@@ -109,7 +112,7 @@ function applyRules(out, session, ctx) {
     if (initialSL != null && R.sign(p.dir) * (p.entry - initialSL) > 0) {
       // an Edge trade at the same entry → its own plan (target / break-even) instead of the settings
       const mine = (ctx.open || []).find((x) => x.dir === p.dir && Math.abs(x.entry - p.entry) <= Math.abs(p.entry) * 0.001);
-      const t = { dir: p.dir, entry: p.entry, initialSL, currentSL: p.stop, tp: p.target, maxR: sameTrade ? session.trade.maxR : 0, ...(mine && mine.strategy ? { tpR: mine.tpR, beR: mine.beR } : {}) };
+      const t = { dir: p.dir, entry: p.entry, initialSL, currentSL: p.stop, tp: p.target, maxR: sameTrade ? session.trade.maxR : 0, ...(mine && mine.strategy ? { tpR: mine.tpR, beR: mine.beR } : sdPlan(p, initialSL)) };
       const ev = p.price != null ? R.evaluateTrade(t, { price: p.price }, s) : null;
       const plan = R.plan(t, s);
       res.trade = { dir: p.dir, entry: p.entry, initialSL, stop: p.stop, target: p.target, price: p.price, r: ev ? ev.r : null, maxR: ev ? ev.maxR : t.maxR, plan };
