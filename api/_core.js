@@ -1014,6 +1014,17 @@ async function action(store, broker, body, now = Date.now()) {
     await store.hset("trades", t.id, t);
     return { ok: true };
   }
+  if (a === "moveBE") { // the break-even button: the stop goes to your entry (on Tradovate too when Edge placed the trade)
+    const t = await store.hget("trades", String(body.tradeId || ""));
+    if (!t) throw new Error("Trade not found");
+    const k = R.sign(t.dir), px = num(body.price);
+    if (px != null && k * (px - t.entry) <= 0) throw new Error("Price isn't past your entry yet — a break-even stop there would close the trade right away.");
+    let onBroker = false;
+    if (routedTo(t, broker) && broker.moveStop) { await broker.moveStop(t, t.entry); onBroker = true; }
+    t.currentSL = t.entry; t.beMoved = true;
+    await store.hset("trades", t.id, t);
+    return { ok: true, stop: t.entry, onBroker };
+  }
   if (a === "beDone") {
     const t = await store.hget("trades", body.tradeId);
     if (!t) throw new Error("Trade not found");

@@ -44,6 +44,22 @@ module.exports = async (req, res) => {
     // Databento: ?src=db&month=2024-03&i=5m (years back) · ?status=1 says whether it's connected
     const db = require("./_databento");
     if (url.searchParams.get("status")) return res.status(200).json({ databento: !!db.key(), yahoo: true });
+    // ?quote=nq — the latest price for an open trade's live P&L (Yahoo; CME futures there run a few minutes behind)
+    if (url.searchParams.get("quote")) {
+      const mk = url.searchParams.get("quote"), sym = SYMBOLS[mk] || EXTRA[mk];
+      if (!sym) return res.status(400).json({ error: "unknown market" });
+      let last;
+      for (const host of ["query1", "query2"]) {
+        try {
+          const r = await fetch(`https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1m&range=1d&includePrePost=true`, { headers: { "User-Agent": "Mozilla/5.0 (Edge trading co-pilot)", Accept: "application/json" } });
+          if (!r.ok) throw new Error(`price data ${r.status}`);
+          const m = ((await r.json()).chart.result || [])[0].meta;
+          res.setHeader("Cache-Control", "public, s-maxage=3, max-age=3");
+          return res.status(200).json({ market: mk, price: m.regularMarketPrice, at: (m.regularMarketTime || 0) * 1000, delayMin: m.exchangeDataDelayedBy || 0 });
+        } catch (e) { last = e; }
+      }
+      return res.status(502).json({ error: last ? last.message : "no price" });
+    }
     // ?src=db&fill=1&from=2019-01&to=2026-09 — buy the missing months into the archive (each month once, ever)
     // ?src=db&have=1 — which months are archived
     // Databento data is licensed to you: only your signed-in app (or your private data downloader) may load it

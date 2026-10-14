@@ -668,6 +668,24 @@
     </section>`;
   }
 
+  // live P&L of your open trades: the latest price every 5 s (Yahoo — CME futures there run a few minutes behind;
+  // Tradovate / TradingView's Trading Panel show the exact number)
+  const LQ = {};
+  const pvOf = (t) => { const c = CONTRACTS[t.market] || []; return ((c.find((x) => x[0] === t.contract) || c[0] || [0, PV[t.market] || 1])[1]); };
+  function livePnl(t) {
+    const q = LQ[t.market]; if (!q || q.price == null || !t.units) return null;
+    const k = t.dir === "short" ? -1 : 1, move = k * (q.price - t.entry), risk = Math.abs(t.entry - (t.initialSL ?? t.currentSL));
+    return { usd: move * pvOf(t) * t.units, r: risk > 0 ? move / risk : 0, price: q.price, delay: q.delayMin, at: q.at };
+  }
+  const pnlHtml = (t) => { const p = livePnl(t); if (!p) return `<span class="muted">Live P&L loading…</span>`;
+    return `<b class="num ${p.usd >= 0 ? "good" : "bad"}" style="font-size:30px">${p.usd >= 0 ? "+" : "−"}$${Math.abs(p.usd).toFixed(0)}</b> <span class="num ${p.r >= 0 ? "good" : "bad"}">${p.r >= 0 ? "+" : ""}${p.r.toFixed(2)}R</span><br><small class="muted">price ${fx(p.price)}${p.delay ? ` · about ${p.delay} min behind — your exact P&L is in TradingView's Trading Panel` : ""}</small>`; };
+  async function pollPnl() {
+    if (!S || !S.open || !S.open.length || document.hidden) return;
+    for (const mk of [...new Set(S.open.map((t) => t.market))]) { try { const r = await fetch(`/api/candles?quote=${mk}`); if (r.ok) LQ[mk] = await r.json(); } catch {} }
+    for (const t of S.open) { const el = document.querySelector(`[data-livepnl="${t.id}"]`); if (el) el.innerHTML = pnlHtml(t); }
+  }
+  setInterval(pollPnl, 5000);
+
   function tradeCard(t) {
     const s = S.settings, e = xpOf(t);
     const lo = -1, hi = e.tpR, span = hi - lo, pct = (r) => `${Math.max(0, Math.min(100, ((r - lo) / span) * 100))}%`;
@@ -687,6 +705,7 @@
         <span class="max" style="left:${pct(t.maxR || 0)}" title="best so far"></span>
         <span class="now" style="left:${pct(r)}"></span>
       </div>
+      ${t.units ? `<div data-livepnl="${esc(t.id)}" style="margin:6px 0 4px">${pnlHtml(t)}</div>` : ""}
       <div class="row between"><b class="${cls(r)} num" style="font-size:22px">${rs(t.r)}</b>
         <span class="muted">${t.beMoved ? "🔒 Stop at break-even — can't lose" : e.beR > 0 ? `Stop moves to BE at ${e.beR}R` : "No break-even in this plan — stop or target"}</span></div>
       <div class="levels">
@@ -701,6 +720,7 @@
       ${t.trailSuggest != null ? `<div class="blocks trail">↗️ New 15m swing — move your stop to <b>${fx(t.trailSuggest)}</b>. <button class="btn small primary" data-traildone="${esc(t.id)}">Done</button></div>` : ""}
       <div class="row">
         ${manual && !t.beMoved && e.beR > 0 ? `<button class="btn small ${beAdvised ? "primary" : ""}" data-be="${esc(t.id)}">I moved my stop to break-even</button>` : ""}
+        ${!t.beMoved && !t.pending ? `<button class="btn small primary" data-mbe="${esc(t.id)}">🔒 Break-even</button>` : ""}
         <button class="btn small danger" data-close="${esc(t.id)}">Close trade</button>
       </div>
       <p class="muted" style="margin:8px 0 0;font-size:13px">${manual ? "Manual: Edge tells you when to act, you click in TradingView." : routed ? (e.beR > 0 ? "Sent to Tradovate. Edge moves the stop to break-even at +" + e.beR + "R. Hands off." : "Sent to Tradovate. Stop and target are set. Hands off.") : "Edge is managing this trade. Hands off."}${t.lastPriceAt ? ` · price ${time(t.lastPriceAt)}` : ""}</p>
@@ -1314,6 +1334,14 @@
     v.querySelectorAll("[data-suhide]").forEach((b) => b.addEventListener("click", () => { try { localStorage.setItem("edge.setupDone", "1"); } catch {} render(); }));
     v.querySelectorAll("[data-propset]").forEach((b) => b.addEventListener("click", propDialog));
     v.querySelectorAll("[data-paste]").forEach((b) => b.addEventListener("click", pasteDialog));
+    v.querySelectorAll("[data-mbe]").forEach((b) => b.addEventListener("click", async () => {
+      const t = S.open.find((x) => x.id === b.dataset.mbe); if (!t) return;
+      if (!confirm(`Move the stop to break-even (${fx(t.entry)})? From then on this trade can't lose.`)) return;
+      const q = LQ[t.market];
+      const r = await act({ action: "moveBE", tradeId: t.id, price: q && q.delayMin === 0 ? q.price : undefined }, null);
+      if (r) { toast(r.onBroker ? `🔒 Stop moved to ${fx(r.stop)} on Tradovate.` : `🔒 Now move your stop to ${fx(r.stop)} in TradingView (Trading Panel → your position → stop).`); refresh(); }
+    }));
+    pollPnl();
     v.querySelectorAll("[data-traildone]").forEach((b) => b.addEventListener("click", () => act({ action: "trailDone", tradeId: b.dataset.traildone }, "Stop trailed. Profit locked — hands off.")));
     v.querySelectorAll("[data-cancelord]").forEach((b) => b.addEventListener("click", () => act({ action: "cancelOrder", id: b.dataset.cancelord }, "Order cancelled — cancel it on your platform too if you placed it yourself.")));
     v.querySelectorAll("[data-take]").forEach((b) => b.addEventListener("click", () => takeDialog(b.dataset.take)));
