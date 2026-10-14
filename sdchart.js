@@ -155,6 +155,40 @@
     return out.sort((a, b) => a.t1 - b.t1);
   }
 
+  // Liquidity as fuel: stops rest beyond the MAJOR highs (buy-side, BSL) and lows (sell-side, SSL). Major = a
+  // swing with `len` candles each side; equal highs / lows (within `tolATR` × ATR) pool together and count touches.
+  // A pool is taken when price trades past it: "swept" if price is back inside within `back` candles (fuel for a
+  // reversal), "run" if it keeps going. Untaken pools rest as targets. Bias: the side taken last by a sweep —
+  // sell-side swept → buys, buy-side swept → sells.
+  function liquidity(B, { len = 5, tolATR = 0.3, back = 3, keep = 3 } = {}) {
+    const pools = [], taken = []; let atr = null;
+    for (let i = 0; i < B.length; i++) {
+      const b = B[i], tr = i ? Math.max(b.h - b.l, Math.abs(b.h - B[i - 1].c), Math.abs(b.l - B[i - 1].c)) : b.h - b.l;
+      atr = atr == null ? tr : (atr * 13 + tr) / 14;
+      const j = i - len;
+      if (j >= len) for (const d of [1, -1]) {
+        let ok = true; for (let k = 1; k <= len && ok; k++) ok = d === 1 ? B[j].h > B[j - k].h && B[j].h >= B[j + k].h : B[j].l < B[j - k].l && B[j].l <= B[j + k].l;
+        if (!ok) continue;
+        const p = d === 1 ? B[j].h : B[j].l, near = pools.find((q) => q.d === d && Math.abs(q.p - p) <= tolATR * atr);
+        if (near) { near.touches++; near.p = d === 1 ? Math.max(near.p, p) : Math.min(near.p, p); near.tl = B[j].t; near.il = j; }
+        else pools.push({ d, p, touches: 1, t0: B[j].t, tl: B[j].t, il: j });
+      }
+      for (let q = pools.length - 1; q >= 0; q--) {
+        const P = pools[q]; if (P.il > i - len) continue;
+        if (P.d === 1 ? b.h <= P.p : b.l >= P.p) continue;
+        let back_ = -1; for (let k = i; k <= Math.min(B.length - 1, i + back); k++) if (P.d === 1 ? B[k].c < P.p : B[k].c > P.p) { back_ = k; break; }
+        if (back_ < 0 && i + back >= B.length) continue; // too early to tell
+        taken.push({ d: P.d, lvl: P.p, t0: P.t0, t1: b.t, touches: P.touches, how: back_ >= 0 ? "swept" : "run" });
+        pools.splice(q, 1);
+      }
+    }
+    const px = B.length ? B[B.length - 1].c : 0;
+    const resting = [...pools.filter((q) => q.d === 1 && q.p > px).sort((a, b) => a.p - b.p).slice(0, keep), ...pools.filter((q) => q.d === -1 && q.p < px).sort((a, b) => b.p - a.p).slice(0, keep)]
+      .map((q) => ({ d: q.d, lvl: q.p, t0: q.t0, touches: q.touches }));
+    const lastSweep = [...taken].reverse().find((x) => x.how === "swept");
+    return { taken, resting, bias: lastSweep ? -lastSweep.d : 0, lastSweep: lastSweep || null };
+  }
+
   function trend4h(B) {
     let h = null, l = null, dir = 0;
     for (let i = 0; i < B.length; i++) {
@@ -181,6 +215,6 @@
     return { ...s, t4, zone4: s4.zone, older4: s4.older, inZone4: !!in4, inZone: !!inZ, status, ordersOpen: open, with4h: s.zone && t4 ? s.zone.d === t4 : null };
   }
 
-  const api = { sd1h, swing, sweeps, majorSweeps, trend4h, read };
+  const api = { sd1h, swing, sweeps, majorSweeps, liquidity, trend4h, read };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.EdgeSD = api;
 })(typeof window !== "undefined" ? window : globalThis);
