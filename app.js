@@ -930,7 +930,12 @@
     body.innerHTML = `<h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY" : "▼ SELL"} limit</h3>
       <p class="muted" style="margin-top:0">Change anything you want. Contracts aim for about $${z.aim} risk ($${z.lo}–$${z.hi}) until you set them yourself.</p>
       <div class="grid2">${f("entry", "Limit", x.entry)}${f("sl", "Stop", x.sl)}${f("tp", "Target", x.tp)}${f("qty", `Contracts (${esc(z.contract)})`, z.qty)}</div>
-      ${x.tpMax != null && x.rrMax > x.rr + 0.25 ? `<div class="row" style="margin-top:6px"><button class="btn" type="button" data-tpset="${x.tp}">Target 1:${Number(x.rr).toFixed(1)}</button><button class="btn" type="button" data-tpset="${x.tpMax}">Highest ${Number(x.rrMax).toFixed(1)}R · ${fx(x.tpMax)}</button></div>` : ""}
+      ${(() => { // targets: 1:3 is the default; 1:2 when it already finishes the challenge; the highest when there's room
+        const r1 = Math.abs(x.entry - x.sl), p2 = +(x.entry + k * 2 * r1).toFixed(6), toT = S.prop && S.prop.cfg && S.prop.cfg.enabled && S.prop.acct ? S.prop.acct.toTarget : null;
+        const ends = toT != null && toT > 0 && 2 * z.aim >= toT;
+        return `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:6px"><button class="btn" type="button" data-tpset="${p2}">1:2 · ${fx(p2)}</button><button class="btn${ends ? "" : " primary"}" type="button" data-tpset="${x.tp}">1:${Number(x.rr).toFixed(1)} · ${fx(x.tp)} ✓</button>${x.tpMax != null && x.rrMax > x.rr + 0.25 ? `<button class="btn" type="button" data-tpset="${x.tpMax}">Highest ${Number(x.rrMax).toFixed(1)}R · ${fx(x.tpMax)}</button>` : ""}</div>
+        <p class="muted" style="margin:4px 0 0;font-size:12.5px">${ends ? `🏁 <b>1:2 (about $${Math.round(2 * z.aim)}) already reaches your target ($${Math.round(toT)} to go)</b> — take the 1:2: a higher chance to finish the challenge.` : "1:3 is the default (it beat 1:2 in every test). 1:2 wins a bit more often but pays less."}</p>`;
+      })()}
       <div class="sc-list" id="sdLive" style="margin:10px 0"></div>
       <p style="margin-bottom:4px"><b>Your eye</b> <span class="muted">— tick what you see on the chart. Edge keeps score so you'll know if your judgement beats the scanner.</span></p>
       <div class="sd-judge">${SD_JUDGE.map(([k, l]) => `<label><input type="checkbox" data-judge="${k}"${k === "fill" && x.fill >= 0.3 ? " checked" : ""}> ${esc(l(x))}</label>`).join("")}</div>
@@ -953,6 +958,7 @@
       return { e, sl, tp, q };
     };
     body.querySelectorAll("[data-tpset]").forEach((b) => b.addEventListener("click", () => { inp("tp").value = b.dataset.tpset; calc(); }));
+    { const toT = S.prop && S.prop.cfg && S.prop.cfg.enabled && S.prop.acct ? S.prop.acct.toTarget : null; if (toT != null && toT > 0 && 2 * z.aim >= toT) inp("tp").value = +(x.entry + k * 2 * Math.abs(x.entry - x.sl)).toFixed(6); }
     body.querySelectorAll("[data-sd]").forEach((el) => el.addEventListener("input", () => { if (el.dataset.sd === "qty") qtyMine = true; calc(); }));
     body.querySelectorAll("[data-mood]").forEach((b) => b.addEventListener("click", () => { mood = b.dataset.mood; body.querySelectorAll("[data-mood]").forEach((y) => y.classList.toggle("on", y === b)); calc(); }));
     calc();
