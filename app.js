@@ -467,6 +467,24 @@
   }
   // shrink a picked image to a JPEG data URL (≤1600 px) before it goes to the server
   const shrinkImage = (file) => new Promise((ok, bad) => { const im = new Image(), url = URL.createObjectURL(file); im.onload = () => { const k = Math.min(1, 1600 / Math.max(im.width, im.height)), c = document.createElement("canvas"); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(url); ok(c.toDataURL("image/jpeg", 0.85)); }; im.onerror = () => bad(new Error("Couldn't open that image.")); im.src = url; });
+  // you passed: the same plan on the funded account — its rules, a fresh balance, your funded risk
+  function fundedDialog() {
+    const body = $("#modalBody");
+    body.innerHTML = `<h3>🎉 Congratulations — switch to funded</h3>
+      <p class="muted" style="margin-top:0">Same strategy, same hours and alerts. Edge loads your firm's funded rules (drawdown, daily loss, consistency, payouts), starts the balance fresh and sizes every trade at your new risk. Your evaluation trades stay in the journal.</p>
+      <label class="f">Risk per trade on the funded account ($)<input id="fdRisk" inputmode="decimal" type="number" value="100"></label>
+      <div class="row" style="margin-top:8px"><button class="btn primary" type="button" id="fdGo">Switch to funded</button><button class="btn" value="cancel">Cancel</button></div>
+      <p class="err" id="fdErr"></p>`;
+    $("#fdGo").addEventListener("click", async () => {
+      $("#fdGo").disabled = true; $("#fdErr").textContent = "";
+      try {
+        const r = await api("POST", { action: "propFunded", risk: $("#fdRisk").value });
+        $("#modal").close();
+        toast(`Funded account set: $${Number(r.prop.baseRisk)} a trade, balance ${usd(r.prop.size)}, the funded rules.`, 6000); refresh();
+      } catch (e) { $("#fdErr").textContent = e.message; $("#fdGo").disabled = false; }
+    });
+    $("#modal").showModal();
+  }
   // a trade you took, from a screenshot: Edge reads it, you fill what it couldn't see, it's tracked (or journaled if it's closed)
   function shotDialog() {
     const body = $("#modalBody");
@@ -576,7 +594,7 @@
     draw(!cur.enabled && !cur.firm);
     $("#modal").showModal();
   }
-  function propSwap() { const el = $("#propCard"); if (el) { el.outerHTML = propCard(); $("#view").querySelectorAll("#propCard [data-propset]").forEach((b) => b.addEventListener("click", propDialog)); } }
+  function propSwap() { const el = $("#propCard"); if (el) { el.outerHTML = propCard(); const v = $("#view"); v.querySelectorAll("#propCard [data-propset]").forEach((b) => b.addEventListener("click", propDialog)); v.querySelectorAll("#propCard [data-gofunded]").forEach((b) => b.addEventListener("click", fundedDialog)); } } // the card is redrawn when the pass odds load: reconnect its buttons
 
   // ---------- S&D SCANNER: 1H zone + 5m shift found by TradingView on 14 markets (crude is off) — one tap sends the limit
   const SD_TV = ["MGC1!", "SIL1!", "MNG1!", "MES1!", "MNQ1!", "MYM1!", "M2K1!", "MHG1!", "6E1!", "6B1!", "6J1!", "6A1!", "ZN1!", "ZB1!"];
@@ -1383,11 +1401,7 @@
     v.querySelectorAll("[data-propset]").forEach((b) => b.addEventListener("click", propDialog));
     v.querySelectorAll("[data-paste]").forEach((b) => b.addEventListener("click", pasteDialog));
     v.querySelectorAll("[data-shot]").forEach((b) => b.addEventListener("click", shotDialog));
-    v.querySelectorAll("[data-gofunded]").forEach((b) => b.addEventListener("click", async () => {
-      const v = prompt("Congratulations! 🎉 Risk per trade on the funded account ($):", "100"); if (v == null) return;
-      const r = await act({ action: "propFunded", risk: v }, null);
-      if (r) { toast(`Funded account set: $${Number(r.prop.baseRisk)} a trade, balance ${usd(r.prop.size)}, the funded rules. Same plan as before.`, 6000); refresh(); }
-    }));
+    v.querySelectorAll("[data-gofunded]").forEach((b) => b.addEventListener("click", fundedDialog));
     v.querySelectorAll("[data-gowatch]").forEach((b) => b.addEventListener("click", () => { tab = "watch"; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#watch"); render(); scrollTo(0, 0); }));
     v.querySelectorAll("[data-res]").forEach((b) => b.addEventListener("click", async () => {
       const o = b.dataset.res; let exit;
