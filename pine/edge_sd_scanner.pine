@@ -71,6 +71,9 @@ showBB = input.bool(true, "Breaker block entries (swing low → swing high → L
 showMB = input.bool(true, "Mitigation block entries (swing low → swing high → higher low → strong close above)", group = "Rules")
 maxR = input.float(10, "Highest target (R) — the 1H high / low the move came from, capped here", step = 0.5, group = "Rules")
 showTradeLabel = input.bool(false, "Price label next to the trade", group = "Chart")
+planWhere = input.string("Panel", "Trade plan text", options = ["Panel", "On the chart", "Both"], group = "Chart", tooltip = "Panel: the plan (entry, stop, targets, volume) is written in the panel, easy to read on a phone. The chart keeps only the lines with short tags.")
+panelPos = input.string("Top right", "Panel position", options = ["Top right", "Bottom right", "Bottom left", "Top left"], group = "Chart")
+panelSize = input.string("Normal", "Panel text size", options = ["Small", "Normal", "Large"], group = "Chart")
 
 // ---------- the 1H side: trend (two BOS the same way) and the zone of the latest BOS
 sdState() =>
@@ -239,6 +242,9 @@ var box mbBox = na
 var line mbEnt = na
 var line mbStop = na
 var label mbLab = na
+var line mbTpL = na
+var label mbTpT = na
+var label mbTags = na
 var line mbMss = na
 var line sEnt = na
 var line sStop = na
@@ -246,6 +252,17 @@ var label sEntT = na
 var line sSw = na
 var label sSwT = na
 var line sMax = na
+var line sTpL = na
+var label sTpT = na
+var label sStopT = na
+var label sEntTag = na
+var string pSide = ""
+var string pStop = ""
+var string pLow = ""
+var string pTgt = ""
+var string pHigh = ""
+var string pNote = ""
+var int pTime = na
 var label sMaxT = na
 // the high (demand) / low (supply) of the move that left the 1H zone — buy-side / sell-side liquidity, the highest target
 var float legExt = na
@@ -473,12 +490,26 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                         line.delete(mbStop)
                         label.delete(mbLab)
                         line.delete(mbMss)
+                        line.delete(mbTpL)
+                        label.delete(mbTpT)
+                        label.delete(mbTags)
+                        pSide := (mPlus ? "A+ " : "") + (d == 1 ? "BUY limit " : "SELL limit ") + str.tostring(me, format.mintick) + " (MB)"
+                        pStop := str.tostring(msl, format.mintick)
+                        pLow := "1:2 → " + str.tostring(me + d * 2 * mr, format.mintick)
+                        pTgt := "1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(mtp, format.mintick) + "  ✓"
+                        pHigh := mrrMax > tpR + 0.25 ? "1:" + str.tostring(mrrMax, "#.#") + " → " + str.tostring(mtpMax, format.mintick) : "—"
+                        pNote := (not na(mfill) and mfill < 0.3 ? "⚠ zone filled " + str.tostring(math.round(mfill * 100)) + "% (under 30%)  " : "") + volTxt
+                        pTime := time
                         if showTrade
                             mbBox := box.new(bar_index - kEnd, bTop, bar_index + 30, bBot, border_color = color.new(#777777, 20), bgcolor = color.new(#777777, 80), text = "MB", text_size = size.tiny, text_color = #555555, text_halign = text.align_left)
                             mbEnt := line.new(bar_index - kEnd, me, bar_index + 30, me, color = color.new(#8e44ad, 0), width = 2)
                             mbStop := line.new(bar_index, msl, bar_index + 30, msl, color = color.new(#ef5350, 0), style = line.style_dotted, width = 1)
                             mbMss := line.new(bar_index - kH, d == 1 ? high[kH] : low[kH], bar_index, d == 1 ? high[kH] : low[kH], color = color.new(#e0b000, 0), width = 2)
-                            mbLab := label.new(bar_index + 30, me, (mPlus ? "A+ " : "") + (d == 1 ? "BUY" : "SELL") + " ENTRY " + str.tostring(me, format.mintick) + " (MB)\nstop " + str.tostring(msl, format.mintick) + (tpR > 2 ? "\nlowest 1:2 → " + str.tostring(me + d * 2 * mr, format.mintick) : "") + "\ntarget 1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(mtp, format.mintick) + "  ✓ default" + (mrrMax > tpR + 0.25 ? "\nhighest 1:" + str.tostring(mrrMax, "#.#") + " → " + str.tostring(mtpMax, format.mintick) + " (max 1:" + str.tostring(maxR, "#") + ")" : "") + (volTxt == "" ? "" : "\n" + volTxt), style = label.style_label_left, color = color.new(#000000, 100), textcolor = #8e44ad, size = size.normal, textalign = text.align_left)
+                            mbTpL := line.new(bar_index, mtp, bar_index + 30, mtp, color = color.new(#26a69a, 0), style = line.style_dashed, width = 2)
+                            mbTpT := label.new(bar_index, mtp, "TP 1:" + str.tostring(tpR, "#.#") + "  " + str.tostring(mtp, format.mintick), style = d == 1 ? label.style_label_lower_left : label.style_label_upper_left, color = color.new(#000000, 100), textcolor = #26a69a, size = size.normal)
+                            mbTags := label.new(bar_index, msl, "SL " + str.tostring(msl, format.mintick), style = d == 1 ? label.style_label_upper_left : label.style_label_lower_left, color = color.new(#000000, 100), textcolor = #ef5350, size = size.normal)
+                            if planWhere != "Panel"
+                                mbLab := label.new(bar_index + 30, me, (mPlus ? "A+ " : "") + (d == 1 ? "BUY" : "SELL") + " ENTRY " + str.tostring(me, format.mintick) + " (MB)\nstop " + str.tostring(msl, format.mintick) + (tpR > 2 ? "\nlowest 1:2 → " + str.tostring(me + d * 2 * mr, format.mintick) : "") + "\ntarget 1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(mtp, format.mintick) + "  ✓ default" + (mrrMax > tpR + 0.25 ? "\nhighest 1:" + str.tostring(mrrMax, "#.#") + " → " + str.tostring(mtpMax, format.mintick) + " (max 1:" + str.tostring(maxR, "#") + ")" : "") + (volTxt == "" ? "" : "\n" + volTxt), style = label.style_label_left, color = color.new(#000000, 100), textcolor = #8e44ad, size = size.normal, textalign = text.align_left)
                         string mside = d == 1 ? "long" : "short"
                         string mtxt = (mPlus ? "A+ " : "") + syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(me, format.mintick) + " · SL " + str.tostring(msl, format.mintick) + " · TP " + str.tostring(mtp, format.mintick) + " (1:" + str.tostring(tpR, "#.#") + ", MITIGATION BLOCK) · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + (mrrMax > tpR + 0.25 ? " · highest target " + str.tostring(mtpMax, format.mintick) + " (" + str.tostring(mrrMax, "#.#") + "R)" : "") + (na(mfill) ? "" : " · " + fillTxt(mfill)) + (volTxt == "" ? "" : " · " + volTxt)
                         if alertMode == "Edge webhook"
@@ -609,12 +640,23 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     label.delete(sSwT)
                     line.delete(sMax)
                     label.delete(sMaxT)
+                    line.delete(sTpL)
+                    label.delete(sTpT)
+                    label.delete(sStopT)
+                    label.delete(sEntTag)
                     box.delete(sTp)
                     box.delete(sSl)
                     label.delete(sLab)
                     line.delete(sMss)
                     line.delete(sLiq)
                     label.delete(sMssT)
+                    pSide := (aPlus ? "A+ " : "") + (d == 1 ? "BUY limit " : "SELL limit ") + str.tostring(e, format.mintick) + " (" + kind + ")"
+                    pStop := str.tostring(sl, format.mintick)
+                    pLow := "1:2 → " + str.tostring(e + d * 2 * r, format.mintick)
+                    pTgt := "1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(tp, format.mintick) + "  ✓"
+                    pHigh := rrMax > tpR + 0.25 ? "1:" + str.tostring(rrMax, "#.#") + " → " + str.tostring(tpMax, format.mintick) : "—"
+                    pNote := (not na(fill) and fill < 0.3 ? "⚠ zone filled " + str.tostring(math.round(fill * 100)) + "% (under 30%)  " : "") + volTxt
+                    pTime := time
                     if showTrade
                         int x2 = bar_index + 30
                         int x1 = kind == "breaker" ? bar_index - bbK0 : na(fvgK) ? bar_index : bar_index - fvgK - 2
@@ -629,7 +671,16 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                             sEnt := line.new(x1, e, x2, e, color = color.new(#8e44ad, 0), width = 2)
                             sStop := line.new(bar_index, sl, x2, sl, color = color.new(#ef5350, 0), style = line.style_dotted, width = 1)
                             string plan = (aPlus ? "A+ " : "") + (d == 1 ? "BUY" : "SELL") + " ENTRY " + str.tostring(e, format.mintick) + " (" + kind + ")\nstop " + str.tostring(sl, format.mintick) + (tpR > 2 ? "\nlowest 1:2 → " + str.tostring(e + d * 2 * r, format.mintick) : "") + "\ntarget 1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(tp, format.mintick) + "  ✓ default" + (rrMax > tpR + 0.25 ? "\nhighest 1:" + str.tostring(rrMax, "#.#") + " → " + str.tostring(tpMax, format.mintick) + " (max 1:" + str.tostring(maxR, "#") + ")" : "") + (not na(fill) and fill < 0.3 ? "\n⚠ zone filled " + str.tostring(math.round(fill * 100)) + "% (under 30%)" : "") + (volTxt == "" ? "" : "\n" + volTxt)
-                            sEntT := label.new(x2, e, plan, style = label.style_label_left, color = color.new(#000000, 100), textcolor = #8e44ad, size = size.normal, textalign = text.align_left)
+                            if planWhere != "Panel"
+                                sEntT := label.new(x2, e, plan, style = label.style_label_left, color = color.new(#000000, 100), textcolor = #8e44ad, size = size.normal, textalign = text.align_left)
+                            // the target (1:3) and the highest target as lines with short tags, the stop and entry tagged too
+                            sTpL := line.new(bar_index, tp, x2, tp, color = color.new(#26a69a, 0), style = line.style_dashed, width = 2)
+                            sTpT := label.new(bar_index, tp, "TP 1:" + str.tostring(tpR, "#.#") + "  " + str.tostring(tp, format.mintick), style = d == 1 ? label.style_label_lower_left : label.style_label_upper_left, color = color.new(#000000, 100), textcolor = #26a69a, size = size.normal)
+                            sStopT := label.new(bar_index, sl, "SL " + str.tostring(sl, format.mintick), style = d == 1 ? label.style_label_upper_left : label.style_label_lower_left, color = color.new(#000000, 100), textcolor = #ef5350, size = size.normal)
+                            sEntTag := label.new(x1, e, (d == 1 ? "BUY " : "SELL ") + str.tostring(e, format.mintick), style = d == 1 ? label.style_label_upper_left : label.style_label_lower_left, color = color.new(#000000, 100), textcolor = #8e44ad, size = size.normal)
+                            if rrMax > tpR + 0.25
+                                sMax := line.new(bar_index, tpMax, x2, tpMax, color = color.new(#26a69a, 50), style = line.style_dotted, width = 2)
+                                sMaxT := label.new(bar_index, tpMax, "MAX 1:" + str.tostring(rrMax, "#.#") + "  " + str.tostring(tpMax, format.mintick), style = d == 1 ? label.style_label_lower_left : label.style_label_upper_left, color = color.new(#000000, 100), textcolor = color.new(#26a69a, 30), size = size.small)
                         if kind == "breaker"
                             sFvg := box.new(bar_index - bbK0, bHi, x2, bLo, border_color = color.new(#5aa9e6, 20), bgcolor = color.new(#5aa9e6, 80), text = "BREAKER", text_size = size.tiny, text_color = #3b8fd6, text_halign = text.align_left)
                         else if not na(fvgK)
@@ -654,23 +705,39 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
 // ---------- the panel, top right: 4H trend, 1H trend, the zone and what Edge is waiting for
 tc(v) => v == 1 ? color.new(#4ade80, 0) : v == -1 ? color.new(#f87171, 0) : color.gray
 tt(v) => v == 1 ? "▲ Bullish" : v == -1 ? "▼ Bearish" : "— none yet"
-var table panel = table.new(position.top_right, 2, 6, bgcolor = color.new(#111923, 10), border_width = 0, frame_color = color.new(#334155, 0), frame_width = 1)
+var table panel = table.new(panelPos == "Top right" ? position.top_right : panelPos == "Bottom right" ? position.bottom_right : panelPos == "Bottom left" ? position.bottom_left : position.top_left, 2, 13, bgcolor = color.new(#111923, 10), border_width = 0, frame_color = color.new(#334155, 0), frame_width = 1)
 if showPanel and barstate.islast
+    pS = panelSize == "Small" ? size.small : panelSize == "Large" ? size.large : size.normal
     string zTxt = hDir == 0 ? "no valid zone" : (hDir == 1 ? "Demand " : "Supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick)
     string st = hDir == 0 ? (hCnt < 2 ? "Wait: 1H needs a 2nd BOS" : "Wait: no fresh 1H zone") : hId == usedId ? "Zone used — wait for the next" : armId == hId ? "IN ZONE · " + (nz(fillOf(ext)) > 1 ? "past the far edge" : "filled " + str.tostring(math.round(nz(fillOf(ext)) * 100)) + "%") + (stagnant ? " — price RANGING: no trade until it moves" : " — waiting for 5m MSS") : "Wait: price not in the zone yet"
     string wTxt = hDir == 0 or t4 == 0 ? "" : hDir == t4 ? "  (with 4H)" : "  (against 4H)"
-    table.cell(panel, 0, 0, "4H trend", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 1, 0, tt(t4), text_color = tc(t4), text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 0, 1, htfName + " trend", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 1, 1, tt(hTrend) + (hCnt >= 2 ? " · " + str.tostring(hCnt) + " BOS" : " · 1 break"), text_color = tc(hTrend), text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 0, 2, htfName + " zone", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 1, 2, zTxt + wTxt, text_color = hDir == 1 ? #5aa9e6 : hDir == -1 ? #f08a4b : color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 0, 0, "4H trend", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+    table.cell(panel, 1, 0, tt(t4), text_color = tc(t4), text_size = pS, text_halign = text.align_left)
+    table.cell(panel, 0, 1, htfName + " trend", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+    table.cell(panel, 1, 1, tt(hTrend) + (hCnt >= 2 ? " · " + str.tostring(hCnt) + " BOS" : " · 1 break"), text_color = tc(hTrend), text_size = pS, text_halign = text.align_left)
+    table.cell(panel, 0, 2, htfName + " zone", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+    table.cell(panel, 1, 2, zTxt + wTxt, text_color = hDir == 1 ? #5aa9e6 : hDir == -1 ? #f08a4b : color.gray, text_size = pS, text_halign = text.align_left)
     if timeframe.period != "5"
         st := "Put this on a 5-MINUTE chart"
     string z4Txt = x4Dir == 0 ? "no valid zone" : (x4Dir == 1 ? "Demand " : "Supply ") + str.tostring(x4Bot, format.mintick) + "–" + str.tostring(x4Top, format.mintick)
-    table.cell(panel, 0, 3, "4H zone", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 1, 3, z4Txt, text_color = x4Dir == 1 ? #26a69a : x4Dir == -1 ? #d64578 : color.gray, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 0, 4, "Edge", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 1, 4, st, text_color = armId == hId and hDir != 0 ? color.new(#f0c94b, 0) : color.white, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 0, 5, "Orders", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 1, 5, inWin ? "open (03:00–11:00 NY)" : "closed (03:00–11:00 NY)", text_color = inWin ? color.new(#4ade80, 0) : color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 0, 3, "4H zone", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+    table.cell(panel, 1, 3, z4Txt, text_color = x4Dir == 1 ? #26a69a : x4Dir == -1 ? #d64578 : color.gray, text_size = pS, text_halign = text.align_left)
+    table.cell(panel, 0, 4, "Edge", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+    table.cell(panel, 1, 4, st, text_color = armId == hId and hDir != 0 ? color.new(#f0c94b, 0) : color.white, text_size = pS, text_halign = text.align_left)
+    table.cell(panel, 0, 5, "Orders", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+    table.cell(panel, 1, 5, inWin ? "open (03:00–11:00 NY)" : "closed (03:00–11:00 NY)", text_color = inWin ? color.new(#4ade80, 0) : color.gray, text_size = pS, text_halign = text.align_left)
+    // the latest setup's plan, readable on a phone (Chart → Trade plan text)
+    if planWhere != "On the chart" and pSide != "" and time - pTime < 8 * 3600000
+        table.cell(panel, 0, 6, "SETUP", text_color = color.new(#c084fc, 0), text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 1, 6, pSide, text_color = color.new(#c084fc, 0), text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 0, 7, "Stop", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 1, 7, pStop, text_color = color.new(#f87171, 0), text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 0, 8, "Lowest", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 1, 8, pLow, text_color = color.white, text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 0, 9, "Target", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 1, 9, pTgt, text_color = color.new(#4ade80, 0), text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 0, 10, "Highest", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 1, 10, pHigh, text_color = color.new(#4ade80, 30), text_size = pS, text_halign = text.align_left)
+        if pNote != ""
+            table.cell(panel, 0, 11, "Note", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+            table.cell(panel, 1, 11, pNote, text_color = color.new(#f0c94b, 0), text_size = pS, text_halign = text.align_left)
