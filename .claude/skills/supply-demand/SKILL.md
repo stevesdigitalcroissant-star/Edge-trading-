@@ -35,7 +35,7 @@ until their Databento data is downloaded.
 
 ## Live scanner: 1H zones · 5m confirmation (Steve's choice, Oct 13 2026)
 
-Same rules with 1H in place of 4H and 5m in place of 15m. `edge/pine/edge_sd_scanner.pine` runs on a 5m chart of
+Same rules with 1H in place of 4H and 5m in place of 15m. `pine/edge_sd_scanner.pine` runs on a 5m chart of
 each of 15 markets (MGC MCL SIL MNG MES MNQ MYM M2K MHG 6E 6B 6J 6A ZN ZB) and posts
 `{"type":"setup","strategy":"sd",...,"kind","zoneTop","zoneBot","mss","validMin":240}` to /api/hook.
 Edge grades it with `gradeSD` (api/_rules.js: "S&D", or "C" under 1.5R / outside 02:00–11:30), shows `sdCard`

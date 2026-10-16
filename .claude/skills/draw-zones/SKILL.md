@@ -28,7 +28,7 @@ Always start from the **big picture**. Never draw a zone from a few days of cand
 
 - Research: `edge-data/research/aoi.js` with `zones: "line4h"` (`zoneATR4`, `awayATR`, `gapF`, `lookF` = 760 four-hour candles ≈ 6 months).
   Load at least 7 months before the first test day (`WARM=7` in `aoiday.js`).
-- Trend everywhere: `edge/trend.js` (home badge, simulator badge, `/api/candles?trend=1`, `pine/edge_trend.pine`).
+- Trend everywhere: `trend.js` (home badge, simulator badge, `/api/candles?trend=1`, `pine/edge_trend.pine`).
 - Edge's home screen has the TradingView pair: **line chart (zones)** next to or above **candles (entries)**.
 
 ## Be honest about results
