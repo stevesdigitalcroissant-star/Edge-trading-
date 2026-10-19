@@ -1,0 +1,46 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0
+//
+// EDGE — Volume panel (goes under the chart, next to the Edge S&D scanner)
+// ---------------------------------------------------------------------------
+// The same reading as the scanner's "volume 1.5× average": each 5m candle's volume against the
+// average of the last 20 candles.
+//   ■ STRONG  ≥ 1.5× average  — real participation: the break is more likely to hold
+//   ■ NORMAL  1–1.5×
+//   ■ WEAK    < 1× average    — thin market, price may just be ranging: be picky
+// The panel's box (top right) reads the last candle and the strongest candle of the last 6 (the break is
+// usually one of them). Volume is a guide here: it isn't in the backtests (the price archive has no volume).
+
+//@version=6
+indicator("Edge — Volume panel", shorttitle = "Edge Vol", overlay = false, format = format.volume)
+
+len = input.int(20, "Average of the last … candles", minval = 5)
+strongX = input.float(1.5, "Strong from (× average)", step = 0.1)
+weakX = input.float(1.0, "Weak under (× average)", step = 0.1)
+look = input.int(6, "Strongest candle of the last … (the break)", minval = 1)
+boxSize = input.string("Normal", "Text size", options = ["Small", "Normal", "Large"])
+
+avg = ta.sma(volume, len)
+x = avg > 0 ? volume / avg : na
+cStrong = color.new(#26a69a, 0)
+cNormal = color.new(#7b8da3, 20)
+cWeak = color.new(#e0814b, 10)
+col = na(x) ? cNormal : x >= strongX ? cStrong : x < weakX ? cWeak : cNormal
+
+plot(volume, "Volume", style = plot.style_columns, color = col)
+plot(avg, "Average", color = color.new(#9aa3ad, 0), linewidth = 1)
+plot(avg * strongX, "Strong line", color = color.new(#26a69a, 40), linewidth = 1, style = plot.style_linebr)
+
+// the strongest candle of the last few: where the break usually happened
+float best = ta.highest(nz(x), look)
+word(float v) => na(v) ? "—" : v >= strongX ? "STRONG" : v < weakX ? "WEAK" : "NORMAL"
+wcol(float v) => na(v) ? color.gray : v >= strongX ? cStrong : v < weakX ? cWeak : cNormal
+sz = boxSize == "Small" ? size.small : boxSize == "Large" ? size.large : size.normal
+
+var table t = table.new(position.top_right, 2, 3, bgcolor = color.new(#111923, 10), frame_color = color.new(#334155, 0), frame_width = 1)
+if barstate.islast
+    table.cell(t, 0, 0, "Volume now", text_color = color.gray, text_size = sz, text_halign = text.align_left)
+    table.cell(t, 1, 0, word(x) + "  " + (na(x) ? "" : str.tostring(x, "#.#") + "× avg"), text_color = wcol(x), text_size = sz, text_halign = text.align_left)
+    table.cell(t, 0, 1, "Best of last " + str.tostring(look), text_color = color.gray, text_size = sz, text_halign = text.align_left)
+    table.cell(t, 1, 1, word(best) + "  " + str.tostring(best, "#.#") + "× avg", text_color = wcol(best), text_size = sz, text_halign = text.align_left)
+    table.cell(t, 0, 2, "Read", text_color = color.gray, text_size = sz, text_halign = text.align_left)
+    table.cell(t, 1, 2, best >= strongX ? "✓ the move had real volume" : best < weakX ? "⚠ thin volume — be picky, may be ranging" : "OK — average volume", text_color = wcol(best), text_size = sz, text_halign = text.align_left)
