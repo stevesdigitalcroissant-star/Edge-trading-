@@ -59,11 +59,11 @@ toHM = input.int(1100, "Orders until (New York, HHMM)", group = "Rules")
 showZone = input.bool(true, "Draw the 1H zone", group = "Chart")
 showZone4 = input.bool(false, "Draw the 4H zone", group = "Chart")
 showOlder = input.bool(false, "Draw an older 1H zone too", group = "Chart")
-showBos = input.bool(false, "Label 1H BOS / MSS", group = "Chart")
+showBos = input.bool(true, "Label 1H BOS / CHoCH", group = "Chart")
 showPanel = input.bool(true, "Trend panel (top right)", group = "Chart")
 showFill = input.bool(true, "Dotted 30% line inside the 1H zone", group = "Chart", tooltip = "Price usually fills about 30% of a fresh zone before it turns. A 5m MSS before that line: it may go deeper first (you could become the liquidity).")
 showTrade = input.bool(true, "Draw the latest setup: liquidity taken, MSS 5m, FVG and the entry", group = "Chart")
-showBoxes = input.bool(false, "Long / short boxes instead of the entry line + text", group = "Chart")
+showBoxes = input.bool(true, "Long / short boxes (stop and target) on every setup", group = "Chart")
 maxPast = input.float(1.0, "No setup if price pushed this far past the zone (× 1H average range); a small sweep is fine", step = 0.25, group = "Rules")
 onlyAPlus = input.bool(false, "Only send A+ setups (off = send all; Edge alerts A+ always and the others only when you need a trade for the 7-day rule)", group = "Rules", tooltip = "A+: price came into the zone fast, or trended hard before the break. Tested: 44–47% win vs 38% for all, ~7–8 a month.")
 minMove = input.float(1.0, "No trading in a range: price must have moved at least this × 1H average range in the last 2 hours", step = 0.25, group = "Rules")
@@ -262,6 +262,10 @@ var string pLow = ""
 var string pTgt = ""
 var string pHigh = ""
 var string pNote = ""
+var string pScore = ""
+var string pConf = ""
+var box mbTpBox = na
+var box mbSlBox = na
 var int pTime = na
 var label sMaxT = na
 // the high (demand) / low (supply) of the move that left the 1H zone — buy-side / sell-side liquidity, the highest target
@@ -299,6 +303,19 @@ if hDir != 0 and hId != legId
             legExt := hDir == 1 ? math.max(legExt, high[k]) : math.min(legExt, low[k])
 else if hDir != 0 and armId != hId and hId != usedId
     legExt := hDir == 1 ? math.max(legExt, high) : math.min(legExt, low)
+
+// zone score (tested Oct 19, 667 A+ trades 2019–Sep 2026): +1 mature (price back 11+ 1H candles after the break, 65% win),
+// +1 room (the 1H high / low the move came from ≥ 2R away), +1 narrow zone (≤ ¾ of the 1H average range),
+// −1 instant retest (back within 3 1H candles). Score −1 +0.17R/trade · 0 +0.12R · +1 +0.40R · +2 +0.85R.
+zoneAge() => na(bT1) ? 0 : math.floor((time - bT1) / (timeframe.in_seconds(htf) * 1000)) - 1
+zoneScore(float e, float r, int d) =>
+    int ag = zoneAge()
+    float room = na(legExt) or r <= 0 ? 0.0 : d * (legExt - e) / r
+    float zh = na(atr1h) or atr1h <= 0 ? 9.0 : (hTop - hBot) / atr1h
+    int sc = (ag > 10 ? 1 : 0) + (room >= 2 ? 1 : 0) + (zh <= 0.75 ? 1 : 0) - (ag <= 3 ? 1 : 0)
+    string why = (ag > 10 ? "mature zone, " : "") + (room >= 2 ? "room " + str.tostring(room, "#.#") + "R, " : "") + (zh <= 0.75 ? "narrow zone, " : "") + (ag <= 3 ? "instant retest, " : "")
+    [sc, why == "" ? "nothing extra" : str.substring(why, 0, str.length(why) - 2)]
+scoreTxt(int sc) => (sc > 0 ? "+" : "") + str.tostring(sc) + (sc >= 2 ? " ★★" : sc == 1 ? " ★" : "")
 
 nyH = hour(time_close, "America/New_York")
 nyM = minute(time_close, "America/New_York")
@@ -380,7 +397,7 @@ if showZone and barstate.islast
             array.push(wickBoxes, wickPart(nz(h2T, time - 300 * 300000), h2Dir == 1 ? h2Top : h2Bot, h2W, h2Dir == 1 ? #5aa9e6 : #f08a4b))
         z2Lab := label.new(rightX, h2Dir == 1 ? h2Top : h2Bot, z2Name, xloc = xloc.bar_time, style = label.style_label_left, color = h2Dir == 1 ? color.new(#5aa9e6, 40) : color.new(#f08a4b, 40), textcolor = color.white, size = size.small)
     if hDir != 0
-        string zName = htfName + (hDir == 1 ? " DEMAND zone " : " SUPPLY zone ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick)
+        string zName = htfName + (hDir == 1 ? " DEMAND zone " : " SUPPLY zone ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + (zoneAge() > 10 ? "  ★ mature" : "")
         zBox := box.new(nz(hZT, time - 150 * 300000), hTop, time, hBot, xloc = xloc.bar_time, extend = extend.right, border_color = hDir == 1 ? color.new(#5aa9e6, 30) : color.new(#f08a4b, 30), bgcolor = hDir == 1 ? color.new(#5aa9e6, 85) : color.new(#f08a4b, 85))
         if not na(hW)
             array.push(wickBoxes, wickPart(nz(hZT, time - 150 * 300000), hDir == 1 ? hTop : hBot, hW, hDir == 1 ? #5aa9e6 : #f08a4b))
@@ -402,7 +419,7 @@ if showBos and bId != lastBId and not na(bLvl) and not na(bT0)
     line ln = line.new(bT0, bLvl, bT1, bLvl, xloc = xloc.bar_time, color = bc, width = 2)
     // the line runs from the swing to the candle that broke it; the name sits at its middle, on the side
     // with no candles (above a break up, below a break down)
-    label lb = label.new(math.round((bT0 + bT1) / 2), bLvl, (bCh ? "MSS " : "BOS ") + htfName, xloc = xloc.bar_time, style = bDir == 1 ? label.style_label_down : label.style_label_up, color = color.new(#000000, 100), textcolor = bc, size = size.small)
+    label lb = label.new(math.round((bT0 + bT1) / 2), bLvl, (bCh ? "CHoCH " : "BOS ") + htfName, xloc = xloc.bar_time, style = bDir == 1 ? label.style_label_down : label.style_label_up, color = color.new(#000000, 100), textcolor = bc, size = size.small)
     if bCh
         line.delete(chL)
         label.delete(chT)
@@ -484,8 +501,11 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                         float mtp = me + d * tpR * mr
                         float mtpMax = na(legExt) ? mtp : me + d * math.max(tpR * mr, math.min(d * (legExt - me), maxR * mr))
                         float mrrMax = math.abs(mtpMax - me) / mr
+                        [mSc, mWhy] = zoneScore(me, mr, d)
                         float mfill = fillOf(ext)
                         box.delete(mbBox)
+                        box.delete(mbTpBox)
+                        box.delete(mbSlBox)
                         line.delete(mbEnt)
                         line.delete(mbStop)
                         label.delete(mbLab)
@@ -499,21 +519,26 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                         pTgt := "1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(mtp, format.mintick) + "  ✓"
                         pHigh := mrrMax > tpR + 0.25 ? "1:" + str.tostring(mrrMax, "#.#") + " → " + str.tostring(mtpMax, format.mintick) : "—"
                         pNote := (not na(mfill) and mfill < 0.3 ? "⚠ zone filled " + str.tostring(math.round(mfill * 100)) + "% (under 30%)  " : "") + volTxt
+                        pScore := scoreTxt(mSc) + "  (" + mWhy + ")"
+                        pConf := "Mitigation block (2nd entry)" + (mPlus ? " · A+" : "") + (t4 == d ? " · with 4H" : t4 == -d ? " · against 4H" : "") + (not na(mfill) and mfill >= 0.3 ? " · filled 30%+" : "") + (not na(volX) and volX >= 1.5 ? " · strong volume" : "")
                         pTime := time
                         if showTrade
                             mbBox := box.new(bar_index - kEnd, bTop, bar_index + 30, bBot, border_color = color.new(#777777, 20), bgcolor = color.new(#777777, 80), text = "MB", text_size = size.tiny, text_color = #555555, text_halign = text.align_left)
                             mbEnt := line.new(bar_index - kEnd, me, bar_index + 30, me, color = color.new(#8e44ad, 0), width = 2)
                             mbStop := line.new(bar_index, msl, bar_index + 30, msl, color = color.new(#ef5350, 0), style = line.style_dotted, width = 1)
                             mbMss := line.new(bar_index - kH, d == 1 ? high[kH] : low[kH], bar_index, d == 1 ? high[kH] : low[kH], color = color.new(#e0b000, 0), width = 2)
+                            if showBoxes
+                                mbTpBox := box.new(bar_index, d == 1 ? mtp : me, bar_index + 30, d == 1 ? me : mtp, border_color = color.new(#26a69a, 20), bgcolor = color.new(#26a69a, 85), text = "target " + str.tostring(mtp, format.mintick) + " (1:" + str.tostring(tpR, "#.#") + ")", text_size = size.small, text_color = #26a69a, text_halign = text.align_left, text_valign = d == 1 ? text.align_top : text.align_bottom)
+                                mbSlBox := box.new(bar_index, d == 1 ? me : msl, bar_index + 30, d == 1 ? msl : me, border_color = color.new(#ef5350, 20), bgcolor = color.new(#ef5350, 85), text = "limit " + str.tostring(me, format.mintick) + " · stop " + str.tostring(msl, format.mintick), text_size = size.small, text_color = #ef5350, text_halign = text.align_left, text_valign = d == 1 ? text.align_bottom : text.align_top)
                             mbTpL := line.new(bar_index, mtp, bar_index + 30, mtp, color = color.new(#26a69a, 0), style = line.style_dashed, width = 2)
                             mbTpT := label.new(bar_index, mtp, "TP 1:" + str.tostring(tpR, "#.#") + "  " + str.tostring(mtp, format.mintick), style = d == 1 ? label.style_label_lower_left : label.style_label_upper_left, color = color.new(#000000, 100), textcolor = #26a69a, size = size.normal)
                             mbTags := label.new(bar_index, msl, "SL " + str.tostring(msl, format.mintick), style = d == 1 ? label.style_label_upper_left : label.style_label_lower_left, color = color.new(#000000, 100), textcolor = #ef5350, size = size.normal)
                             if planWhere != "Panel"
                                 mbLab := label.new(bar_index + 30, me, (mPlus ? "A+ " : "") + (d == 1 ? "BUY" : "SELL") + " ENTRY " + str.tostring(me, format.mintick) + " (MB)\nstop " + str.tostring(msl, format.mintick) + (tpR > 2 ? "\nlowest 1:2 → " + str.tostring(me + d * 2 * mr, format.mintick) : "") + "\ntarget 1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(mtp, format.mintick) + "  ✓ default" + (mrrMax > tpR + 0.25 ? "\nhighest 1:" + str.tostring(mrrMax, "#.#") + " → " + str.tostring(mtpMax, format.mintick) + " (max 1:" + str.tostring(maxR, "#") + ")" : "") + (volTxt == "" ? "" : "\n" + volTxt), style = label.style_label_left, color = color.new(#000000, 100), textcolor = #8e44ad, size = size.normal, textalign = text.align_left)
                         string mside = d == 1 ? "long" : "short"
-                        string mtxt = (mPlus ? "A+ " : "") + syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(me, format.mintick) + " · SL " + str.tostring(msl, format.mintick) + " · TP " + str.tostring(mtp, format.mintick) + " (1:" + str.tostring(tpR, "#.#") + ", MITIGATION BLOCK) · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + (mrrMax > tpR + 0.25 ? " · highest target " + str.tostring(mtpMax, format.mintick) + " (" + str.tostring(mrrMax, "#.#") + "R)" : "") + (na(mfill) ? "" : " · " + fillTxt(mfill)) + (volTxt == "" ? "" : " · " + volTxt)
+                        string mtxt = (mPlus ? "A+ " : "") + syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(me, format.mintick) + " · SL " + str.tostring(msl, format.mintick) + " · TP " + str.tostring(mtp, format.mintick) + " (1:" + str.tostring(tpR, "#.#") + ", MITIGATION BLOCK) · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + (mrrMax > tpR + 0.25 ? " · highest target " + str.tostring(mtpMax, format.mintick) + " (" + str.tostring(mrrMax, "#.#") + "R)" : "") + (na(mfill) ? "" : " · " + fillTxt(mfill)) + (volTxt == "" ? "" : " · " + volTxt) + " · zone score " + scoreTxt(mSc) + " (" + mWhy + ")"
                         if alertMode == "Edge webhook"
-                            alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + mside + '","entry":' + str.tostring(me) + ',"sl":' + str.tostring(msl) + ',"tp":' + str.tostring(mtp) + ',"rr":' + str.tostring(tpR, "#.##") + ',"kind":"MB","aplus":' + (mPlus ? "true" : "false") + ',"vol":' + (na(volX) ? "null" : str.tostring(volX, "#.##")) + ',"zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(d == 1 ? high[kH] : low[kH]) + ',"liq":null,"liqR":null,"trend4h":' + str.tostring(t4) + ',"tpMax":' + str.tostring(mtpMax) + ',"rrMax":' + str.tostring(mrrMax, "#.##") + ',"fill":' + (na(mfill) ? "null" : str.tostring(mfill, "#.##")) + ',"validMin":240}', alert.freq_once_per_bar_close)
+                            alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + mside + '","entry":' + str.tostring(me) + ',"sl":' + str.tostring(msl) + ',"tp":' + str.tostring(mtp) + ',"rr":' + str.tostring(tpR, "#.##") + ',"kind":"MB","aplus":' + (mPlus ? "true" : "false") + ',"vol":' + (na(volX) ? "null" : str.tostring(volX, "#.##")) + ',"zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(d == 1 ? high[kH] : low[kH]) + ',"liq":null,"liqR":null,"trend4h":' + str.tostring(t4) + ',"tpMax":' + str.tostring(mtpMax) + ',"rrMax":' + str.tostring(mrrMax, "#.##") + ',"fill":' + (na(mfill) ? "null" : str.tostring(mfill, "#.##")) + ',"score":' + str.tostring(mSc) + ',"scoreWhy":"' + mWhy + '","validMin":240}', alert.freq_once_per_bar_close)
                         else
                             alert(mtxt, alert.freq_once_per_bar_close)
         if not na(swV) and (d == 1 ? close > swV : close < swV)
@@ -609,6 +634,7 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     // the highest target: the 1H high (buy) / low (sell) the move came from, at least the 1:tpR target, at most maxR
                     float tpMax = na(legExt) ? tp : e + d * math.max(tpR * r, math.min(d * (legExt - e), maxR * r))
                     float rrMax = math.abs(tpMax - e) / r
+                    [zSc, zWhy] = zoneScore(e, r, d)
                     // the 5m liquidity the leg took: the last 5m low (buy) / high (sell) before the extreme that it ran
                     int sweepI = na
                     float sweepV = na
@@ -656,6 +682,8 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     pTgt := "1:" + str.tostring(tpR, "#.#") + " → " + str.tostring(tp, format.mintick) + "  ✓"
                     pHigh := rrMax > tpR + 0.25 ? "1:" + str.tostring(rrMax, "#.#") + " → " + str.tostring(tpMax, format.mintick) : "—"
                     pNote := (not na(fill) and fill < 0.3 ? "⚠ zone filled " + str.tostring(math.round(fill * 100)) + "% (under 30%)  " : "") + volTxt
+                    pScore := scoreTxt(zSc) + "  (" + zWhy + ")"
+                    pConf := (kind == "breaker" ? "Breaker block" : kind == "mitigation" ? "Mitigation block" : kind) + (not na(fvgK) and kind != "breaker" ? " · FVG" : "") + (aPlus ? " · A+" : "") + (t4 == d ? " · with 4H" : t4 == -d ? " · against 4H" : "") + (not na(fill) and fill >= 0.3 ? " · filled 30%+" : "") + (not na(sweepI) ? " · liquidity taken" : "") + (not na(volX) and volX >= 1.5 ? " · strong volume" : "")
                     pTime := time
                     if showTrade
                         int x2 = bar_index + 30
@@ -692,20 +720,20 @@ if barstate.isconfirmed and hDir != 0 and hId != usedId
                     if showTrade and showTradeLabel
                         sLab := label.new(bar_index + 48, e, (d == 1 ? "BUY LIMIT " : "SELL LIMIT ") + str.tostring(e, format.mintick) + " (" + kind + ")\nafter MSS 5m at " + str.tostring(swV, format.mintick) + "\nSL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R)" + (na(liq) ? "" : "\n5m swing " + str.tostring(liq, format.mintick) + " (" + str.tostring(math.abs(liq - e) / r, "#.#") + "R)"), style = label.style_label_left, color = color.new(#111923, 0), textcolor = color.white, size = size.normal)
                     sMss := line.new(swI, swV, bar_index, swV, color = color.new(#e0b000, 0), width = 2)
-                    sMssT := label.new(swI, swV, "MSS 5m", style = d == 1 ? label.style_label_lower_left : label.style_label_upper_left, color = color.new(#000000, 100), textcolor = #e0b000, size = size.small)
+                    sMssT := label.new(swI, swV, "CHoCH 5m", style = d == 1 ? label.style_label_lower_left : label.style_label_upper_left, color = color.new(#000000, 100), textcolor = #e0b000, size = size.small)
                     string liqJ = na(liq) ? "null" : str.tostring(liq)
                     string liqRJ = na(liq) ? "null" : str.tostring(math.abs(liq - e) / r, "#.##")
                     string side4 = t4 == 0 ? "4H trend unclear" : t4 == d ? "with the 4H trend" : "AGAINST the 4H trend"
-                    string txt = (aPlus ? "A+ " : "") + syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(e, format.mintick) + " · SL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R, " + kind + ") · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + " · 5m MSS at " + str.tostring(swV, format.mintick) + " · " + side4 + (na(liq) ? "" : " · 5m swing at " + str.tostring(math.abs(liq - e) / r, "#.#") + "R") + (rrMax > tpR + 0.25 ? " · highest target " + str.tostring(tpMax, format.mintick) + " (" + str.tostring(rrMax, "#.#") + "R)" : "") + (na(fill) ? "" : " · " + fillTxt(fill)) + (volTxt == "" ? "" : " · " + volTxt)
+                    string txt = (aPlus ? "A+ " : "") + syminfo.ticker + " " + (d == 1 ? "BUY" : "SELL") + " limit " + str.tostring(e, format.mintick) + " · SL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (" + str.tostring(rr, "#.#") + "R, " + kind + ") · " + htfName + (d == 1 ? " demand " : " supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick) + " · 5m MSS at " + str.tostring(swV, format.mintick) + " · " + side4 + (na(liq) ? "" : " · 5m swing at " + str.tostring(math.abs(liq - e) / r, "#.#") + "R") + (rrMax > tpR + 0.25 ? " · highest target " + str.tostring(tpMax, format.mintick) + " (" + str.tostring(rrMax, "#.#") + "R)" : "") + (na(fill) ? "" : " · " + fillTxt(fill)) + (volTxt == "" ? "" : " · " + volTxt) + " · zone score " + scoreTxt(zSc) + " (" + zWhy + ")"
                     if alertMode == "Edge webhook"
-                        alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + side + '","entry":' + str.tostring(e) + ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) + ',"rr":' + str.tostring(rr, "#.##") + ',"kind":"' + kind + '","aplus":' + (aPlus ? "true" : "false") + ',"vol":' + (na(volX) ? "null" : str.tostring(volX, "#.##")) + ',"zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(swV) + ',"liq":' + liqJ + ',"liqR":' + liqRJ + ',"trend4h":' + str.tostring(t4) + ',"tpMax":' + str.tostring(tpMax) + ',"rrMax":' + str.tostring(rrMax, "#.##") + ',"fill":' + (na(fill) ? "null" : str.tostring(fill, "#.##")) + ',"validMin":240}', alert.freq_once_per_bar_close)
+                        alert('{"secret":"' + secret + '","type":"setup","strategy":"sd","symbol":"' + syminfo.ticker + '","tv":"' + syminfo.tickerid + '","dir":"' + side + '","entry":' + str.tostring(e) + ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) + ',"rr":' + str.tostring(rr, "#.##") + ',"kind":"' + kind + '","aplus":' + (aPlus ? "true" : "false") + ',"vol":' + (na(volX) ? "null" : str.tostring(volX, "#.##")) + ',"zoneTop":' + str.tostring(hTop) + ',"zoneBot":' + str.tostring(hBot) + ',"mss":' + str.tostring(swV) + ',"liq":' + liqJ + ',"liqR":' + liqRJ + ',"trend4h":' + str.tostring(t4) + ',"tpMax":' + str.tostring(tpMax) + ',"rrMax":' + str.tostring(rrMax, "#.##") + ',"fill":' + (na(fill) ? "null" : str.tostring(fill, "#.##")) + ',"score":' + str.tostring(zSc) + ',"scoreWhy":"' + zWhy + '","validMin":240}', alert.freq_once_per_bar_close)
                     else
                         alert(txt, alert.freq_once_per_bar_close)
 
 // ---------- the panel, top right: 4H trend, 1H trend, the zone and what Edge is waiting for
 tc(v) => v == 1 ? color.new(#4ade80, 0) : v == -1 ? color.new(#f87171, 0) : color.gray
 tt(v) => v == 1 ? "▲ Bullish" : v == -1 ? "▼ Bearish" : "— none yet"
-var table panel = table.new(panelPos == "Top right" ? position.top_right : panelPos == "Bottom right" ? position.bottom_right : panelPos == "Bottom left" ? position.bottom_left : position.top_left, 2, 13, bgcolor = color.new(#111923, 10), border_width = 0, frame_color = color.new(#334155, 0), frame_width = 1)
+var table panel = table.new(panelPos == "Top right" ? position.top_right : panelPos == "Bottom right" ? position.bottom_right : panelPos == "Bottom left" ? position.bottom_left : position.top_left, 2, 16, bgcolor = color.new(#111923, 10), border_width = 0, frame_color = color.new(#334155, 0), frame_width = 1)
 if showPanel and barstate.islast
     pS = panelSize == "Small" ? size.small : panelSize == "Large" ? size.large : size.normal
     string zTxt = hDir == 0 ? "no valid zone" : (hDir == 1 ? "Demand " : "Supply ") + str.tostring(hBot, format.mintick) + "–" + str.tostring(hTop, format.mintick)
@@ -738,6 +766,10 @@ if showPanel and barstate.islast
         table.cell(panel, 1, 9, pTgt, text_color = color.new(#4ade80, 0), text_size = pS, text_halign = text.align_left)
         table.cell(panel, 0, 10, "Highest", text_color = color.gray, text_size = pS, text_halign = text.align_left)
         table.cell(panel, 1, 10, pHigh, text_color = color.new(#4ade80, 30), text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 0, 12, "Score", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 1, 12, pScore, text_color = str.startswith(pScore, "+2") or str.startswith(pScore, "+3") ? color.new(#4ade80, 0) : str.startswith(pScore, "+1") ? color.new(#a3e635, 0) : color.gray, text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 0, 13, "With", text_color = color.gray, text_size = pS, text_halign = text.align_left)
+        table.cell(panel, 1, 13, pConf, text_color = color.white, text_size = pS, text_halign = text.align_left)
         if pNote != ""
             table.cell(panel, 0, 11, "Note", text_color = color.gray, text_size = pS, text_halign = text.align_left)
             table.cell(panel, 1, 11, pNote, text_color = color.new(#f0c94b, 0), text_size = pS, text_halign = text.align_left)

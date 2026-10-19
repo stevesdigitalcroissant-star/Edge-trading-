@@ -27,3 +27,10 @@ test("pasting an alert makes a takeable setup once (pasting it again finds the s
   const again = await core.action(store, broker, { action: "pasteAlert", text: FVG }, now + 60e3);
   assert.equal(again.existing, true); assert.equal(again.setupId, r.setupId);
 });
+
+test("plain-text alert: the zone score is read", () => {
+  const { parseAlert } = require("../api/_alerttext");
+  const m = parseAlert("A+ MNQ1! BUY limit 29187.50 · SL 29159.00 · TP 29273.00 (3.0R, FVG) · 1H demand 29132.75–29200.75 · 5m MSS at 29187.50 · with the 4H trend · zone score +2 ★★ (mature zone, room 3.4R)");
+  require("node:assert/strict").equal(m.score, 2);
+  require("node:assert/strict").equal(m.scoreWhy, "mature zone, room 3.4R");
+});

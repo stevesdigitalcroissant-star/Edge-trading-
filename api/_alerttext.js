@@ -24,13 +24,14 @@ function parseAlert(text) {
   const fill = /zone filled (\d+)%/.exec(t), past = /wicked past the zone's far edge/.test(t);
   const vol = new RegExp(`volume ${NUM}× average`).exec(t);
   const swing = new RegExp(`5m swing at ${NUM}R`).exec(t);
+  const zs = /zone score ([+-]?\d)[^(]*(?:\(([^)]*)\))?/.exec(t);
   const kind = /MITIGATION BLOCK/i.test(kindTxt) ? "MB" : /breaker/i.test(kindTxt) ? "breaker" : /FVG/i.test(kindTxt) ? "FVG" : kindTxt.trim().slice(0, 20);
   return {
     type: "setup", strategy: "sd", symbol, dir, entry, sl: stop, tp: target, rr: r > 0 ? +(Math.abs(target - entry) / r).toFixed(2) : n(rrTxt),
     kind, zoneBot: zone ? Math.min(n(zone[1]), n(zone[2])) : null, zoneTop: zone ? Math.max(n(zone[1]), n(zone[2])) : null, mss: mss ? n(mss[1]) : null,
     trend4h: /with the 4H trend/.test(t) ? k : /AGAINST the 4H trend/.test(t) ? -k : 0,
     tpMax: hi ? n(hi[1]) : null, rrMax: hi ? n(hi[2]) : null, fill: past ? 1.2 : fill ? n(fill[1]) / 100 : null, vol: vol ? n(vol[1]) : null,
-    liqR: swing ? n(swing[1]) : null, liq: swing && r > 0 ? +(entry + k * n(swing[1]) * r).toFixed(6) : null, aplus: !!aplus, validMin: 240,
+    liqR: swing ? n(swing[1]) : null, liq: swing && r > 0 ? +(entry + k * n(swing[1]) * r).toFixed(6) : null, aplus: !!aplus, score: zs ? Number(zs[1]) : null, scoreWhy: zs && zs[2] ? zs[2] : null, validMin: 240,
   };
 }
 
