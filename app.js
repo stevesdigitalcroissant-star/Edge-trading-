@@ -327,7 +327,7 @@
   function planCard() {
     const P = PB(); if (!P) return "";
     const s = S.settings;
-    if (!PL.open) return `<section class="card plan" data-tour="plan" id="planCard"><div class="plan-intro"><div><h2>🧭 Plan a trade</h2><p class="muted">Edge walks you through your strategy, step by step — and only lets the trade through when every step is there.</p></div><button class="btn primary" data-pl="open">Start</button></div></section>`;
+    if (!PL.open) return `<section id="planCard" hidden></section>`; // opened from the "Plan a trade" tile
     const done = P.required.filter((x) => PL.checks.includes(x)).length, all = P.required.length;
     const c = planCalc(), routed = sendsOrders();
     const rrCls = c.rr == null ? "" : c.rr < s.minR - 0.005 || c.rr > s.maxR + 0.005 ? "bad" : "good";
@@ -416,7 +416,7 @@
   const bar = (pct, c) => `<div class="pbar ${c || ""}"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div>`;
   function propCard() {
     const P = S.prop;
-    if (!P || !P.cfg || !P.cfg.enabled) return `<section class="card slim prop-intro" data-tour="prop"><div class="row between"><div><b>🏁 Passing a prop firm?</b><p class="muted" style="margin:4px 0 0">Tradeify, Phidias, MyFundedFutures or Lucid — Edge tracks your drawdown, sizes every trade so one bad day can't end it, and shows your real odds of passing.</p></div><button class="btn small primary" data-propset>Set up</button></div></section>`;
+    if (!P || !P.cfg || !P.cfg.enabled) return ""; // set up from the "Prop account" tile
     const c = P.cfg, a = P.acct, au = P.auto, f = FIRMS()[c.firm], plan = f && f.plans[c.plan];
     if (!a) return "";
     const ST = { on: ["On track", "good"], almost: ["Target hit — keep the rules", "warn"], passed: ["Passed 🎉", "good"], "day-locked": ["Done for today", "warn"], failed: ["Drawdown hit", "bad"] }[a.status] || ["", ""];
@@ -649,11 +649,11 @@
     const push = !!pushSub || (S.push && S.push.devices.length > 0);
     let hide = false; try { hide = localStorage.getItem("edge.setupDone") === "1"; } catch {}
     if (hide || (prop && radar.length >= 14 && push)) return "";
-    const row = (ok, n, title, text, btn) => `<div class="su-row ${ok ? "ok" : ""}"><i>${ok ? "✓" : n}</i><div><b>${title}</b><p class="muted">${text}</p></div>${ok ? "" : btn}</div>`;
+    const row = (ok, n, title, text, btn, ic) => `<div class="su-row ${ok ? "ok" : ""}">${!ok && ic && window.EdgeArt ? window.EdgeArt.icon(ic) : `<i>${ok ? "✓" : n}</i>`}<div><b>${title}</b><p class="muted">${text}</p></div>${ok ? "" : btn}</div>`;
     return `<section class="card setup-steps" data-tour="getset"><div class="card-head"><h2>🚀 Get set up</h2><button type="button" class="link" data-suhide>Hide</button></div>
-      ${row(prop, 1, "Your prop account", prop ? "The autopilot sizes every trade." : "Pick your firm and plan, type where the account stands — Edge does the rest.", `<button class="btn small primary" data-propset>Set up</button>`)}
-      ${row(radar.length >= 14, 2, `S&D scanner in TradingView${radar.length ? ` · ${radar.length}/14 markets` : ""}`, radar.length ? `Watching: ${radar.map(mname).join(", ")}.` : "On a computer: copy the script, add it to a 5-minute chart, create one alert per market (paid TradingView plan).", `<button class="btn small" data-copypine="edge_sd_scanner">Copy script</button>`)}
-      ${row(push, 3, "Notifications on this phone", push ? "Setups, fills and your game plan reach you anywhere." : "So the radar can reach you when the app is closed.", pushCapable && Notification.permission !== "denied" ? `<button class="btn small" data-pushon>Turn on</button>` : "")}
+      ${row(prop, 1, "Your prop account", prop ? "The autopilot sizes every trade." : "Pick your firm.", `<button class="btn small primary" data-propset>Set up</button>`, "prop")}
+      ${row(radar.length >= 14, 2, `S&D scanner in TradingView${radar.length ? ` · ${radar.length}/14 markets` : ""}`, radar.length ? `Watching: ${radar.map(mname).join(", ")}.` : "Copy it into TradingView on a computer.", `<button class="btn small" data-copypine="edge_sd_scanner">Copy script</button>`, "paste")}
+      ${row(push, 3, "Notifications on this phone", push ? "Setups, fills and your game plan reach you anywhere." : "Setups reach you anywhere.", pushCapable && Notification.permission !== "denied" ? `<button class="btn small" data-pushon>Turn on</button>` : "", "push")}
       ${!radar.length ? `<details class="su-how"><summary>How to add the scanner alerts</summary><ol class="steps"><li>Tap <b>Copy script</b> (your secret is inside), open TradingView on a computer.</li><li>Pine Editor → select all, delete, paste → <b>Save</b> → <b>Add to chart</b> on a <b>5-minute</b> chart of <code>MGC1!</code>.</li><li>Alert (⏰) → Condition: <b>Edge S&amp;D</b> → <b>Any alert() function call</b> → Notifications → <b>Webhook URL</b>: <code>${esc(location.origin)}/api/hook</code> → Create.</li><li>Switch the chart to each of <code>${SD_TV.slice(1).join(" ")}</code> and create the same alert — 14 in all (crude is off).</li></ol></details>` : ""}
     </section>`;
   }
@@ -667,10 +667,11 @@
       : live.length ? ["Setup ready", "var(--accent)", `${live.length} setup${live.length > 1 ? "s" : ""} waiting for your OK.`, `Check it below — it's only valid for ${Math.max(1, Math.round((Math.min(...live.map((x) => x.expires || S.now + s.setupExpiryMin * 60e3)) - S.now) / 60e3))} more minutes.`]
       : inTrade ? ["In a trade", "var(--info)", "Hands off. The plan manages it.", S.open.map((t) => `${esc(mname(t.market))}: ${t.lockR != null ? `lock in +${t.lockR}R at +${t.beR}R, then trail · ` : ""}target ${t.tpR ? `${t.tpR}R` : fx(t.tp)}`).join("<br>")]
       : (S.orders || []).length ? ["Order waiting", "var(--info)", "Your limit is in. Let price come to you.", "No chasing — if it runs to the target without you, it's cancelled."]
-      : ses.open ? ["Session open", "var(--good)", `${ses.name} session — look for your setup.`, "Big picture → 15m zone → 5m / 1m change of character. No setup, no trade."]
-      : ["Ready", "var(--good)", "Market's quiet for you.", `London opens in ${Math.floor(ses.inMin / 60)}h ${String(ses.inMin % 60).padStart(2, "0")}m. Practise in Coach meanwhile.`];
+      : ses.open ? ["Session open", "var(--good)", `${ses.name} session — look for your setup.`, "No setup, no trade."]
+      : ["Ready", "var(--good)", "Market's quiet for you.", `London opens in ${Math.floor(ses.inMin / 60)}h ${String(ses.inMin % 60).padStart(2, "0")}m.`];
+    const art = !window.EdgeArt ? "" : window.EdgeArt.scene(!g.ok ? "locked" : live.length ? "setup" : inTrade ? "trade" : (S.orders || []).length ? "order" : ses.open ? "session" : "quiet");
     const share = S.share.share, C = 2 * Math.PI * 40;
-    const hero = `<section class="card hero" data-tour="hero" style="--state:${stateColor}">
+    const hero = `<section class="card hero ${art ? "with3d" : ""}" data-tour="hero" style="--state:${stateColor}">${art}
       <div><div class="state"><span class="dot ${g.ok ? "live" : ""}"></span>${stateTxt}</div>
         <div class="headline">${headline}</div><p class="sub">${sub}</p></div>
       <div class="ring" data-tour="ring" title="Planned trades out of your last ${S.share.taken || 0}">
@@ -684,7 +685,6 @@
       <div><small>Loss limit</small><b>−${s.maxDailyLossR}R</b><em>stop for the day</em></div>
     </div>`;
     const ps = pushStatus();
-    const pushNudge = ps.on ? "" : `<section class="card slim push-nudge" data-tour="push"><div class="row between"><div><b>🔔 Notifications on this ${isIOS ? "iPhone" : "device"}</b><p class="muted" style="margin:4px 0 0">${ps.ios ? esc(ps.text) : pushCapable && Notification.permission !== "denied" ? "Setups, fills, \"lock in profit now\" — straight to your lock screen. Tap Turn on, then Allow." : esc(ps.text)}</p></div>${pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on</button>` : ""}</div></section>`;
     const ce = S.closeOut || {}, n = S.open.length;
     const ceBanner = n && (ce.warn || ce.due) ? `<div class="banner bad">⏰ ${ce.due ? `Close-out time (${esc(s.flatBy)}) — get out now.` : `${ce.minutesLeft} min to the close-out (${esc(s.flatBy)}).`}
         <p>You're in ${n} trade${n > 1 ? "s" : ""}. Your prop firm closes you if you don't.</p>
@@ -697,10 +697,19 @@
     const news = nextNews.length ? `<section class="card slim" data-tour="news"><div class="card-head"><h2>📰 Big news</h2><span class="muted">no trades ${s.newsBeforeMin} min either side</span></div><div class="news">${nextNews.map((e) => { const liveN = S.now >= e.time - s.newsBeforeMin * 60e3 && S.now <= e.time + s.newsAfterMin * 60e3; return `<div class="ev ${liveN ? "live" : ""}"><span class="num">${day(e.time).split(",")[0]} ${time(e.time)}</span><span>${esc(e.title)}<br><small class="muted">${e.markets.map(mname).join(" · ")}</small></span><span class="pill ${liveN ? "bad" : "warn"}">${liveN ? "NO TRADES" : e.impact}</span></div>`; }).join("")}</div></section>` : "";
     const alerts = `<details class="card slim" data-tour="log" data-keep="alerts"><summary><b>Alerts</b> <span class="muted">${S.log.length ? `· last ${time(S.log[0].at)}` : ""}</span></summary><div class="log" style="margin-top:8px">${S.log.slice(0, 15).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></details>`;
     const gp = S.gameplan && S.now - S.gameplan.at < 10 * 3600e3 ? `<section class="card slim gameplan" data-tour="gameplan"><div class="row between"><b>${esc(S.gameplan.title)}</b><small class="muted">${time(S.gameplan.at)}</small></div>${S.gameplan.lines.map((l) => `<p>${esc(l)}</p>`).join("")}</section>` : "";
-    const paste = `<section class="card slim"><div class="row between"><div><b>📋 Got an alert in the TradingView app?</b><p class="muted" style="margin:4px 0 0">Paste it (or a screenshot of it) — Edge turns it into the setup card: check, confirm, and the order goes to Tradovate.</p></div><button class="btn small primary" data-paste>Paste alert</button></div></section>`;
-    const shot = `<section class="card slim"><div class="row between"><div><b>📸 Took a trade?</b><p class="muted" style="margin:4px 0 0">Upload a screenshot of it — Edge reads the numbers, asks for anything it can't see, and 2 hours later asks you if it won or lost.</p></div><button class="btn small primary" data-shot>Upload</button></div></section>`;
-    const coachBtn = `<section class="card slim"><div class="row between"><div><b>🎙️ Live coach</b><p class="muted" style="margin:4px 0 0">On your computer: share your TradingView window — Edge watches your chart and tells you out loud what to do, by your rules.</p></div><button class="btn small primary" data-gowatch>Open</button></div></section>`;
-    return `${ceBanner}${pend}${getSetCard()}${hero}${gp}${setups}${paste}${shot}${coachBtn}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${pushNudge}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
+    // the things you can do, as pictures: tap one
+    const ART = window.EdgeArt, tile = (ic, title, hint, attr, tour = "") => `<button type="button" class="tile" ${attr} ${tour ? `data-tour="${tour}"` : ""}>${ART ? ART.icon(ic) : ""}<b>${title}</b><small>${hint}</small></button>`;
+    const pushOk = pushCapable && Notification.permission !== "denied";
+    const getSet = getSetCard(), setupShown = !!getSet; // while "Get set up" shows, the prop + alerts steps live there
+    const tiles = `<section class="tiles" data-tour="tiles">
+      ${tile("paste", "Paste alert", "from TradingView", "data-paste")}
+      ${tile("shot", "Log a trade", "upload a screenshot", "data-shot")}
+      ${PL.open ? "" : tile("plan", "Plan a trade", "step by step", "data-plopen", "plan")}
+      ${tile("coach", "Live coach", "talks you through it", "data-gowatch")}
+      ${setupShown || (S.prop && S.prop.cfg && S.prop.cfg.enabled) ? "" : tile("prop", "Prop account", "pass it safely", "data-propset", "prop")}
+      ${setupShown || ps.on ? "" : tile("push", "Alerts on", pushOk ? "to this phone" : "how to turn on", pushOk ? "data-pushon" : `data-pushhelp="${esc(ps.text)}"`, "push")}
+    </section>`;
+    return `${ceBanner}${pend}${getSet}${hero}${gp}${setups}${tiles}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -1408,6 +1417,8 @@
     v.querySelectorAll("[data-suhide]").forEach((b) => b.addEventListener("click", () => { try { localStorage.setItem("edge.setupDone", "1"); } catch {} render(); }));
     v.querySelectorAll("[data-propset]").forEach((b) => b.addEventListener("click", propDialog));
     v.querySelectorAll("[data-paste]").forEach((b) => b.addEventListener("click", pasteDialog));
+    v.querySelectorAll("[data-plopen]").forEach((b) => b.addEventListener("click", async () => { b.remove(); await planAct("open"); const c = $("#planCard"); if (c) c.scrollIntoView({ behavior: "smooth", block: "start" }); }));
+    v.querySelectorAll("[data-pushhelp]").forEach((b) => b.addEventListener("click", () => toast(b.dataset.pushhelp, 9000)));
     v.querySelectorAll("[data-shot]").forEach((b) => b.addEventListener("click", shotDialog));
     v.querySelectorAll("[data-gofunded]").forEach((b) => b.addEventListener("click", fundedDialog));
     v.querySelectorAll("[data-gowatch]").forEach((b) => b.addEventListener("click", () => { tab = "watch"; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#watch"); render(); scrollTo(0, 0); }));

@@ -6,9 +6,6 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const MKTS = [["nq", "NQ", "MNQ1!", "CME_MINI"], ["es", "ES", "MES1!", "CME_MINI"], ["ym", "YM", "MYM1!", "CBOT_MINI"], ["gold", "Gold", "MGC1!", "COMEX"], ["silver", "Silver", "SIL1!", "COMEX"], ["crude", "Crude", "MCL1!", "NYMEX"], ["copper", "Copper", "MHG1!", "COMEX"], ["natgas", "Gas", "MNG1!", "NYMEX"], ["rty", "Russell", "M2K1!", "CME_MINI"], ["6e", "Euro", "6E1!", "CME"], ["6b", "Pound", "6B1!", "CME"], ["6j", "Yen", "6J1!", "CME"], ["6a", "Aussie", "6A1!", "CME"], ["zn", "10Y", "ZN1!", "CBOT"], ["zb", "30Y", "ZB1!", "CBOT"]];
   const TFS = [[5, "5m"], [15, "15m"], [60, "1H"], [240, "4H"]];
-  // TradingView charts: the futures contract, or a CFD that follows it (embedded charts may not show CME futures)
-  const TV_INT = [["15", "15m"], ["60", "1H"], ["240", "4H"], ["D", "D"]];
-  const CFD = { gold: "OANDA:XAUUSD", silver: "OANDA:XAGUSD", crude: "TVC:USOIL", natgas: "CAPITALCOM:NATURALGAS", es: "OANDA:SPX500USD", nq: "OANDA:NAS100USD", ym: "OANDA:US30USD", copper: "CAPITALCOM:COPPER" };
   const pref = (k, d) => { try { return localStorage.getItem(`edge.home.${k}`) || d; } catch { return d; } };
   const save = (k, v) => { try { localStorage.setItem(`edge.home.${k}`, v); } catch {} };
   const nyFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", minute: "numeric", hourCycle: "h23" });
@@ -25,17 +22,8 @@
       <div class="hm-trend" id="hmTrend"></div>
       <div class="hm-chart" id="hmChart"><div class="hm-ov" id="hmOv"></div><div class="hm-msg" id="hmMsg">Loading prices…</div></div>
       <div class="hm-foot"><span id="hmNote" class="muted"></span><span class="hm-act"><button type="button" class="link" id="hmPractice">Practise this market</button><a class="link" id="hmTv" target="_blank" rel="noopener">TradingView ↗</a></span></div>
-      <section class="hm-tvp" id="hmTvp"><div class="hm-tvbar"><b>TradingView</b><span class="seg" id="hmTvLay"><button type="button" data-tvlay="row">Side by side</button><button type="button" data-tvlay="col">Stacked</button></span><span class="seg" id="hmTvFeed"><button type="button" data-tvfeed="fut" title="The futures contract itself">Futures</button><button type="button" data-tvfeed="cfd" title="Use this if a chart says the symbol is only available on TradingView">CFD</button></span></div>
-        <div class="hm-tvgrid" id="hmTvGrid">
-          <div class="hm-tvc"><div class="hm-tvh"><b>Line</b> <span class="muted">zones</span><span class="seg" data-tvint="line">${TV_INT.map(([v, l]) => `<button type="button" data-v="${v}">${l}</button>`).join("")}</span></div><iframe id="hmTvLine" title="TradingView line chart" loading="lazy" allowfullscreen></iframe></div>
-          <div class="hm-tvc"><div class="hm-tvh"><b>Candles</b> <span class="muted">entries</span><span class="seg" data-tvint="candle">${TV_INT.map(([v, l]) => `<button type="button" data-v="${v}">${l}</button>`).join("")}</span></div><iframe id="hmTvCandle" title="TradingView candle chart" loading="lazy" allowfullscreen></iframe></div>
-        </div>
-        <p class="muted hm-tvnote">Live TradingView charts. Draw your zones on the line chart (the drawing tools are on the left). TradingView doesn't keep drawings made in an embedded chart, so draw the ones you want to keep in TradingView itself.</p></section>
       <details class="hm-board" id="hmBoard"><summary>Trend board · every market</summary><div id="hmBoardBody" class="muted">Loading…</div></details>`;
     el.addEventListener("click", (e) => {
-      const ly = e.target.closest("[data-tvlay]"); if (ly) { save("tvlay", ly.dataset.tvlay); tvPair(); return; }
-      const fd = e.target.closest("[data-tvfeed]"); if (fd) { save("tvfeed", fd.dataset.tvfeed); tvPair(); return; }
-      const iv = e.target.closest("[data-tvint] [data-v]"); if (iv) { save(`tv_${iv.parentElement.dataset.tvint}`, iv.dataset.v); tvPair(); return; }
       const b = e.target.closest("[data-hm]"); if (b) { H.m = b.dataset.hm; save("m", H.m); H.fit = true; draw(); load(); return; }
       const t = e.target.closest("[data-tf]"); if (t) { H.tf = Number(t.dataset.tf); save("tf", H.tf); H.fit = true; draw(); return; }
     });
@@ -122,7 +110,6 @@
     $("#hmTf").querySelectorAll("[data-tf]").forEach((b) => b.classList.toggle("on", Number(b.dataset.tf) === H.tf));
     const mk = MKTS.find((x) => x[0] === H.m) || MKTS[3];
     $("#hmTv").href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(`${mk[3]}:${mk[2]}`)}`;
-    tvPair();
     const raw = H.bars[H.m], msg = $("#hmMsg");
     if (!raw || !raw.length) { msg.hidden = false; msg.textContent = H.err ? `Couldn't load prices: ${H.err}` : "Loading prices…"; if (H.series) H.series.setData([]); overlay(); return; }
     msg.hidden = true;
@@ -185,24 +172,6 @@
       out += `<span class="hm-zl" style="left:${l + w / 2 - 20}px;top:${b.d > 0 ? y - 13 : y + 2}px;color:rgb(${c})">${b.mss ? "MSS" : "BOS"} 1H</span>`;
     }
     ov.innerHTML = out;
-  }
-
-  // two TradingView charts of the same market: a LINE chart (closes — where you draw zones) and CANDLES (entries)
-  function tvPair() {
-    const grid = $("#hmTvGrid"); if (!grid || !H.m) return;
-    const mk = MKTS.find((x) => x[0] === H.m) || MKTS[3], feed = pref("tvfeed", "fut"), lay = pref("tvlay", innerWidth >= 900 ? "row" : "col");
-    const sym = feed === "cfd" && CFD[H.m] ? CFD[H.m] : `${mk[3]}:${mk[2]}`;
-    const dark = (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")) !== "light";
-    grid.className = `hm-tvgrid ${lay}`;
-    $("#hmTvLay").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.tvlay === lay));
-    $("#hmTvFeed").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.tvfeed === feed));
-    for (const [id, kind, style, def] of [["hmTvLine", "line", 2, "240"], ["hmTvCandle", "candle", 1, "15"]]) {
-      const iv = pref(`tv_${kind}`, def);
-      grid.querySelector(`[data-tvint="${kind}"]`).querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === iv));
-      const q = new URLSearchParams({ frameElementId: id, symbol: sym, interval: iv, style: String(style), theme: dark ? "dark" : "light", timezone: "America/New_York", hide_side_toolbar: "0", allow_symbol_change: "1", withdateranges: "1", saveimage: "0", hideideas: "1", locale: "en" });
-      const src = `https://s.tradingview.com/widgetembed/?${q}`, f = $(`#${id}`);
-      if (f && f.dataset.src !== src) { f.dataset.src = src; f.src = src; }
-    }
   }
 
   // the trend board: 4H + 15m on every busy futures market, one line each (refreshed every 5 minutes)
