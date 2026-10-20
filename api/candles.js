@@ -67,7 +67,12 @@ module.exports = async (req, res) => {
       const store = require("./_store").getStore();
       const dt = String(process.env.EDGE_DATA_TOKEN || "").trim(), given = String(req.headers["x-edge-data"] || "").trim(); // a stray space or line break from copy-paste doesn't count
       const okToken = dt && given && require("crypto").timingSafeEqual(require("crypto").createHash("sha256").update(String(given)).digest(), require("crypto").createHash("sha256").update(dt).digest());
-      if (!okToken && !(await require("./_auth").authorized(store, req.headers))) return res.status(401).json({ error: "Sign in to Edge to load these prices." });
+      if (!okToken && !(await require("./_auth").authorized(store, req.headers))) {
+        // the downloader sent a key that doesn't match: say how they differ (length + a 6-letter fingerprint — never the key)
+        const fp = (v) => require("crypto").createHash("sha256").update(v).digest("hex").slice(0, 6);
+        const why = given ? ` The key sent is ${given.length} characters (fingerprint ${fp(given)}); Edge's EDGE_DATA_TOKEN is ${dt ? `${dt.length} characters (fingerprint ${fp(dt)})` : "not set on this deployment"}.` : "";
+        return res.status(401).json({ error: "Sign in to Edge to load these prices." + why });
+      }
     }
     // ?src=db&cost=1&markets=gold,silver&from=2019-01&to=2026-09 — Databento's price for those months (nothing is bought)
     if (url.searchParams.get("src") === "db" && url.searchParams.get("cost")) {
