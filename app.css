@@ -1140,3 +1140,15 @@ body.home-on main#view { padding-top: 14px; }
 .dr-days b { font-size: 12px; color: var(--muted); } .dr-days .good { color: var(--good); font-weight: 700; } .dr-days .bad { color: var(--bad); font-weight: 700; }
 .dr-real { font-size: 12.5px; text-align: center; margin: 0 0 4px; }
 .dr-btns button:disabled { opacity: .35; box-shadow: none; }
+
+/* ---------- a native-app frame: the menu docked to the bottom edge, the header to the top, no bouncing or zooming ---------- */
+html, body { overscroll-behavior: none; }
+body { touch-action: manipulation; }
+.top { background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom: 1px solid var(--line); }
+@media (max-width: 1279px) {
+  .tabs { left: 0; right: 0; bottom: 0; transform: none; width: auto; border-radius: 0; border: 0; border-top: 1px solid var(--line2);
+    padding: 6px max(8px, calc((100vw - 560px) / 2)) calc(6px + env(safe-area-inset-bottom)); background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none;
+    box-shadow: 0 -10px 30px -16px rgba(0, 0, 0, .6); }
+  .tabs button.on::before { top: -6px; }
+  main { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+}
