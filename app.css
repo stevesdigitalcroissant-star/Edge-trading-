@@ -1129,3 +1129,14 @@ body.home-on main#view { padding-top: 14px; }
 .fm { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 4px 10px; border-radius: 14px; background: var(--panel2); border: 1px solid var(--line); text-align: center; }
 .fm .e3d { font-size: 28px; } .fm b { font: 600 14px/1.15 var(--display); } .fm small { color: var(--muted); font-size: 11px; line-height: 1.25; }
 .fm-note { margin: 10px 0 0; font-size: 12.5px; }
+.dr-modes .seg.three { grid-template-columns: repeat(3, 1fr); }
+.dr-modes .seg.three button { font-size: 12.5px; padding: 10px 2px; }
+.dr-card .warn { color: var(--warn); }
+.dr-day { margin: -2px 0 10px; padding: 8px 10px; border-radius: 12px; background: var(--panel2); font-size: 12.5px; color: var(--muted); }
+.dr-day b { color: var(--text); }
+.dr-quiet { text-align: center; } .dr-emoji { font-size: 54px; margin: 10px 0 4px; animation: float3 4.5s ease-in-out infinite; display: inline-block; }
+.dr-days { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 6px 0 10px; }
+.dr-days > div { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 2px; border-radius: 12px; background: var(--panel2); font-size: 12.5px; }
+.dr-days b { font-size: 12px; color: var(--muted); } .dr-days .good { color: var(--good); font-weight: 700; } .dr-days .bad { color: var(--bad); font-weight: 700; }
+.dr-real { font-size: 12.5px; text-align: center; margin: 0 0 4px; }
+.dr-btns button:disabled { opacity: .35; box-shadow: none; }
