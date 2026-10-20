@@ -998,3 +998,10 @@ body.home-on main#view { padding-top: 14px; }
 .sd-judge { display: grid; gap: 6px; margin: 4px 0 10px; }
 .sd-judge label { display: flex; gap: 8px; align-items: center; font-size: 13.5px; }
 .sd-judge input { width: auto; }
+/* TAKE / SKIP verdict on a scanner setup: the plan's answer in one line */
+.verdict { display: grid; gap: 2px; margin: 10px 0 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid; }
+.verdict b { font-size: 18px; letter-spacing: .02em; }
+.verdict span { font-size: 13.5px; opacity: .9; }
+.verdict.go { border-color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+.verdict.skip { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
+.verdict span { color: var(--text, inherit); }

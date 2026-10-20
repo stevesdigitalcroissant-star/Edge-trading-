@@ -34,3 +34,10 @@ test("plain-text alert: the zone score is read", () => {
   require("node:assert/strict").equal(m.score, 2);
   require("node:assert/strict").equal(m.scoreWhy, "mature zone, room 3.4R");
 });
+
+test("plain-text alert: TAKE / SKIP verdict is read", () => {
+  const { parseAlert } = require("../api/_alerttext");
+  const a = require("node:assert/strict");
+  a.equal(parseAlert("✅ TAKE A+ MNQ1! BUY limit 29187.50 · SL 29159.00 · TP 29273.00 (3.0R, FVG) · 1H demand 29132.75–29200.75").go, true);
+  a.equal(parseAlert("⛔ SKIP MNQ1! BUY limit 29187.50 · SL 29159.00 · TP 29273.00 (3.0R, FVG) · 1H demand 29132.75–29200.75").go, false);
+});

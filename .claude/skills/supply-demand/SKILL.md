@@ -183,3 +183,9 @@ Portfolio + judgement research (Oct 14, sd.js ctx, 13 markets, trades fitting $1
 - Maybe: 2–3 candle base (+0.56R, 85 tr), discount half (+0.37 vs +0.25), BOS ≤4 candles (+0.35 vs +0.18).
 - No edge: order block last candle only (same), explosive leg-out (worse), FVG in the leg (2019–22 +0.39, 2023–26 +0.08),
   DBR vs RBR (continuation slightly better), boring base, liquidity sweep at base (11 tr, too rare). Flip-zone test inconclusive (definition too loose).
+
+## TAKE / SKIP (Oct 20, his goal "3 trades a week, ≥40% win")
+TAKE = A+ (ci24 ≤ 45 or ciX ≤ 40) OR (zone score ≥ 0 AND ci24 ≤ 55). 9 mkts 2019–Sep 2026, 1:3, 03–11 NY, group limit:
+2.9/wk, 40% win (2019–22 40% · 2023–26 40%), +0.21R/tr, +2.7R/mo; 50K $200 64% pass ~2.4 mo (A+ only 1.7/wk 44% 69% ~4.4 mo).
+Pine: zGo/mGo, alert prefix "✅ TAKE" / "⛔ SKIP", JSON `go`, panel SETUP row green/red; input onlyAPlus now = "only send TAKE".
+Edge: setup.go decides loud vs quiet alert (falls back to aplus), sdCard verdict banner + "This week: N of 3".

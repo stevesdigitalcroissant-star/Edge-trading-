@@ -31,7 +31,7 @@ function parseAlert(text) {
     kind, zoneBot: zone ? Math.min(n(zone[1]), n(zone[2])) : null, zoneTop: zone ? Math.max(n(zone[1]), n(zone[2])) : null, mss: mss ? n(mss[1]) : null,
     trend4h: /with the 4H trend/.test(t) ? k : /AGAINST the 4H trend/.test(t) ? -k : 0,
     tpMax: hi ? n(hi[1]) : null, rrMax: hi ? n(hi[2]) : null, fill: past ? 1.2 : fill ? n(fill[1]) / 100 : null, vol: vol ? n(vol[1]) : null,
-    liqR: swing ? n(swing[1]) : null, liq: swing && r > 0 ? +(entry + k * n(swing[1]) * r).toFixed(6) : null, aplus: !!aplus, score: zs ? Number(zs[1]) : null, scoreWhy: zs && zs[2] ? zs[2] : null, validMin: 240,
+    liqR: swing ? n(swing[1]) : null, liq: swing && r > 0 ? +(entry + k * n(swing[1]) * r).toFixed(6) : null, aplus: !!aplus, go: /✅\s*TAKE/.test(t) ? true : /⛔\s*SKIP/.test(t) ? false : null, score: zs ? Number(zs[1]) : null, scoreWhy: zs && zs[2] ? zs[2] : null, validMin: 240,
   };
 }
 

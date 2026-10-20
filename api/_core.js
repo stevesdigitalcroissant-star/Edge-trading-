@@ -128,7 +128,7 @@ async function radarSetup(store, market, msg, now, s) {
   const sd = msg.strategy === "sd";
   if (sd && market === "crude") return { ignored: true, why: "Crude is off for supply & demand — it lost money in every test." };
   const setup = { id: id(), market, source: sd ? "scanner" : "radar", strategy: sd ? "sd" : "playbook", symbol: msg.symbol, tv: msg.tv, dir: msg.dir === "short" ? "short" : "long",
-    kind: String(msg.kind || "").slice(0, 20), mss: num(msg.mss), liq: sd ? num(msg.liq) : undefined, liqR: sd ? num(msg.liqR) : undefined, fill: sd ? num(msg.fill) : undefined, aplus: sd ? (msg.aplus == null ? null : msg.aplus === true || msg.aplus === "true") : undefined, vol: sd ? num(msg.vol) : undefined, tpMax: sd ? num(msg.tpMax) : undefined, rrMax: sd ? num(msg.rrMax) : undefined, score: sd ? num(msg.score) : undefined, scoreWhy: sd && msg.scoreWhy ? String(msg.scoreWhy).slice(0, 80) : undefined,
+    kind: String(msg.kind || "").slice(0, 20), mss: num(msg.mss), liq: sd ? num(msg.liq) : undefined, liqR: sd ? num(msg.liqR) : undefined, fill: sd ? num(msg.fill) : undefined, aplus: sd ? (msg.aplus == null ? null : msg.aplus === true || msg.aplus === "true") : undefined, vol: sd ? num(msg.vol) : undefined, tpMax: sd ? num(msg.tpMax) : undefined, rrMax: sd ? num(msg.rrMax) : undefined, go: sd ? (msg.go == null ? null : msg.go === true || msg.go === "true") : undefined, score: sd ? num(msg.score) : undefined, scoreWhy: sd && msg.scoreWhy ? String(msg.scoreWhy).slice(0, 80) : undefined,
     entry: num(msg.entry), sl: num(msg.sl), tp: num(msg.tp), rr: num(msg.rr), zoneTop: num(msg.zoneTop), zoneBot: num(msg.zoneBot), trendD: num(msg.trendD), trend4h: num(msg.trend4h),
     withTrend: b(msg.withTrend), fromHtfZone: b(msg.fromHtfZone), fresh: msg.fresh !== false && msg.fresh !== "false", ...(sd ? {} : { liq: b(msg.liq) }), session: String(msg.session || ""), near: String(msg.near || "").slice(0, 80),
     at: now, expires: now + (num(msg.validMin) || s.radarValidMin || 180) * 60e3, status: "open" };
@@ -144,17 +144,19 @@ async function radarSetup(store, market, msg, now, s) {
   // A+ setups always reach you; the others only once you've gone fallbackAfterDays without a trade (the account's
   // inactivity rule), so you still trade at least once every inactivityDays
   let pre = "";
-  if (sd && setup.aplus === false) {
+  // TAKE (Pine's verdict: A+, or zone score 0+ in a clean move — ~3 a week, 40% win) decides; older alerts fall back to A+
+  const best = setup.go != null ? setup.go : setup.aplus;
+  if (sd && best === false) {
     const idle = await idleDays(store, ctx, now);
     setup.idleDays = Math.floor(idle); await store.hset("setups", setup.id, setup);
     if (idle < (s.fallbackAfterDays ?? 4)) {
-      await notify(store, `👀 Not A+ — ${name} ${side} @ ${fx(setup.entry)} (${setup.kind}). Edge only alerts A+ setups until you've gone ${s.fallbackAfterDays ?? 4} days without a trade.`, "skip");
+      await notify(store, `👀 ${setup.go === false ? "SKIP (not a TAKE setup)" : "Not A+"} — ${name} ${side} @ ${fx(setup.entry)} (${setup.kind}). Edge only alerts TAKE setups until you've gone ${s.fallbackAfterDays ?? 4} days without a trade.`, "skip");
       return { setup, grade: g.grade, takeable: g.take.ok, why: g.take.why || [], quiet: true };
     }
     pre = `⏳ ${Math.floor(idle)} days without a trade (${s.inactivityDays ?? 7}-day rule) — not A+, but valid: `;
   }
   if (sd) await notify(store, g.take.ok
-    ? `${pre}📣 ${setup.aplus ? "A+ " : ""}${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R) · 1H ${setup.dir === "long" ? "demand" : "supply"} ${fx(setup.zoneBot)}–${fx(setup.zoneTop)} · 4H ${setup.trend4h === R.sign(setup.dir) ? "with you" : setup.trend4h ? "against you" : "?"} · 5m MSS → ${setup.kind}${setup.liqR != null && setup.liqR < setup.rr ? ` · ⚠️ 5m swing at ${R.round(setup.liqR, 1)}R` : ""}${setup.rrMax != null && setup.rrMax > setup.rr + 0.25 ? ` · highest target ${fx(setup.tpMax)} (${R.round(setup.rrMax, 1)}R)` : ""}${setup.vol != null ? ` · volume ${R.round(setup.vol, 1)}× avg` : ""}${setup.fill != null ? ` · zone filled ${Math.round(setup.fill * 100)}%${setup.fill < 0.3 ? " ⚠️ under 30%" : ""}` : ""}${setup.score != null ? ` · zone score ${setup.score > 0 ? "+" : ""}${setup.score}${setup.score >= 2 ? " ★★" : setup.score === 1 ? " ★" : ""}` : ""}. Tap to see it and send it.`
+    ? `${pre}📣 ${setup.go ? "✅ TAKE · " : ""}${setup.aplus ? "A+ " : ""}${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R) · 1H ${setup.dir === "long" ? "demand" : "supply"} ${fx(setup.zoneBot)}–${fx(setup.zoneTop)} · 4H ${setup.trend4h === R.sign(setup.dir) ? "with you" : setup.trend4h ? "against you" : "?"} · 5m MSS → ${setup.kind}${setup.liqR != null && setup.liqR < setup.rr ? ` · ⚠️ 5m swing at ${R.round(setup.liqR, 1)}R` : ""}${setup.rrMax != null && setup.rrMax > setup.rr + 0.25 ? ` · highest target ${fx(setup.tpMax)} (${R.round(setup.rrMax, 1)}R)` : ""}${setup.vol != null ? ` · volume ${R.round(setup.vol, 1)}× avg` : ""}${setup.fill != null ? ` · zone filled ${Math.round(setup.fill * 100)}%${setup.fill < 0.3 ? " ⚠️ under 30%" : ""}` : ""}${setup.score != null ? ` · zone score ${setup.score > 0 ? "+" : ""}${setup.score}${setup.score >= 2 ? " ★★" : setup.score === 1 ? " ★" : ""}` : ""}. Tap to see it and send it.`
     : `👀 ${name} ${side} setup @ ${fx(setup.entry)} — not now: ${g.take.why[0]}`, g.take.ok ? "setup" : "skip");
   else await notify(store, g.take.ok
     ? `📣 ${g.grade} ${name} ${side} limit ${fx(setup.entry)} · stop ${fx(setup.sl)} · target ${fx(setup.tp)} (${R.round(setup.rr, 1)}R)${setup.liq ? " · liquidity taken" : ""}. Open Edge to confirm.`

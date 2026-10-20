@@ -599,16 +599,23 @@
 
   // ---------- S&D SCANNER: 1H zone + 5m shift found by TradingView on 14 markets (crude is off) — one tap sends the limit
   const SD_TV = ["MGC1!", "SIL1!", "MNG1!", "MES1!", "MNQ1!", "MYM1!", "M2K1!", "MHG1!", "6E1!", "6B1!", "6J1!", "6A1!", "ZN1!", "ZB1!"];
+  // trades opened since Monday (your time): the plan is about 3 TAKE trades a week
+  function weekCount() { const d = new Date(S.now), mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime(); return [...(S.journal || []), ...(S.open || [])].filter((t) => !t.practice && (t.openedAt || 0) >= mon).length; }
   function sdCard(x) {
     const g = x.g, live = x.status === "open" && !(x.expires && S.now > x.expires);
     const z = sdSize(x);
     const kind = { FVG: "fair value gap", breaker: "breaker block", mitigation: "mitigation block", MB: "mitigation block (low → high → higher low)" }[x.kind] || x.kind || "";
     const weak = SD_WEAK[x.market];
     const chips = [...(x.score != null ? [[`Zone score ${x.score > 0 ? "+" : ""}${x.score}${x.score >= 2 ? " ★★" : x.score === 1 ? " ★" : ""}${x.scoreWhy ? ` — ${x.scoreWhy}` : ""} (tested: +2 won 56%, +1 45%, 0 or less ~40%)`, x.score >= 1]] : []), ...(x.aplus ? [["A+ setup — price came in fast / trended hard before the break (tested 44–47% win at 1:3)", true]] : []), ...(weak ? [[weak, false]] : []), [`1H ${x.dir === "long" ? "demand" : "supply"} ${fx(x.zoneBot)}–${fx(x.zoneTop)}`, true], ["5m MSS" + (x.mss != null ? ` past ${fx(x.mss)}` : ""), true], ...(x.trend4h ? [[x.trend4h === (x.dir === "short" ? -1 : 1) ? "4H trend with you" : "4H trend against you — your call", x.trend4h === (x.dir === "short" ? -1 : 1)]] : []), ...(x.fill != null ? [x.fill > 1 ? ["Price wicked past the zone's far edge (no close) — deep, your call", true] : x.fill >= 0.3 ? [`Zone filled ${Math.round(x.fill * 100)}% — past the 30% line`, true] : [`Zone filled only ${Math.round(x.fill * 100)}% — under 30%, price may go deeper first`, false]] : []), ...(x.rrMax != null && x.rrMax > x.rr + 0.25 ? [[`Highest target ${fx(x.tpMax)} (${Number(x.rrMax).toFixed(1)}R) — the 1H ${x.dir === "long" ? "high" : "low"} the move came from`, true]] : []), ...(x.vol != null ? [[`Volume on the break ${Number(x.vol).toFixed(1)}× average${x.vol >= 1.5 ? " — strong" : x.vol < 1 ? " — weak, price may be ranging" : ""}`, x.vol >= 1]] : []), [`Entry: ${kind}`, true], [`Target ${Number(x.rr || 0).toFixed(1)}R`, true], x.liq == null ? ["No 5m swing in the way", true] : x.liqR >= x.rr - 0.05 ? [`Nearest 5m swing ${fx(x.liq)} (${Number(x.liqR).toFixed(1)}R) — room for the target`, true] : [`5m swing ${fx(x.liq)} at ${Number(x.liqR).toFixed(1)}R before the target — your call`, false]];
+    const wk = weekCount();
+    const verdict = x.go == null ? "" : x.go
+      ? `<div class="verdict go"><b>✅ TAKE</b><span>${x.aplus ? "A+ — price came in fast / trended" : "Zone score 0+ in a clean, non-choppy move"}. Tested: about 3 a week, 40% win at 1:3. This week: ${wk} of 3.</span></div>`
+      : `<div class="verdict skip"><b>⛔ SKIP</b><span>${x.score != null && x.score < 0 ? "Instant retest with nothing extra" : "Choppy move and not A+"} — these won about 1 in 3. Your call, but the plan says wait.</span></div>`;
     return `<div class="card radar ${live ? "" : "dim"}" data-tour="setup">
       <div class="row between"><div class="row"><div class="grade A">S&amp;D</div>
         <div><h3>${esc(mname(x.market))} · ${x.dir === "long" ? "▲ BUY limit" : "▼ SELL limit"}</h3><span class="muted">${time(x.at)} · ${esc(x.tv || x.symbol || "")}</span></div></div>
         <span class="pill">${live ? `${Math.max(0, Math.round((x.expires - S.now) / 60e3))} min left` : esc(x.status === "open" ? "expired" : x.status)}</span></div>
+      ${verdict}
       <div class="levels"><div><small>Limit</small><b>${fx(x.entry)}</b></div><div><small>Stop</small><b>${fx(x.sl)}</b></div><div><small>Target</small><b>${fx(x.tp)}</b></div><div><small>Size</small><b>${z.qty > 0 ? `${z.qty} ${esc(z.contract)}` : "too wide"}</b></div></div>
       <div class="sc-list">${chips.concat([z.qty < 1 ? [`One ${z.contract} risks $${z.per} — over your $${z.hi}`, false] : z.under ? [`Risk $${z.risk} — under your $${z.lo}–$${z.hi} (one more would go over $${z.hi})`, false] : [`Risk $${z.risk} (aim ~$${z.aim}, $${z.lo}–$${z.hi})`, true]]).map(([t, ok]) => `<span class="${ok ? "ok" : "no"}">${ok ? "✓" : "!"} ${esc(t)}</span>`).join("")}</div>
       ${live && !g.take.ok ? `<div class="blocks">${g.take.why.map((w) => `<div>⛔ ${esc(w)}</div>`).join("")}</div>` : ""}
