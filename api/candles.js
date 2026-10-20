@@ -65,7 +65,7 @@ module.exports = async (req, res) => {
     // Databento data is licensed to you: only your signed-in app (or your private data downloader) may load it
     if (url.searchParams.get("src") === "db") {
       const store = require("./_store").getStore();
-      const dt = process.env.EDGE_DATA_TOKEN, given = req.headers["x-edge-data"];
+      const dt = String(process.env.EDGE_DATA_TOKEN || "").trim(), given = String(req.headers["x-edge-data"] || "").trim(); // a stray space or line break from copy-paste doesn't count
       const okToken = dt && given && require("crypto").timingSafeEqual(require("crypto").createHash("sha256").update(String(given)).digest(), require("crypto").createHash("sha256").update(dt).digest());
       if (!okToken && !(await require("./_auth").authorized(store, req.headers))) return res.status(401).json({ error: "Sign in to Edge to load these prices." });
     }
