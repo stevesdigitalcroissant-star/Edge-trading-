@@ -69,6 +69,12 @@ module.exports = async (req, res) => {
       const okToken = dt && given && require("crypto").timingSafeEqual(require("crypto").createHash("sha256").update(String(given)).digest(), require("crypto").createHash("sha256").update(dt).digest());
       if (!okToken && !(await require("./_auth").authorized(store, req.headers))) return res.status(401).json({ error: "Sign in to Edge to load these prices." });
     }
+    // ?src=db&cost=1&markets=gold,silver&from=2019-01&to=2026-09 — Databento's price for those months (nothing is bought)
+    if (url.searchParams.get("src") === "db" && url.searchParams.get("cost")) {
+      const mks = String(url.searchParams.get("markets") || market).split(/[\s,]+/).filter(Boolean), from = url.searchParams.get("from") || "2019-01", to = url.searchParams.get("to") || new Date().toISOString().slice(0, 7);
+      const byMarket = {}; for (const m of mks) byMarket[m] = await db.cost(m, from, to);
+      return res.status(200).json({ from, to, byMarket, total: Object.values(byMarket).reduce((a, b) => a + b, 0), currency: "USD" });
+    }
     // ?src=db&hist=1h&to=2023-12 — the 13 months of 1-hour candles before that month (the big picture for practice)
     if (url.searchParams.get("src") === "db" && url.searchParams.get("hist")) {
       const bars = await db.hourly(market, url.searchParams.get("to") || "");

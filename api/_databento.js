@@ -15,7 +15,7 @@ function parseCsv(text) {
   if (lines.length < 2) return [];
   const head = lines[0].split(",").map((h) => h.trim());
   const ix = (n) => head.indexOf(n);
-  const [it, io, ih, il, ic] = ["ts_event", "open", "high", "low", "close"].map(ix);
+  const [it, io, ih, il, ic, iv] = ["ts_event", "open", "high", "low", "close", "volume"].map(ix);
   if ([it, io, ih, il, ic].some((i) => i < 0)) throw new Error(`Unexpected Databento columns: ${lines[0].slice(0, 120)}`);
   const out = [];
   for (let k = 1; k < lines.length; k++) {
@@ -23,7 +23,8 @@ function parseCsv(text) {
     const ts = c[it];
     const t = /^\d+$/.test(ts) ? Math.round(Number(ts) / 1e6) : Date.parse(ts); // nanoseconds, or ISO with pretty_ts
     const o = Number(c[io]), h = Number(c[ih]), l = Number(c[il]), cl = Number(c[ic]);
-    if (Number.isFinite(t) && [o, h, l, cl].every(Number.isFinite)) out.push([t, o, h, l, cl]);
+    const v = iv >= 0 ? Number(c[iv]) : NaN;
+    if (Number.isFinite(t) && [o, h, l, cl].every(Number.isFinite)) out.push(Number.isFinite(v) ? [t, o, h, l, cl, v] : [t, o, h, l, cl]); // volume kept as the 6th value
   }
   return out.sort((a, b) => a[0] - b[0]);
 }
@@ -33,10 +34,10 @@ function rollUp(bars, minutes) {
   if (minutes === 1) return bars;
   const span = minutes * 60e3, out = [];
   let cur = null;
-  for (const [t, o, h, l, c] of bars) {
+  for (const [t, o, h, l, c, v] of bars) {
     const s = Math.floor(t / span) * span;
-    if (!cur || cur[0] !== s) { if (cur) out.push(cur); cur = [s, o, h, l, c]; }
-    else { cur[2] = Math.max(cur[2], h); cur[3] = Math.min(cur[3], l); cur[4] = c; }
+    if (!cur || cur[0] !== s) { if (cur) out.push(cur); cur = v == null ? [s, o, h, l, c] : [s, o, h, l, c, v]; }
+    else { cur[2] = Math.max(cur[2], h); cur[3] = Math.min(cur[3], l); cur[4] = c; if (v != null) cur[5] = (cur[5] || 0) + v; }
   }
   if (cur) out.push(cur);
   return out;
@@ -133,4 +134,18 @@ async function fill(store, market, from, to, budgetMs = 45000, fetchImpl = fetch
   return { market, stored, next: null, done: true, have: have.size + stored.length };
 }
 
-module.exports = { hourly, key, parseCsv, rollUp, fetchMonth, month, fill, ROOT };
+// What a download would cost, from Databento itself (metadata.get_cost) — nothing is bought.
+async function cost(market, from, to, fetchImpl = fetch) {
+  const root = ROOT[market];
+  if (!root) throw new Error(`Unknown market ${market}`);
+  if (!key()) throw new Error("Databento isn't connected — add DATABENTO_API_KEY in Vercel");
+  const [y1, m1] = from.split("-").map(Number), [y2, m2] = to.split("-").map(Number);
+  const start = new Date(Date.UTC(y1, m1 - 1, 1)).toISOString().slice(0, 10), end = new Date(Math.min(Date.UTC(y2, m2, 1), Date.now() - 864e5)).toISOString().slice(0, 10);
+  const q = new URLSearchParams({ dataset: "GLBX.MDP3", symbols: `${root}.v.0`, stype_in: "continuous", schema: "ohlcv-1m", start, end });
+  const r = await fetchImpl(`https://hist.databento.com/v0/metadata.get_cost?${q}`, { headers: { Authorization: "Basic " + Buffer.from(key() + ":").toString("base64") }, signal: AbortSignal.timeout(30000) });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`Databento ${r.status}: ${text.slice(0, 160)}`);
+  return Number(text);
+}
+
+module.exports = { cost, hourly, key, parseCsv, rollUp, fetchMonth, month, fill, ROOT };

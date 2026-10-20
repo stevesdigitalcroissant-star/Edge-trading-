@@ -14,7 +14,7 @@ test("Databento CSV → 5-minute candles", () => {
   assert.equal(one.length, 4);
   assert.equal(one[0][0], Date.parse("2024-03-04T10:00:00Z"));
   const five = db.rollUp(one, 5);
-  assert.deepEqual(five[0], [Date.parse("2024-03-04T10:00:00Z"), 2100.1, 2102.4, 2098, 2098.5]);
+  assert.deepEqual(five[0], [Date.parse("2024-03-04T10:00:00Z"), 2100.1, 2102.4, 2098, 2098.5, 160]); // volume summed
   assert.equal(five.length, 2);
   // nanosecond timestamps (without pretty_ts) work too
   const ns = db.parseCsv("ts_event,open,high,low,close\n1709546400000000000,1,2,0.5,1.5");
