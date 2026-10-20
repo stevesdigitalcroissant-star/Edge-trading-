@@ -60,6 +60,29 @@ module.exports = async (req, res) => {
       }
       return res.status(502).json({ error: last ? last.message : "no price" });
     }
+    // ?drill=1 — a batch of real past setups for the Test tab (signed in only; they're cut from licensed Databento data)
+    // PUT ?drill=1 {i, n, items} — your private data repo uploads them (with the EDGE_DATA_TOKEN key)
+    if (url.searchParams.get("drill")) {
+      const store = require("./_store").getStore();
+      const dt = String(process.env.EDGE_DATA_TOKEN || "").trim(), given = String(req.headers["x-edge-data"] || "").trim();
+      const okToken = !!(dt && given) && require("crypto").timingSafeEqual(require("crypto").createHash("sha256").update(given).digest(), require("crypto").createHash("sha256").update(dt).digest());
+      if (req.method === "PUT" || req.method === "POST") {
+        if (!okToken) return res.status(401).json({ error: "Wrong data key." });
+        let body = req.body;
+        if (body == null || typeof body === "string") { const raw = typeof body === "string" ? body : await new Promise((ok, no) => { let d = ""; req.on("data", (c) => (d += c)); req.on("end", () => ok(d)); req.on("error", no); }); body = JSON.parse(raw || "{}"); }
+        const i = Number(body.i), n = Number(body.n);
+        if (!Number.isInteger(i) || !Number.isInteger(n) || i < 0 || i >= n || n > 60 || !Array.isArray(body.items)) return res.status(400).json({ error: "Send {i, n, items}." });
+        await store.set(`drill:${i}`, body.items);
+        if (i === n - 1) await store.set("drill:meta", { n, at: Date.now(), count: body.count || null });
+        return res.status(200).json({ ok: true, i, n });
+      }
+      if (!okToken && !(await require("./_auth").authorized(store, req.headers))) return res.status(401).json({ error: "Sign in to Edge to load real setups." });
+      const meta = await store.get("drill:meta");
+      if (!meta || !meta.n) return res.status(404).json({ error: "No real setups uploaded yet." });
+      const i = Math.floor(Math.random() * meta.n), items = (await store.get(`drill:${i}`)) || [];
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.status(200).json({ i, n: meta.n, count: meta.count, items });
+    }
     // ?src=db&fill=1&from=2019-01&to=2026-09 — buy the missing months into the archive (each month once, ever)
     // ?src=db&have=1 — which months are archived
     // Databento data is licensed to you: only your signed-in app (or your private data downloader) may load it

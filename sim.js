@@ -195,7 +195,7 @@
     const near = zs.map((z) => ({ z, d: tr.e > z.top ? tr.e - z.top : tr.e < z.bot ? z.bot - tr.e : 0 })).sort((a, b) => a.d - b.d)[0];
     const edgeZone = near && near.d <= Math.max(near.z.top - near.z.bot, atr);
     const zAnn = near ? [{ type: "box", t1: S.bars[Math.max(0, near.z.from)].t, t2: tr.tIn, p1: near.z.top, p2: near.z.bot, color: "var(--good)", label: `15m ${long ? "demand" : "supply"} (Edge)` }] : [];
-    push("zone", !!(mine15 || edgeZone), mine15 ? "At your 15m zone" : "At a 15m zone", `No 15m ${long ? "demand" : "supply"} zone where you entered`, `Mark the 15m ${long ? "demand" : "supply"}: the base candles right before the explosive move. Then wait for price to come back into it.`, [...zAnn, you]);
+    push("zone", !!(mine15 || edgeZone), mine15 ? "At your zone" : "At a zone Edge found", `No ${long ? "demand" : "supply"} zone where you entered`, `Mark the 1H ${long ? "demand" : "supply"}: the base candles right before the explosive move. Then wait for price to come back into it.`, [...zAnn, you]);
     // 4 · entry at the start of a 5m fair value gap
     let gap = null;
     for (let j = i; j >= Math.max(2, i - 30); j--) {
@@ -219,8 +219,8 @@
     push("rr", tpR != null && tpR >= 2.95 && tpR <= 10.05, `Target ${tpR != null ? tpR.toFixed(1) : ""}R — inside 3R–10R`, tpR == null ? "No target set" : tpR < 2.95 ? `Target only ${tpR.toFixed(1)}R — under your 3R minimum` : `Target ${tpR.toFixed(1)}R — past your 10R maximum`,
       "Aim for the opposing liquidity: never under 3R, at most 10R.", tpR != null ? [{ type: "hline", p: tr.e + k * 3 * r0, color: "var(--good)", label: "3R" }] : []);
     // 7 · session and trade count
-    const m = nyInfo(tr.tIn).min, inSess = m >= 120 && m < 720;
-    push("session", inSess && !(tr.nth > 2), "In your session (London / New York)", !inSess ? `Outside your sessions (${hm(m)} New York)` : "More than 2 trades this session", "Trade the London and New York sessions (02:00–12:00 New York), 2 trades a day at most.", [you]);
+    const m = nyInfo(tr.tIn).min, inSess = m >= 180 && m < 660;
+    push("session", inSess && !(tr.nth > 2), "In your hours (03:00–11:00 New York)", !inSess ? `Outside your hours (${hm(m)} New York)` : "More than 2 trades this session", "Trade 03:00–11:00 New York (00:00–08:00 Vancouver), 2 trades a day at most.", [you]);
     // 8 · management
     const lockMissed = tr.mfe >= LOCK_AT && tr.beAt == null && tr.R < LOCK_AT - 0.5;
     const bad = tr.widened ? "You moved your stop further away" : lockMissed ? `It reached +${tr.mfe.toFixed(1)}R and you didn't lock in profit` : tr.tpMoved ? "You pushed the target further" : null;

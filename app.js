@@ -8,7 +8,7 @@
   let token = ""; try { token = localStorage.getItem("edge.token") || ""; } catch {}
   let S = null, tab = "now", busy = false, lastSig = "", renderedTab = "";
   try { tab = localStorage.getItem("edge.tab") || "now"; } catch {}
-  if (!["now", "coach", "journal", "rules", "watch", "bias"].includes(tab)) tab = { learn: "coach" }[tab] || "now";
+  if (!["now", "coach", "test", "journal", "rules", "watch", "bias"].includes(tab)) tab = { learn: "coach" }[tab] || "now";
 
   async function api(method, body) {
     const r = await fetch("/api/app", { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: body ? JSON.stringify(body) : undefined });
@@ -699,6 +699,11 @@
     const news = nextNews.length ? `<section class="card slim" data-tour="news"><div class="card-head"><h2>📰 Big news</h2><span class="muted">no trades ${s.newsBeforeMin} min either side</span></div><div class="news">${nextNews.map((e) => { const liveN = S.now >= e.time - s.newsBeforeMin * 60e3 && S.now <= e.time + s.newsAfterMin * 60e3; return `<div class="ev ${liveN ? "live" : ""}"><span class="num">${day(e.time).split(",")[0]} ${time(e.time)}</span><span>${esc(e.title)}<br><small class="muted">${e.markets.map(mname).join(" · ")}</small></span><span class="pill ${liveN ? "bad" : "warn"}">${liveN ? "NO TRADES" : e.impact}</span></div>`; }).join("")}</div></section>` : "";
     const alerts = `<details class="card slim" data-tour="log" data-keep="alerts"><summary><b>Alerts</b> <span class="muted">${S.log.length ? `· last ${time(S.log[0].at)}` : ""}</span></summary><div class="log" style="margin-top:8px">${S.log.slice(0, 15).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></details>`;
     const gp = S.gameplan && S.now - S.gameplan.at < 10 * 3600e3 ? `<section class="card slim gameplan" data-tour="gameplan"><div class="row between"><b>${esc(S.gameplan.title)}</b><small class="muted">${time(S.gameplan.at)}</small></div>${S.gameplan.lines.map((l) => `<p>${esc(l)}</p>`).join("")}</section>` : "";
+    // your best markets right now: the TAKE rule's results per market (backtest on your own data, 3 years + the last 12 months)
+    const FOCUS_MK = { asOf: "Sep 2026", top: [["nq", "🥇", 0.96, 52, 21], ["gold", "🥈", 0.76, 52, 33], ["6j", "🥉", 0.44, 55, 67], ["natgas", "🏅", 0.31, 42, 62]], avoid: [["6a", -0.22, 34]] };
+    const focusCard = `<section class="card focus-mk" data-tour="focus"><div class="card-head"><h2>🎯 Watch these first</h2><span class="muted">best for your rule · ${FOCUS_MK.asOf}</span></div>
+      <div class="fm-row">${FOCUS_MK.top.map(([m, md, r, w]) => `<div class="fm"><span class="e3d">${md}</span><b>${esc(S.markets[m] ? S.markets[m].name : m.toUpperCase())}</b><small>+${r}R a trade · ${w}% win</small></div>`).join("")}</div>
+      <p class="muted fm-note">${FOCUS_MK.avoid.map(([m, r, w]) => `⚠️ ${esc(S.markets[m] ? S.markets[m].name : m.toUpperCase())}: ${r}R a trade, ${w}% win — skip it for now.`).join(" ")} Last 3 years of TAKE setups.</p></section>`;
     // the things you can do, as pictures: tap one
     const ART = window.EdgeArt, tile = (ic, title, hint, attr, tour = "") => `<button type="button" class="tile" ${attr} ${tour ? `data-tour="${tour}"` : ""}>${ART ? ART.icon(ic) : ""}<b>${title}</b><small>${hint}</small></button>`;
     const pushOk = pushCapable && Notification.permission !== "denied";
@@ -711,7 +716,7 @@
       ${setupShown || (S.prop && S.prop.cfg && S.prop.cfg.enabled) ? "" : tile("prop", "Prop account", "pass it safely", "data-propset", "prop")}
       ${setupShown || ps.on ? "" : tile("push", "Alerts on", pushOk ? "to this phone" : "how to turn on", pushOk ? "data-pushon" : `data-pushhelp="${esc(ps.text)}"`, "push")}
     </section>`;
-    return `${ceBanner}${pend}${getSet}${hero}${gp}${setups}${tiles}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
+    return `${ceBanner}${pend}${getSet}${hero}${gp}${setups}${tiles}${focusCard}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -831,7 +836,7 @@
   }
 
   // ---------- COACH: train in the simulator · see how well you keep your playbook · learn it by heart
-  const SC_NAMES = { htf: "Big picture", trend: "Trend", zone: "15m zone", entry: "Entry at the FVG", stop: "Stop behind the swing", rr: "3R – 10R", session: "Session & limits", manage: "Management" };
+  const SC_NAMES = { htf: "Big picture", trend: "Trend / clean approach", zone: "1H zone", entry: "5m CHoCH entry", stop: "Stop behind the swing", rr: "Room & target", session: "Hours & limits", manage: "Management" };
   const CO = { ex: null, at: 0, loading: false, open: null, q: 0, ans: {}, quiz: false };
   function loadExamples(force = false) {
     if (CO.loading || (!force && CO.ex && Date.now() - CO.at < 30e3)) return;
@@ -1222,7 +1227,15 @@
     const lastR = S.journal.slice(0, 12).map((t) => t.resultR || 0).reverse();
     const jhero = `<section class="card hero ${window.EdgeArt ? "with3d" : ""}" data-tour="results" style="--state:${st.totalR > 0 ? "var(--good)" : st.totalR < 0 ? "var(--bad)" : "var(--accent)"}">${window.EdgeArt ? window.EdgeArt.bars(lastR) : ""}
       <div><div class="state">Journal</div><div class="headline">${st.n ? `<span class="${cls(st.totalR)}">${rs(st.totalR)}</span> · ${st.n} trade${st.n > 1 ? "s" : ""}` : "No trades yet."}</div><p class="sub">${st.n ? "Your last trades, as bars." : "Your trades will stack up here."}</p></div></section>`;
-    return `${jhero}${judgeCard()}${insightsCard()}${S.practice.length >= 5 ? insightsCard(S.practice, "🧠 From your practice trades") : ""}<section class="card"><div class="grid2">
+    // missed-trade review: the setups you didn't take, checked 2 hours later
+    const ms = S.missed || { win: 0, winR: 0, loss: 0, nofill: 0 }, revd = (S.setups || []).filter((x) => x.review && ["win", "loss"].includes(x.review.res)).slice(0, 5);
+    const nRev = ms.win + ms.loss, verdict = nRev < 5 ? `Edge checks every setup you don't take, 2 hours later. ${nRev ? `${nRev} so far.` : ""}`
+      : ms.win / nRev > 0.4 ? "You're skipping too many winners — trust your TAKE setups." : ms.win / nRev < 0.2 ? "Your skips are good — the ones you leave mostly lose." : "Your skips are about right.";
+    const missed = `<section class="card" data-tour="missed"><div class="card-head"><h2>👀 Missed-trade review</h2><span class="muted">trades you didn't take</span></div>
+      <div class="grid3 mt-stats"><div class="stat"><small>💸 Missed wins</small><b class="${ms.win ? "pos" : ""}">${ms.win}</b><small>${ms.win ? `+${ms.winR.toFixed(1)}R` : "&nbsp;"}</small></div><div class="stat"><small>✅ Good skips</small><b>${ms.loss}</b><small>would have lost</small></div><div class="stat"><small>⏸ Never filled</small><b>${ms.nofill}</b><small>&nbsp;</small></div></div>
+      <p class="muted" style="margin:10px 0 0">${verdict}</p>
+      ${revd.map((x) => `<div class="mt-row"><span>${x.review.res === "win" ? "💸" : "✅"} <b>${esc(mname(x.market))} ${x.dir === "long" ? "buy" : "sell"}</b> <small class="muted">${day(x.at)}${x.go === true ? " · TAKE" : x.go === false ? " · SKIP" : ""}</small></span><b class="${x.review.res === "win" ? "pos" : "neg"}">${x.review.res === "win" ? `+${x.review.R}R missed` : "−1R avoided"}</b></div>`).join("")}</section>`;
+    return `${jhero}${missed}${judgeCard()}${insightsCard()}${S.practice.length >= 5 ? insightsCard(S.practice, "🧠 From your practice trades") : ""}<section class="card"><div class="grid2">
         <div class="stat"><small>🎯 Win rate</small><b>${st.winRate == null ? "—" : st.winRate + "%"}</b><small>avg ${rs(st.avgR)}</small></div>
         <div class="stat"><small>🏁 Hit the target</small><b>${st.targets}</b></div>
         <div class="stat"><small>🛡️ Saved by break-even</small><b>${st.breakEvens}</b></div>

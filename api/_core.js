@@ -372,6 +372,7 @@ async function tick(store, broker, now = Date.now()) {
   await closeOutCheck(store, broker, ctx).catch(() => {});
   await gamePlan(store, now).catch(() => {});
   await resultAsks(store, now).catch(() => {});
+  await missedReview(store, now).catch(() => {});
   return { ok: true, open: ctx.open.length, waiting: (ctx.waiting || []).length };
 }
 
@@ -405,6 +406,45 @@ async function resultAsks(store, now) {
     await store.hset("trades", t.id, t);
     await notify(store, `🤔 Your ${MARKETS[t.market] ? MARKETS[t.market].name : t.market} ${t.dir === "long" ? "buy" : "sell"} at ${fx(t.entry)} — did it win or lose? Tap to tell Edge.`, "action");
   }
+}
+
+// ---------- missed-trade review: setups you skipped (or let expire), 2 hours on — would the limit have filled,
+// and then hit the target or the stop first? Good skips and missed wins, so you see if you skip too much or too little.
+// The check uses the free 5-minute prices (Yahoo's front contract), so treat it as close, not tick-exact.
+function replaySetup(x, bars) {
+  const d = x.dir === "long" ? 1 : -1, end = x.expires || x.at + 4 * 3600e3;
+  let filled = false;
+  for (const [t, , h, l] of bars) {
+    if (t + 5 * 60e3 <= x.at) continue;
+    if (!filled) {
+      if (t > end) return { res: "nofill" };
+      if (d > 0 ? l <= x.entry : h >= x.entry) filled = true; else if (d > 0 ? h >= x.tp : l <= x.tp) return { res: "nofill", ran: true }; else continue;
+    }
+    const hitS = d > 0 ? l <= x.sl : h >= x.sl, hitT = d > 0 ? h >= x.tp : l <= x.tp;
+    if (hitS) return { res: "loss", R: -1 }; // both in one candle: count the stop (the cautious read)
+    if (hitT) return { res: "win", R: +(Math.abs(x.tp - x.entry) / Math.abs(x.entry - x.sl)).toFixed(1) };
+  }
+  return null; // not decided yet
+}
+async function missedReview(store, now) {
+  const last = await store.get("missedAt"); if (last && now - last < 10 * 60e3) return; await store.set("missedAt", now);
+  const all = Object.values((await store.hgetall("setups")) || {});
+  const due = all.filter((x) => x && x.status !== "taken" && !x.review && x.entry != null && x.sl != null && x.tp != null && x.dir && now - x.at >= 2 * 3600e3 && now - x.at < 4 * 864e5 && (x.status === "skipped" || !x.expires || now >= x.expires));
+  if (!due.length) return;
+  const bars = {}, stats = (await store.get("missedStats")) || { win: 0, winR: 0, loss: 0, nofill: 0 };
+  for (const x of due) {
+    if (!(x.market in bars)) bars[x.market] = await require("./candles").load(x.market, 5, "5m").catch(() => null);
+    if (!bars[x.market]) continue;
+    let rv = replaySetup(x, bars[x.market]);
+    if (!rv) { if (now - x.at < 24 * 3600e3) continue; rv = { res: "open" }; }
+    x.review = { ...rv, at: now };
+    await store.hset("setups", x.id, x);
+    const name = MARKETS[x.market] ? MARKETS[x.market].name : x.market, side = x.dir === "long" ? "buy" : "sell", tag = x.go === true ? "a TAKE" : x.go === false ? "a SKIP" : "a";
+    if (rv.res === "win") { stats.win++; stats.winR += rv.R; await notify(store, `👀 Missed trade: the ${name} ${side} you didn't take (${tag} setup) hit +${rv.R}R.${x.go === false ? " It was a SKIP by your rules — a lucky one." : " That was one to take."}`, "info"); }
+    else if (rv.res === "loss") { stats.loss++; await notify(store, `✅ Good skip: the ${name} ${side} you didn't take hit its stop (−1R).`, "info"); }
+    else if (rv.res === "nofill") stats.nofill++;
+  }
+  await store.set("missedStats", stats);
 }
 
 // ---------- news reminders (sent once per event, ahead of the no-trade window)
@@ -754,7 +794,7 @@ async function state(store, broker, now = Date.now()) {
     share: R.aPlusShare([...ctx.journal, ...ctx.open]), guard: R.guardrails(ctx),
     news: { ok: ctx.newsOk, error: ctx.newsError, events: ctx.events.filter((e) => e.time > now - 2 * 3600e3) },
     prop: await propNow(store, ctx, now).catch(() => null) || ((await store.get("prop")) ? { cfg: await store.get("prop"), acct: null, auto: null } : null),
-    gameplan: await store.get("gameplan"), prices, log: await store.lrange("log", 40), orders: Object.values((await store.hgetall("orders")) || {}).sort((a, b) => b.placedAt - a.placedAt),
+    gameplan: await store.get("gameplan"), missed: await store.get("missedStats"), prices, log: await store.lrange("log", 40), orders: Object.values((await store.hgetall("orders")) || {}).sort((a, b) => b.placedAt - a.placedAt),
     broker: { kind: broker.kind, label: broker.label, account },
     fundamentals: await store.get("fundamentals"),
     closeOut: R.closeOut(now, ctx.settings),
@@ -1289,4 +1329,4 @@ async function action(store, broker, body, now = Date.now()) {
   throw new Error(`Unknown action: ${a}`);
 }
 
-module.exports = { tick, newsFlatCheck, cancelWaiting, gamePlan, guide, createSetup, createPlan, handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, context, gradeNow, stats };
+module.exports = { replaySetup, tick, newsFlatCheck, cancelWaiting, gamePlan, guide, createSetup, createPlan, handleHook, syncTrades, newsReminders, closeAll, closeOutCheck, state, action, take, context, gradeNow, stats };
