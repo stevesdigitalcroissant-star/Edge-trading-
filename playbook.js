@@ -14,8 +14,8 @@
       text: "Inside the zone, wait for the 5m change of character (CHoCH) your way. Enter on the pullback into its fair value gap, breaker block or mitigation block. No CHoCH = no entry yet." },
     { id: "stop", icon: "🛡️", title: "Stop behind the zone", short: "Past the swing of the 5m move", req: true,
       text: "The stop goes past the zone and the swing of the 5m move that made the CHoCH — where your idea is wrong." },
-    { id: "liq", icon: "📊", title: "Strong volume on the break", short: "1.5× average or more", req: false,
-      text: "The explosive move out of the zone on strong volume shows real buyers or sellers. It's a bonus — we're still testing how much it helps." },
+    { id: "liq", icon: "📊", title: "Volume: a look, not a rule", short: "Info only · tested on your data", req: false,
+      text: "Strong volume on the move out of the zone feels convincing, but on your own data (2023 → 2026) TAKE setups won 40% with strong, normal or weak volume alike. Look at it if you like — don't let it change your decision." },
     { id: "session", icon: "⏰", title: "Your hours and limits", short: "03:00–11:00 New York · 2 trades max", req: true,
       text: "Only 03:00–11:00 New York (00:00–08:00 Vancouver). Two trades a day at most, one per market group, no trades 30 minutes either side of big news. Target 1:3 (10R max)." },
   ];

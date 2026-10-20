@@ -337,12 +337,12 @@
       [f.choch ? 1 : -1, f.choch ? `5m CHoCH + ${f.trig} entry` : "No 5m CHoCH yet — no entry"],
       [f.trend === "with" ? 1 : f.trend === "against" ? -1 : 0, f.trend === "with" ? "With the 4H trend · +0.24R a trade in your data" : f.trend === "against" ? "Against the 4H trend · +0.15R a trade (lower)" : "4H in a range"],
     ];
-    const bonus = f.volX != null ? [[f.volX >= 1.5 ? 1 : 0, `${f.volX >= 1.5 ? "Strong" : f.volX < 1 ? "Weak" : "Normal"} break volume · ${f.volX.toFixed(1)}× average <small>(still being tested)</small>`]] : [];
+    const bonus = f.volX != null ? [[f.volX >= 1.5 ? 1 : 0, `${f.volX >= 1.5 ? "Strong" : f.volX < 1 ? "Weak" : "Normal"} break volume · ${f.volX.toFixed(1)}× average <small>(info only — tested on your data, it doesn't change the odds)</small>`]] : [];
     const li = ([v, t]) => `<div class="${v > 0 ? "ok" : v < 0 ? "no" : "meh"}"><i>${v > 0 ? "✓" : v < 0 ? "✗" : "–"}</i><span>${t}</span></div>`;
     const how = !f.choch ? "no CHoCH" : f.chop === "aplus" ? "very clean pullback = A+" : f.chop === "clean" ? (f.score >= 0 ? "clean + score 0 or more" : "score under 0") : f.grade === "B" ? "choppy, but with the 4H trend and a good score" : "choppy pullback";
     return `<div class="dr-checks">${rows.map(li).join("")}
       <p class="dr-score">Score ${f.score >= 0 ? "+" : ""}${f.score} ${"★".repeat(Math.max(0, f.score))} · ${how} → <b class="${f.grade === "A" ? "good" : f.grade === "B" ? "warn" : "bad"}">${gradeWord(f.grade)}</b></p>
-      ${bonus.length ? `<small class="muted">Bonus</small>${bonus.map(li).join("")}` : ""}</div>`;
+      ${bonus.length ? `<small class="muted">Info</small>${bonus.map(li).join("")}` : ""}</div>`;
   }
   function why() {
     const f = X.f, side = X.long ? "Buyers" : "Sellers";

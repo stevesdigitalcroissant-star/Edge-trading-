@@ -189,3 +189,14 @@ TAKE = A+ (ci24 ≤ 45 or ciX ≤ 40) OR (zone score ≥ 0 AND ci24 ≤ 55). 9 m
 2.9/wk, 40% win (2019–22 40% · 2023–26 40%), +0.21R/tr, +2.7R/mo; 50K $200 64% pass ~2.4 mo (A+ only 1.7/wk 44% 69% ~4.4 mo).
 Pine: zGo/mGo, alert prefix "✅ TAKE" / "⛔ SKIP", JSON `go`, panel SETUP row green/red; input onlyAPlus now = "only send TAKE".
 Edge: setup.go decides loud vs quiet alert (falls back to aplus), sdCard verdict banner + "This week: N of 3".
+
+## Volume, 4H trend, choppy B setups, real weeks (Oct 20, archive re-bought WITH volume for 2023-01 → 2026-09)
+- Volume (real CME volume now in edge-data, research/volume.js + 1H leg check): TAKE setups win 40% whatever the volume.
+  5m break candle: strong ≥1.5× +0.18R/tr (255), normal +0.26R (136), weak +0.23R (164). 1H leg out of the zone:
+  strong +0.21R (112), normal +0.23R (87), weak +0.22R (398). → volume is NOT a rule; shown as info only (Pine panel,
+  Test). Only hint: SKIP setups with a strong 1H leg +0.16R (116) — watch, too thin to act on.
+- 4H trend (2071 setups since 2019): TAKE with the 4H trend +0.24R/tr (879), against +0.15R (379). Helps; not required.
+- Choppy (ci24 > 55, not A+): +0.07R overall; with the 4H trend AND score ≥1 +0.12R (78) = "B setup, optional"
+  (Test counts both answers right). SKIP overall +0.02R = no edge, only risk.
+- Real weeks with the rule (2/day, 1 per group): 2.9 trades/wk, 52% green, 42% red, 6% none, worst −5.3R,
+  best +10R, longest losing streak 10. Test "Trade a week" shows these.
