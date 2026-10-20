@@ -211,7 +211,8 @@
     const view = $("#view"), fresh = renderedTab !== tab;
     // keep what you had open (alerts, advanced settings, playbook steps) and where you were in the page
     const open = new Set([...view.querySelectorAll("details[open]")].map((d, i) => d.dataset.keep || `#${i}`)), y = scrollY;
-    view.innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias })[tab]();
+    view.innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias, test: () => `<div id="drillHost"></div>` })[tab]();
+    if (tab === "test" && window.EdgeDrill) window.EdgeDrill.mount($("#drillHost")); // the Test tab (drill.js) keeps its own state between redraws
     if (!fresh) { [...view.querySelectorAll("details")].forEach((d, i) => { if (open.has(d.dataset.keep || `#${i}`)) d.open = true; }); if (Math.abs(scrollY - y) > 1) scrollTo(0, y); }
     view.classList.toggle("enter", fresh); if (fresh) setTimeout(() => view.classList.remove("enter"), 700);
     renderedTab = tab;
@@ -224,6 +225,7 @@
 
   // ---------- "What am I looking at?" — a guided tour, one thing at a time (auto the first time on each screen; ? in the top bar any time)
   const TOURS = {
+    test: [["drill", "Train your eye", "A made-up setup from your rules. Look at the zone: how old is it, how much room to the leg high, how wide, is the pullback clean? Tap <b>TAKE</b> or <b>SKIP</b> — then watch it play out and see why it won or lost."]],
     now: [
       ["confirm", "Edge spotted your trade", "Your order filled, so Edge recorded the trade. Check the numbers match your platform, pick how you feel, tap <b>All correct</b>."],
       ["hero", "What to do right now", "One line. <b>Session open</b> = look for your setup. <b>Setup ready</b> = confirm it below. <b>In a trade</b> = hands off. <b>Locked</b> = a limit was hit — done for today."],

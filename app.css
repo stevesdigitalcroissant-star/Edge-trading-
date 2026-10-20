@@ -85,7 +85,7 @@ main > *:nth-child(2) { animation-delay: .03s; } main > *:nth-child(3) { animati
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* ---------- tab dock */
-.tabs { position: fixed; z-index: 6; left: 50%; transform: translateX(-50%); bottom: calc(12px + env(safe-area-inset-bottom)); width: min(460px, calc(100vw - 24px)); display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px; border-radius: 22px; background: color-mix(in srgb, var(--panel) 84%, transparent); backdrop-filter: saturate(160%) blur(20px); -webkit-backdrop-filter: saturate(160%) blur(20px); border: 1px solid var(--line2); box-shadow: 0 18px 40px -12px rgba(0, 0, 0, .55), var(--hi); }
+.tabs { position: fixed; z-index: 6; left: 50%; transform: translateX(-50%); bottom: calc(12px + env(safe-area-inset-bottom)); width: min(460px, calc(100vw - 24px)); display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px; border-radius: 22px; background: color-mix(in srgb, var(--panel) 84%, transparent); backdrop-filter: saturate(160%) blur(20px); -webkit-backdrop-filter: saturate(160%) blur(20px); border: 1px solid var(--line2); box-shadow: 0 18px 40px -12px rgba(0, 0, 0, .55), var(--hi); }
 .tabs button { position: relative; background: none; border: 0; border-radius: 16px; padding: 8px 0 7px; color: var(--muted); display: grid; justify-items: center; gap: 3px; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; cursor: pointer; transition: color .2s, background .2s; -webkit-tap-highlight-color: transparent; }
 .tabs button svg { width: 21px; height: 21px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .tabs button.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
@@ -1065,3 +1065,34 @@ body.home-on main#view { padding-top: 14px; }
 @media (prefers-reduced-motion: reduce) {
   .w3, .ball3, .arrow3, .lock3, .flag3, .moon3, .moon3 b, .b3.pulse .t, .i3d svg, .i3d .sh { animation: none !important; }
 }
+
+/* ---------- the Test tab (drill.js): take or skip, then watch it play ---------- */
+.drill { display: grid; gap: 14px; }
+.dr-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.dr-stats > div { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 9px 6px; text-align: center; }
+.dr-stats b { display: block; font: 700 17px/1.1 var(--display); } .dr-stats b small { font-size: 11px; color: var(--muted); }
+.dr-stats em { font-style: normal; font-size: 10.5px; color: var(--muted); }
+.dr-stats .good, .dr-card .good { color: var(--good); } .dr-stats .bad, .dr-card .bad { color: var(--bad); }
+.dr-card { padding: 14px; }
+.dr-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; } .dr-head b { font: 700 17px/1 var(--display); } .dr-head .muted { margin-left: auto; font-size: 12px; }
+.dr-cv { display: block; width: 100%; height: min(54vh, 360px); border-radius: 12px; background: var(--panel2); }
+.dr-look { display: flex; justify-content: space-around; margin: 10px 0 2px; font-size: 12.5px; color: var(--muted); }
+.dr-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+.dr-btns button { font: 800 20px/1 var(--display); padding: 20px 0; border-radius: 18px; border: 0; cursor: pointer; color: #fff; box-shadow: 0 8px 0 rgba(0, 0, 0, .25), 0 12px 24px -8px rgba(0, 0, 0, .5); transition: transform .08s, box-shadow .08s; }
+.dr-btns button:active { transform: translateY(6px); box-shadow: 0 2px 0 rgba(0, 0, 0, .25); }
+.dr-take { background: linear-gradient(180deg, #34c08d, #1f8f6a); } .dr-skip { background: linear-gradient(180deg, #f2626b, #b8333b); }
+.dr-verdict { margin-top: 12px; padding: 12px 14px; border-radius: 14px; font: 700 17px/1.2 var(--display); background: color-mix(in srgb, currentColor 12%, var(--panel2)); }
+.dr-verdict.good { color: var(--good); } .dr-verdict.bad { color: var(--bad); }
+.dr-verdict small { display: block; margin-top: 3px; font: 500 12.5px/1.3 var(--font); color: var(--muted); }
+.dr-fast { display: block; margin: 10px auto 0; }
+.dr-result { margin: 12px 0 4px; text-align: center; font: 800 30px/1 var(--display); animation: pop3 .45s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes pop3 { 0% { transform: scale(.4); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+.dr-why { margin: 6px 0 10px; font-size: 14.5px; line-height: 1.4; text-align: center; }
+.dr-checks { display: grid; gap: 6px; padding: 10px 12px; border-radius: 14px; background: var(--panel2); font-size: 13.5px; }
+.dr-checks > div { display: flex; gap: 8px; align-items: center; } .dr-checks i { font-style: normal; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 12px; flex: none; }
+.dr-checks .ok i { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
+.dr-checks .no i { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
+.dr-checks .meh i { background: var(--line); color: var(--muted); }
+.dr-score { margin: 4px 0 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13.5px; }
+.dr-next { width: 100%; margin-top: 12px; padding: 16px; font-size: 16px; }
+.dr-foot { text-align: center; font-size: 12px; margin: 0; }
