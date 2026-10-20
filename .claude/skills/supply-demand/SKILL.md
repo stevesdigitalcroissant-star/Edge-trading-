@@ -173,3 +173,13 @@ Portfolio + judgement research (Oct 14, sd.js ctx, 13 markets, trades fitting $1
 - 1:4 only when the highest target (1H origin) is ≥4R, else 1:3: 43% win, +0.30R, 202R → 81% / 19% — same as 1:3.
 - Decision: 1:3 stays the default; the take dialog offers a 1:4 button only when the highest target is ≥4R (user's choice), and still shows the highest.
 - Funded: risk $100 (sdRisk 70/100/100), one-tap switch from the passed evaluation (action propFunded).
+
+## Zone methods tested (Oct 19, scratchpad v16/ev16b, 667 A+ trades, 9 mkts, 1:3, 03–11 NY; artifact "Zone Methods Lab")
+- Mature zone (price returns ≥11 1H candles after the BOS): 55 tr, 65% win, +0.95R vs +0.25R (both periods ~1R; 8/9 mkts +).
+- Room ≥2R to the origin 1H high: +0.51R vs +0.23R (both periods). Narrow zone ≤0.75 ATR: +0.40 vs +0.25 (both).
+- Instant retest (≤3 1H candles after the BOS): +0.19R (2019–22 +0.03) — weakest.
+- Zone score (+1 mature, +1 room ≥2R, +1 narrow, −1 instant retest): −1 +0.17R · 0 +0.12 · +1 +0.40 · +2 +0.85 (66 tr, 56% win).
+  A+ score ≥1: 3.2/mo 49% +0.52R, 50K pass $200 94% (~7.5 mo) vs all A+ 69% (~4.4 mo); score ≥0: 5.6/mo +0.35R, $200 82%.
+- Maybe: 2–3 candle base (+0.56R, 85 tr), discount half (+0.37 vs +0.25), BOS ≤4 candles (+0.35 vs +0.18).
+- No edge: order block last candle only (same), explosive leg-out (worse), FVG in the leg (2019–22 +0.39, 2023–26 +0.08),
+  DBR vs RBR (continuation slightly better), boring base, liquidity sweep at base (11 tr, too rare). Flip-zone test inconclusive (definition too loose).
