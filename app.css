@@ -1075,7 +1075,7 @@ body.home-on main#view { padding-top: 14px; }
 .dr-stats .good, .dr-card .good { color: var(--good); } .dr-stats .bad, .dr-card .bad { color: var(--bad); }
 .dr-card { padding: 14px; }
 .dr-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; } .dr-head b { font: 700 17px/1 var(--display); } .dr-head .muted { margin-left: auto; font-size: 12px; }
-.dr-cv { display: block; width: 100%; height: min(54vh, 360px); border-radius: 12px; background: var(--panel2); }
+.dr-cv { display: block; width: 100%; height: min(50vh, 340px); border-radius: 12px; background: var(--panel2); }
 .dr-look { display: flex; justify-content: space-around; margin: 10px 0 2px; font-size: 12.5px; color: var(--muted); }
 .dr-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
 .dr-btns button { font: 800 20px/1 var(--display); padding: 20px 0; border-radius: 18px; border: 0; cursor: pointer; color: #fff; box-shadow: 0 8px 0 rgba(0, 0, 0, .25), 0 12px 24px -8px rgba(0, 0, 0, .5); transition: transform .08s, box-shadow .08s; }
@@ -1096,3 +1096,18 @@ body.home-on main#view { padding-top: 14px; }
 .dr-score { margin: 4px 0 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13.5px; }
 .dr-next { width: 100%; margin-top: 12px; padding: 16px; font-size: 16px; }
 .dr-foot { text-align: center; font-size: 12px; margin: 0; }
+.lock3.trophy3 { left: 105px; top: 77px; animation: troph3 3s ease-in-out infinite; } .trophy3 svg { left: -28px; width: 56px; height: 56px; }
+@keyframes troph3 { 0%, 100% { transform: translateZ(50px); } 50% { transform: translateZ(64px); } }
+/* emoji that float like the 3D icons (market tiles, playbook steps, insights) */
+.e3d { display: inline-block; filter: drop-shadow(0 6px 5px rgba(0, 0, 0, .35)); animation: float3 4.5s ease-in-out infinite; transform-style: preserve-3d; }
+.sim-tile:nth-child(2n) .e3d, .pb-book details:nth-child(2n) .e3d { animation-delay: -1.6s; } .sim-tile:nth-child(3n) .e3d, .pb-book details:nth-child(3n) .e3d { animation-delay: -3s; }
+.sim-tile .e3d { font-size: 34px; }
+.pb-book summary .e3d { font-size: 22px; margin-right: 4px; }
+.insight > span.e3d { font-size: 26px; }
+.jstats-more { margin-top: 10px; } .jstats-more summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 13.5px; }
+@media (prefers-reduced-motion: reduce) { .e3d, .lock3.trophy3 { animation: none !important; } }
+.dr-minis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.dr-minis canvas { display: block; width: 100%; height: 118px; border-radius: 12px; background: var(--panel2); }
+.dr-look { flex-wrap: wrap; gap: 4px 10px; justify-content: center; }
+.dr-checks > small { margin-top: 6px; text-transform: uppercase; letter-spacing: .12em; font-size: 10.5px; }
+.dr-checks span small { color: var(--muted); font-size: 11px; }

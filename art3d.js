@@ -38,6 +38,16 @@
     quiet: () => `${floor}${candle(50, 60, 0, 18, true)}${candle(80, 60, 0, 26, false)}${candle(110, 60, 0, 14, true)}${candle(140, 60, 0, 22, true)}
       <div class="moon3"><svg viewBox="0 0 60 60"><defs><radialGradient id="m3g" cx=".35" cy=".3"><stop offset="0" stop-color="#fff6dc"/><stop offset=".6" stop-color="#e8c27a"/><stop offset="1" stop-color="#9c7432"/></radialGradient></defs><path d="M40 6a26 26 0 1 0 14 40A22 22 0 0 1 40 6z" fill="url(#m3g)"/></svg><b>z</b><b>z</b></div>`,
   };
+  // Coach: a podium with a gold trophy floating over first place
+  SCENES.coach = () => `${floor}${box(40, 60, 40, 40, 30, "#9aa3ad")}${box(85, 55, 40, 45, 48, "#d9a648")}${box(130, 60, 40, 40, 20, "#b07a44")}
+    <div class="lock3 trophy3"><svg viewBox="0 0 64 64">${ICONS.prop}</svg></div>`;
+  // Journal: your last trades as 3D bars — green winners, red losers (ghost bars until you have some)
+  function bars(rs) {
+    const ghost = !rs.length, v = ghost ? [1.2, -1, 3, -1, 2, 3.4, -1, 1.5] : rs.slice(-12);
+    const step = Math.min(18, 170 / v.length), x0 = (210 - step * v.length) / 2;
+    const out = v.map((r, i) => box(x0 + i * step, 62, step * 0.7, 26, Math.max(4, Math.min(70, Math.abs(r) * 16)), ghost ? "rgba(154,163,173,.35)" : r > 0 ? "#26a69a" : r < 0 ? "#ef5350" : "#9aa3ad", ghost ? "glass" : "")).join("");
+    return `<div class="scene3" aria-hidden="true"><div class="w3">${floor}${out}</div></div>`;
+  }
   function scene(kind) { return `<div class="scene3" aria-hidden="true"><div class="w3">${(SCENES[kind] || SCENES.quiet)()}</div></div>`; }
 
   // glossy 3D icons (64×64 SVG) for the home tiles
@@ -70,5 +80,5 @@
   };
   const icon = (name) => `<span class="i3d" aria-hidden="true"><svg viewBox="0 0 64 64">${ICONS[name] || ""}</svg><i class="sh"></i></span>`;
 
-  window.EdgeArt = { scene, icon };
+  window.EdgeArt = { scene, icon, bars };
 })();

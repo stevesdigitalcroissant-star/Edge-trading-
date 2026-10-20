@@ -284,7 +284,7 @@
   function insightsCard(list = S.journal, title = "🧠 What Edge learned about you", small = false) {
     const I = window.EdgeInsights ? window.EdgeInsights.insights(list) : { ready: false, n: 0, need: 5, items: [] };
     const body = !I.ready
-      ? `<div class="insight info"><span>🌱</span><div><b>Still learning</b><p>After ${I.need} closed trades Edge starts telling you your best times, markets and habits. You have ${I.n}.</p></div></div>`
+      ? `<div class="insight info"><span class="e3d">🌱</span><div><b>Still learning</b><p>${I.n} of ${I.need} trades.</p></div></div>`
       : (small ? I.items.slice(0, 2) : I.items).map((x) => `<div class="insight ${x.kind}"><span>${x.icon}</span><div><b>${esc(x.title)}</b><p>${esc(x.text)}</p></div></div>`).join("") || `<p class="muted">Nothing stands out yet — your results are even across times and markets.</p>`;
     return `<section class="card" data-tour="insights"><div class="card-head"><h2>${title}</h2>${I.ready ? `<span class="muted">${I.n} trades</span>` : ""}</div>${body}${small && I.ready && I.items.length > 2 ? `<a href="#journal" class="muted" style="font-size:13px">See all ${I.items.length} →</a>` : ""}</section>`;
   }
@@ -853,17 +853,16 @@
     const kept = last.reduce((a, x) => a + x.score.filter((c) => c.ok).length, 0), total = last.reduce((a, x) => a + x.score.length, 0);
     const pct = total ? Math.round((kept / total) * 100) : 0, textbook = last.filter((x) => x.score.every((c) => c.ok)).length, C = 2 * Math.PI * 40;
     const sumR = last.reduce((a, x) => a + (x.R || 0), 0);
-    const hero = `<section class="card hero" data-tour="train" style="--state:var(--accent)">
-      <div><div class="state">Coach · train, review, improve</div>
+    const hero = `<section class="card hero ${window.EdgeArt ? "with3d" : ""}" data-tour="train" style="--state:var(--accent)">${window.EdgeArt ? window.EdgeArt.scene("coach") : ""}
+      <div><div class="state">Coach</div>
         <div class="headline">${!CO.ex ? "Loading your practice…" : last.length ? `${pct}% of your playbook kept` : "Train on real past days."}</div>
-        <p class="sub">${last.length ? `Last ${last.length} practice trade${last.length > 1 ? "s" : ""} · ${textbook} textbook · ${sumR >= 0 ? "+" : ""}${sumR.toFixed(1)}R` : "Pick a market below. Mark your zones, take your trade — Edge scores it against your playbook and shows you what you did well and what you missed."}</p></div>
+        <p class="sub">${last.length ? `Last ${last.length} practice trade${last.length > 1 ? "s" : ""} · ${textbook} textbook · ${sumR >= 0 ? "+" : ""}${sumR.toFixed(1)}R` : "Pick a market. Take a trade. Get a score."}</p></div>
       <div class="ring"><svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="7"/>
         <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="url(#goldGrad)" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct / 100)}"/></svg>
         <div class="lbl"><b>${last.length ? `${pct}%` : "—"}</b><small>rules kept</small></div></div></section>`;
     const sims = [["nq", "💻", "Nasdaq", "MNQ"], ["es", "🗽", "S&P 500", "MES"], ["ym", "🏛️", "Dow", "MYM"], ["gold", "🥇", "Gold", "MGC"], ["silver", "🥈", "Silver", "SIL"], ["crude", "🛢️", "Crude oil", "MCL"], ["copper", "🟠", "Copper", "MHG"], ["natgas", "🔥", "Natural gas", "QG"]];
-    const practice = `<section class="card" data-tour="sim"><div class="card-head"><h2>🕹 Practice</h2><span class="muted">real past days · like TradingView</span></div>
-      <div class="sim-tiles">${sims.map(([m, ic, n, c]) => `<button type="button" class="sim-tile" data-sim="${m}"><span>${ic}</span><b>${n}</b><small>${c}</small></button>`).join("")}</div>
-      <p class="muted" style="margin:10px 0 0;font-size:12.5px">Start on the weekly / daily / 4H, mark the zones, drop to the 15m, then take the trade on the 5m. Every trade gets a scorecard.</p></section>`;
+    const practice = `<section class="card" data-tour="sim"><div class="card-head"><h2>🕹 Practice</h2><span class="muted">real past days</span></div>
+      <div class="sim-tiles">${sims.map(([m, ic, n, c]) => `<button type="button" class="sim-tile" data-sim="${m}"><span class="e3d">${ic}</span><b>${n}</b><small>${c}</small></button>`).join("")}</div></section>`;
     // how well each step is kept, over the last 20 trades
     const by = {}; for (const x of last) for (const c of x.score) { const b = (by[c.id] = by[c.id] || { ok: 0, n: 0 }); b.n++; if (c.ok) b.ok++; }
     const rows = Object.keys(SC_NAMES).filter((k) => by[k]).map((k) => ({ k, p: Math.round((by[k].ok / by[k].n) * 100), n: by[k].n }));
@@ -885,7 +884,7 @@
     })() : "";
     const book = P ? `<section class="card" data-tour="playbook"><div class="card-head"><h2>📘 Your playbook</h2><button class="btn small" data-qz="${CO.quiz ? "hide" : "start"}">${CO.quiz ? "Hide quiz" : "🧠 Quiz me"}</button></div>
       ${quiz}
-      <div class="pb-book">${P.STEPS.map((st, i) => `<details data-keep="pb-${st.id}"><summary><i>${i + 1}</i><span><b>${st.icon} ${esc(st.title)}</b><small>${esc(st.short)}${st.req ? "" : " · bonus"}</small></span></summary><p>${esc(st.text)}</p></details>`).join("")}</div>
+      <div class="pb-book">${P.STEPS.map((st, i) => `<details data-keep="pb-${st.id}"><summary><i>${i + 1}</i><span><b><span class="e3d">${st.icon}</span> ${esc(st.title)}</b><small>${esc(st.short)}${st.req ? "" : " · bonus"}</small></span></summary><p>${esc(st.text)}</p></details>`).join("")}</div>
       <div class="pb-manage"><b>In the trade</b>${P.MANAGE.map((m) => `<span>${esc(m)}</span>`).join("")}</div></section>` : "";
     // readiness: is your practice good enough to risk real money? (and, with your prop account set up, your odds of passing it)
     const Rd = window.EdgeProp && CO.ex ? window.EdgeProp.readiness(CO.ex) : null, od = S.prop && S.prop.cfg && S.prop.cfg.enabled && S.prop.cfg.phase !== "funded" ? passOdds() : null;
@@ -1220,14 +1219,15 @@
         ${(() => { const sc = t.practice ? [] : liveScore(t); if (!sc.length) return ""; const ok = sc.filter((c) => c.ok).length;
           return `<div class="sc-list" style="grid-column:1/-1;margin-top:4px"><span class="${ok === sc.length ? "ok" : ""}">${ok}/${sc.length} kept</span>${sc.filter((c) => !c.ok).map((c) => `<span class="no" title="${esc(c.text)}">! ${esc(c.title)}</span>`).join("")}${S.markets[t.market] ? `<button type="button" class="link" data-snap="${esc(t.id)}">View on chart ›</button>` : ""}</div>`; })()}</div>`;
     const rows = S.journal.map(jrow).join("");
-    return `${judgeCard()}${insightsCard()}${S.practice.length >= 5 ? insightsCard(S.practice, "🧠 From your practice trades") : ""}<section class="card" data-tour="results"><h2>Results</h2><div class="grid2">
-        <div class="stat"><small>Total</small><b class="${cls(st.totalR)}">${rs(st.totalR)}</b><small>${st.n} trades</small></div>
-        <div class="stat"><small>Win rate</small><b>${st.winRate == null ? "—" : st.winRate + "%"}</b><small>avg ${rs(st.avgR)}</small></div>
-        <div class="stat"><small>Hit the target</small><b>${st.targets}</b><small>each trade's own target</small></div>
-        <div class="stat"><small>Saved by break-even</small><b>${st.breakEvens}</b><small>would-be losses</small></div>
-        ${grp(st.aPlus, "A+ trades")}${grp(st.other, "A / B")}${grp(st.unplanned, "Unplanned")}
-        <div class="stat"><small>Trades with a rule break</small><b class="${st.ruleBreaks ? "neg" : ""}">${st.ruleBreaks}</b></div>
-      </div></section>
+    const lastR = S.journal.slice(0, 12).map((t) => t.resultR || 0).reverse();
+    const jhero = `<section class="card hero ${window.EdgeArt ? "with3d" : ""}" data-tour="results" style="--state:${st.totalR > 0 ? "var(--good)" : st.totalR < 0 ? "var(--bad)" : "var(--accent)"}">${window.EdgeArt ? window.EdgeArt.bars(lastR) : ""}
+      <div><div class="state">Journal</div><div class="headline">${st.n ? `<span class="${cls(st.totalR)}">${rs(st.totalR)}</span> · ${st.n} trade${st.n > 1 ? "s" : ""}` : "No trades yet."}</div><p class="sub">${st.n ? "Your last trades, as bars." : "Your trades will stack up here."}</p></div></section>`;
+    return `${jhero}${judgeCard()}${insightsCard()}${S.practice.length >= 5 ? insightsCard(S.practice, "🧠 From your practice trades") : ""}<section class="card"><div class="grid2">
+        <div class="stat"><small>🎯 Win rate</small><b>${st.winRate == null ? "—" : st.winRate + "%"}</b><small>avg ${rs(st.avgR)}</small></div>
+        <div class="stat"><small>🏁 Hit the target</small><b>${st.targets}</b></div>
+        <div class="stat"><small>🛡️ Saved by break-even</small><b>${st.breakEvens}</b></div>
+        <div class="stat"><small>⚠️ Rule breaks</small><b class="${st.ruleBreaks ? "neg" : ""}">${st.ruleBreaks}</b></div>
+      </div><details class="jstats-more" data-keep="jmore"><summary>More</summary><div class="grid2" style="margin-top:10px">${grp(st.aPlus, "A+ trades")}${grp(st.other, "A / B")}${grp(st.unplanned, "Unplanned")}</div></details></section>
       ${S.practice.length ? `<section class="card"><h2>Practice — not counted above</h2><div class="grid2">
         <div class="stat"><small>Practice total</small><b class="${cls(S.practiceStats.totalR)}">${rs(S.practiceStats.totalR)}</b><small>${S.practiceStats.n} trades</small></div>
         <div class="stat"><small>Win rate</small><b>${S.practiceStats.winRate == null ? "—" : S.practiceStats.winRate + "%"}</b><small>avg ${rs(S.practiceStats.avgR)}</small></div>
