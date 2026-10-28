@@ -1524,7 +1524,7 @@
       try {
         const r = await api("POST", { action: "davidKey" }), addr = location.origin + "/api/mcp";
         const body = $("#modalBody");
-        body.innerHTML = `<h3>Connect David</h3><p class="muted">In David: tap the grid button → <b>Add your own tool</b>. Name: <b>edge</b>. Paste the address and the key. The key is shown only once.</p>
+        body.innerHTML = `<h3>Connect David</h3><p class="muted">In David: tap the grid button → <b>Edge</b> → paste this key → Save. It's shown only once.</p>
           <p>Address</p><div class="rcode">${esc(addr)}</div><button class="btn small" data-cp="${esc(addr)}">Copy address</button>
           <p style="margin-top:12px">Key</p><div class="rcode" style="word-break:break-all">${esc(r.key)}</div><button class="btn small" data-cp="${esc(r.key)}">Copy key</button>
           <div class="row" style="margin-top:14px"><button class="btn primary" value="ok">Done</button></div>`;
