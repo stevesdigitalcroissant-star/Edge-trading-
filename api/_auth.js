@@ -121,6 +121,22 @@ async function newRecoveryCode(store, acct) {
   return { recoveryCode: rc };
 }
 
+// David (the voice assistant) reads Edge with its own key: read-only, made and replaced from Settings.
+// Only its sha256 is stored; the key itself is shown once.
+const sha = (t) => crypto.createHash("sha256").update(String(t)).digest("hex");
+async function newDavidKey(store) {
+  const key = "edge_dv_" + crypto.randomBytes(24).toString("base64url");
+  await store.set("davidKey", { hash: sha(key), at: Date.now() });
+  return { key };
+}
+async function revokeDavidKey(store) { await store.set("davidKey", null); return { ok: true }; }
+async function davidAuthorized(store, headers) {
+  const tok = String((headers && headers.authorization) || "").replace(/^Bearer\s+/i, "").trim();
+  const rec = await store.get("davidKey");
+  if (!tok.startsWith("edge_dv_") || !rec || !rec.hash) return false;
+  return crypto.timingSafeEqual(Buffer.from(sha(tok)), Buffer.from(rec.hash));
+}
+
 // → the account, or null when the token is missing, forged, expired or from before a password change
 async function authorized(store, headers, now = Date.now()) {
   const tok = String((headers && headers.authorization) || "").replace(/^Bearer\s+/i, "");
@@ -134,4 +150,4 @@ async function authorized(store, headers, now = Date.now()) {
   return acct;
 }
 
-module.exports = { status, signup, login, recover, changePassword, newRecoveryCode, authorized };
+module.exports = { status, signup, login, recover, changePassword, newRecoveryCode, authorized, newDavidKey, revokeDavidKey, davidAuthorized };

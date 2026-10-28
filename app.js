@@ -1418,6 +1418,9 @@
           <div class="row" style="margin-top:10px"><button class="btn small primary" id="cpSave">Change password</button><small class="muted">Signs out your other devices.</small></div>
         </details>
         <div class="row" style="margin-top:12px"><button class="btn small" id="newCode">New recovery code</button><button class="btn small danger" id="signOut">Sign out</button></div>
+        <h3 style="margin-top:18px">David (your voice assistant)</h3>
+        <p class="muted">Lets David read Edge: today's plan, setups, journal, coach and rules. Read-only: he can't place, change or close trades.</p>
+        <div class="row" style="margin-top:8px"><button class="btn small" id="davidKey">Connect David</button><button class="btn small danger" id="davidRevoke">Disconnect David</button></div>
       </section>`;
   }
 
@@ -1516,6 +1519,20 @@
       try { const r = await api("POST", { action: "changePassword", current: $("#cpOld").value, next: $("#cpNew").value }); signedIn(r.token); toast("Password changed. Other devices are signed out."); render(); }
       catch (e) { toast(e.message, 6000); }
     });
+    const dk = $("#davidKey"); if (dk) dk.addEventListener("click", async () => {
+      if (!confirm("Make a new David key? An older one stops working.")) return;
+      try {
+        const r = await api("POST", { action: "davidKey" }), addr = location.origin + "/api/mcp";
+        const body = $("#modalBody");
+        body.innerHTML = `<h3>Connect David</h3><p class="muted">In David: tap the grid button → <b>Add your own tool</b>. Name: <b>edge</b>. Paste the address and the key. The key is shown only once.</p>
+          <p>Address</p><div class="rcode">${esc(addr)}</div><button class="btn small" data-cp="${esc(addr)}">Copy address</button>
+          <p style="margin-top:12px">Key</p><div class="rcode" style="word-break:break-all">${esc(r.key)}</div><button class="btn small" data-cp="${esc(r.key)}">Copy key</button>
+          <div class="row" style="margin-top:14px"><button class="btn primary" value="ok">Done</button></div>`;
+        body.querySelectorAll("[data-cp]").forEach((b) => b.addEventListener("click", async (e) => { e.preventDefault(); try { await navigator.clipboard.writeText(b.dataset.cp); toast("Copied."); } catch { toast("Press and hold to copy."); } }));
+        $("#modal").showModal();
+      } catch (e) { toast(e.message); }
+    });
+    const dr = $("#davidRevoke"); if (dr) dr.addEventListener("click", async () => { if (confirm("Disconnect David? He can no longer read Edge.")) { try { await api("POST", { action: "davidRevoke" }); toast("David disconnected."); } catch (e) { toast(e.message); } } });
     const nc = $("#newCode"); if (nc) nc.addEventListener("click", async () => {
       try {
         const r = await api("POST", { action: "newRecoveryCode" });

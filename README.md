@@ -269,6 +269,14 @@ window with your chart: TradingView, **FX Replay**, Tradovate or NinjaTrader. No
   low effort), roughly a cent or two. A 3-hour session is typically a few dollars. There's a daily cap in Rules.
   Only the shared window is sent, never the rest of your screen.
 
+## David (voice assistant) reads Edge
+
+Settings → **David** → *Connect David* makes a key (shown once; only its hash is stored). In David, add your own
+tool named `edge` with the address `https://<your Edge>/api/mcp` and that key. `api/mcp.js` is a small MCP server
+with five **read-only** tools: today (plans, open trades, guardrails, news, bias), setups, journal (real or practice),
+coach and rules. Nothing there can place, change or close a trade, or touch the broker or the rules.
+*Disconnect David* stops the key.
+
 ## The strategy, as rules
 
 All of it is in `pine/edge_supply_demand.pine` (TradingView, Pine Script v6). You use it on a **5-minute chart**:

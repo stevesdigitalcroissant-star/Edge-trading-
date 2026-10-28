@@ -28,6 +28,8 @@ module.exports = async (req, res) => {
     if (req.method === "POST" && body.action === "tradovateConnect") return res.status(200).json(await connectTradovate(store, body));
     if (req.method === "POST" && body.action === "tradovateDisconnect") return res.status(200).json(await disconnectTradovate(store));
     if (req.method === "POST" && body.action === "changePassword") return res.status(200).json(await auth.changePassword(store, acct, body));
+    if (req.method === "POST" && body.action === "davidKey") return res.status(200).json(await auth.newDavidKey(store));
+    if (req.method === "POST" && body.action === "davidRevoke") return res.status(200).json(await auth.revokeDavidKey(store));
     if (req.method === "POST" && body.action === "newRecoveryCode") return res.status(200).json(await auth.newRecoveryCode(store, acct));
     if (req.method === "POST") return res.status(200).json(await action(store, await brokerFor(store), body));
     res.status(405).json({ error: "GET or POST" });
