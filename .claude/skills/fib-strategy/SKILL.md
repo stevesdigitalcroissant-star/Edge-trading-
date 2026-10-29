@@ -59,3 +59,11 @@ scratchpad trend.js, 9 mkts 2019–2026, harsh costs, stop ≥ $30, flat 16:00 (
 - Retracement depth (incl. Fib 0.5–0.79), displacement candle, 2023+ volume spike: none separates winners.
 - Lesson: timing ladders (CHoCH on CHoCH) ≈ random entries. The only edge found so far came from LOCATION filters
   on the S&D trades (mature zone, room, chop, big-picture ①②③: +0.51R on 134 trades).
+
+## Backtest 4 — liquidity sweeps (trend.js mode "S" + flags; 9 mkts 2019–2026, harsh costs, stop ≥ $30)
+- Standalone: price takes the Asian or previous-day high/low (03:00–11:00 NY), then 5m CHoCH back → FVG entry, stop past
+  the sweep, 1:3. Clear-swing CHoCH: 2,312 portfolio trades, 30% win, −0.14R; small swing: −0.18R. With daily + 4H
+  trend: −0.15R; every level (Asia L/H, PD L/H) negative; both halves negative.
+- As a filter on the trend ladder: sweep −0.17R vs no sweep −0.19R (no difference).
+- On the 550 S&D trades: swept Asia/PD before entry 151 trades +0.16R vs no sweep 399 +0.24R; with the 4H trend +0.26 vs
+  +0.28. A sweep adds nothing; 2023–26 sweep trades −0.03R.
