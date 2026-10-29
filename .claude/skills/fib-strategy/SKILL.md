@@ -31,3 +31,10 @@ Sells mirror buys.
 - His own 474 S&D trades (realistic costs) bucketed by the 3-week 1H swing retracement: 0.5 – 0.79 → n 80, 54% win,
   +0.57R/trade; chasing < 0.25 → n 252, 40%, +0.16R. Small sample — the full three-Fib backtest is pending
   (2019–2026, 9 markets, harsh costs, 5m vs 1m entry, 1:3 vs −1.0 target, split 2019–22 / 2023–26).
+
+## Backtest 1 (29 Oct 2026, scratchpad fib.js — automated box, harsh costs, 9 mkts 2019–2026, portfolio 2/day)
+- CHoCH on a tiny 5m swing: 238 trades, 23% win, −0.40R/trade. Clear 5m swing (2.5×ATR zigzag): 103, 30%, −0.15R.
+  **15m CHoCH (Steve's idea)**: 60, 28%, −0.16R; without the $140 risk cap 95 trades, 37% win, **+0.03R** — best of the
+  three but ≈ breakeven, and only ~12 trades a year. Supply/demand POIs ≈ 0R, big-level POIs lose (−0.5 to −0.9R, n<20).
+- Clear swing ≫ tiny swing is solid. The full three-Fib box, as automated, has no edge yet → check the automation
+  against Steve's own drawing (10 example charts) before judging the idea.
