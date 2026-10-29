@@ -1,6 +1,6 @@
 ---
 name: fib-strategy
-description: Steve's main strategy from late Oct 2026 — three-Fib confluence (4H swing → 1H swing → POI leg) at a level that matters, 5m/1m CHoCH entry, 1:3. Use for anything about his strategy — explaining, coding the Edge playbook, scanner, simulator, Test tab, TradingView scripts, backtests in edge-data, alerts, videos. Supersedes supply-demand (zones are now one kind of POI inside this).
+description: OLD — dropped 29 Oct 2026 after backtests showed no edge (kept for the results). Was: three-Fib confluence (4H swing → 1H swing → POI leg) at a level that matters, 5m/1m CHoCH entry, 1:3. Use for anything about his strategy — explaining, coding the Edge playbook, scanner, simulator, Test tab, TradingView scripts, backtests in edge-data, alerts, videos. Superseded by supply-demand + big-picture rules.
 ---
 
 # Fib strategy — the rules (status: being backtested; the playbook says so)

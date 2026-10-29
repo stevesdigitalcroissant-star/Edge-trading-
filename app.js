@@ -225,7 +225,7 @@
   // your rules (the playbook), under the Test drills — tap a step for the details
   function rulesCard() {
     const P = PB(); if (!P) return "";
-    return `<section class="card" data-tour="playbook"><div class="card-head"><h2>📘 Your rules</h2></div>${P.NOTE ? `<p class="muted" style="margin:0 0 8px;font-size:12.5px">🧪 ${esc(P.NOTE)}</p>` : ""}
+    return `<section class="card" data-tour="playbook"><div class="card-head"><h2>📘 Your rules</h2></div>${P.NOTE ? `<p class="muted" style="margin:0 0 8px;font-size:12.5px">📊 ${esc(P.NOTE)}</p>` : ""}
       <div class="pb-book">${P.STEPS.map((st, i) => `<details data-keep="pb-${st.id}"><summary><i>${i + 1}</i><span><b><span class="e3d">${st.icon}</span> ${esc(st.title)}</b><small>${esc(st.short)}</small></span></summary><p>${esc(st.text)}</p></details>`).join("")}</div>
       <div class="pb-manage"><b>In the trade</b>${P.MANAGE.map((m) => `<span>${esc(m)}</span>`).join("")}</div></section>`;
   }

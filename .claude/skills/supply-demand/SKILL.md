@@ -1,6 +1,6 @@
 ---
 name: supply-demand
-description: OLD (superseded by fib-strategy, late Oct 2026) — Steve's supply & demand, the Smart Risk model, as exact rules. Use for anything about his strategy — drawing zones, explaining, coding the Edge scanner or simulator, TradingView scripts, backtests in edge-data, alerts. Supersedes draw-zones and every earlier strategy.
+description: Steve's CURRENT strategy (back in charge 29 Oct 2026, after Fib was tested and dropped): supply & demand + big-picture rules ①②③, the Smart Risk model, as exact rules. Use for anything about his strategy — drawing zones, explaining, coding the Edge scanner or simulator, TradingView scripts, backtests in edge-data, alerts. Supersedes draw-zones and every earlier strategy.
 ---
 
 # Supply & demand — the rules
@@ -200,3 +200,11 @@ Edge: setup.go decides loud vs quiet alert (falls back to aplus), sdCard verdict
   (Test counts both answers right). SKIP overall +0.02R = no edge, only risk.
 - Real weeks with the rule (2/day, 1 per group): 2.9 trades/wk, 52% green, 42% red, 6% none, worst −5.3R,
   best +10R, longest losing streak 10. Test "Trade a week" shows these.
+
+## Big-picture rules ①②③ — part of the strategy (29 Oct 2026; Fib dropped at Steve's request)
+On 474 realistic TAKE trades with a full year of history: ① skip if a 12-month major 4H level (≥ 3 distinct touches) sits
+inside 3R (open sky = best) → +0.30R; ② skip if chasing: with the 3-week 1H swing and pulled back < 0.25 → +0.38R;
+③ only with the 4H trend → **+0.51R on 134 trades**, worst dip 8.6R, 2019–22 +0.58 / 2023–26 +0.44. ~1–2 trades a month.
+Playbook: htf = 4H trend + walls, chase = not chasing (plain words, no Fib). Tested and rejected as rules: Fib 3-box,
+15m/5m CHoCH ladders, liquidity sweeps, volume (see fib-strategy skill for the numbers).
+Visual example: Silver BUY 3 Oct 2024 (vid_b_data.js / card_tpl.html in the scratchpad).
