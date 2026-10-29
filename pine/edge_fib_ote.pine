@@ -76,6 +76,7 @@ newsMins  = input.int(30, "  No signals this many minutes either side", minval =
 G_UI = "Display"
 showTable = input.bool(true, "Status table (top right)", group = G_UI)
 showStats = input.bool(true, "Backtest table (bottom right)", group = G_UI)
+rightBars = input.int(8, "Lines and zones stop this many bars right of the last candle", minval = 1, maxval = 50, group = G_UI)
 
 // ============================================================================================ TYPES
 type Zone
@@ -288,6 +289,7 @@ var box fib1B = na
 var int fib4Key = na
 var int fib1Key = na
 LEVELS = array.from(0.0, 0.5, 0.62, 0.705, 0.79, 1.0, -0.27, -0.62)
+int rightT = time + rightBars * timeframe.in_seconds() * 1000   // drawings stop a few bars right of the last candle
 fClearFib(array<line> ls, array<label> tx) =>
     for l in ls
         l.delete()
@@ -301,8 +303,8 @@ fDrawFib(array<line> ls, array<label> tx, float a, float b, int t0, color c, str
         float y = fLvl(a, b, p)
         bool main = p == 0.705
         color lc = p < 0 ? color.new(color.teal, 20) : main ? color.new(c, 0) : color.new(c, 45)
-        ls.push(line.new(t0, y, time, y, xloc.bar_time, extend.right, lc, p == 0.62 or p == 0.79 ? line.style_dashed : line.style_solid, main ? 3 : 1))
-        tx.push(label.new(time, y, str.format("{0} {1}", tag, str.tostring(p)), xloc.bar_time, yloc.price, color(na), label.style_label_left, lc, size.tiny))
+        ls.push(line.new(t0, y, rightT, y, xloc.bar_time, extend.none, lc, p == 0.62 or p == 0.79 ? line.style_dashed : line.style_solid, main ? 3 : 1))
+        tx.push(label.new(rightT, y, str.format("{0} {1}", tag, str.tostring(p)), xloc.bar_time, yloc.price, color(na), label.style_label_left, lc, size.tiny))
 if barstate.isconfirmed
     int k4 = dir == 0 or na(tB4) ? na : tB4 * dir
     if fChanged(k4, fib4Key)
@@ -310,7 +312,7 @@ if barstate.isconfirmed
         fib4B.delete()
         if showFib4 and not na(k4)
             fDrawFib(fib4L, fib4T, A4, B4, tB4, color.new(#d9a648, 0), "4H")
-            fib4B := box.new(tB4, math.max(ote4a, ote4b), time, math.min(ote4a, ote4b), color(na), 0, line.style_solid, extend.right, xloc.bar_time, col4)
+            fib4B := box.new(tB4, math.max(ote4a, ote4b), rightT, math.min(ote4a, ote4b), color(na), 0, line.style_solid, extend.none, xloc.bar_time, col4)
         else
             fClearFib(fib4L, fib4T)
     int k1 = dir == 0 or na(tB1) ? na : tB1 * dir
@@ -319,9 +321,21 @@ if barstate.isconfirmed
         fib1B.delete()
         if showFib1 and not na(k1)
             fDrawFib(fib1L, fib1T, A1, B1, tB1, color.new(#4b8bd9, 0), "1H")
-            fib1B := box.new(tB1, math.max(ote1a, ote1b), time, math.min(ote1a, ote1b), color(na), 0, line.style_solid, extend.right, xloc.bar_time, col1)
+            fib1B := box.new(tB1, math.max(ote1a, ote1b), rightT, math.min(ote1a, ote1b), color(na), 0, line.style_solid, extend.none, xloc.bar_time, col1)
         else
             fClearFib(fib1L, fib1T)
+
+if barstate.islast or barstate.isconfirmed
+    for l in fib4L
+        l.set_x2(rightT)
+    for x in fib4T
+        x.set_x(rightT)
+    for l in fib1L
+        l.set_x2(rightT)
+    for x in fib1T
+        x.set_x(rightT)
+    fib4B.set_right(rightT)
+    fib1B.set_right(rightT)
 
 // ============================================================================================ POI ZONES (on the chart: fresh / mitigated / filled / spent)
 var array<Zone> zones = array.new<Zone>()
@@ -340,7 +354,7 @@ fFeed(int i, float top, float bot, int t) =>
         z.spent := false
         z.dead := false
         if showZones
-            z.bx := box.new(t, top, time, bot, color(na), 0, line.style_solid, extend.right, xloc.bar_time, color.new(z.demand ? color.teal : color.red, 85), z.name, size.tiny, color.new(z.demand ? color.teal : color.red, 30), text.align_left, text.align_top)
+            z.bx := box.new(t, top, rightT, bot, color(na), 0, line.style_solid, extend.none, xloc.bar_time, color.new(z.demand ? color.teal : color.red, 85), z.name, size.tiny, color.new(z.demand ? color.teal : color.red, 30), text.align_left, text.align_top)
 fFeed(0, dTop1, dBot1, dT1)
 fFeed(1, sTop1, sBot1, sT1)
 fFeed(2, dTop4, dBot4, dT4)
@@ -381,6 +395,7 @@ for z in zones
             z.dead := true
             z.bx.delete()
         else if showZones and not na(z.bx)
+            z.bx.set_right(rightT)
             z.bx.set_bgcolor(z.spent ? color.new(color.gray, 85) : color.new(z.demand ? color.teal : color.red, z.fresh ? 82 : 92))
             z.bx.set_text(str.format("{0} · {1}", z.name, z.spent ? "spent" : z.fresh ? "fresh" : str.format("{0}% filled", math.round(z.fill * 100))))
 
@@ -741,6 +756,6 @@ if showVP and barstate.islast and vpHi > vpLo
         pocL.delete()
         vahL.delete()
         valL.delete()
-        pocL := line.new(bar_index - vpLook, poc, bar_index, poc, color = color.new(color.orange, 30), style = line.style_dotted, extend = extend.right)
-        vahL := line.new(bar_index - vpLook, vah, bar_index, vah, color = color.new(color.gray, 60), style = line.style_dotted, extend = extend.right)
-        valL := line.new(bar_index - vpLook, val, bar_index, val, color = color.new(color.gray, 60), style = line.style_dotted, extend = extend.right)
+        pocL := line.new(bar_index - vpLook, poc, bar_index + rightBars, poc, color = color.new(color.orange, 30), style = line.style_dotted, extend = extend.none)
+        vahL := line.new(bar_index - vpLook, vah, bar_index + rightBars, vah, color = color.new(color.gray, 60), style = line.style_dotted, extend = extend.none)
+        valL := line.new(bar_index - vpLook, val, bar_index + rightBars, val, color = color.new(color.gray, 60), style = line.style_dotted, extend = extend.none)
