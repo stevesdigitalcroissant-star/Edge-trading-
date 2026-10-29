@@ -7,18 +7,67 @@ const { state } = require("./_core");
 const auth = require("./_auth");
 
 const PROTOCOL = "2025-06-18";
+const MY_MARKETS = ["6j", "natgas", "6e", "nq", "ym", "silver", "copper", "6a", "gold"];
+const ALL_MARKETS = [...MY_MARKETS, "es", "rty", "6b", "crude", "zn", "zb"];
 const none = { type: "object", properties: {} };
 const TOOLS = [
   { name: "edge_today", description: "Today in Edge: the live plans (orders, stop, target, break-even, contracts), the game plan, open trades, guardrails (trades left today, daily loss limit, cool-downs), big news coming up, the weekly bias per market, last prices and the close-out time.", inputSchema: none },
   { name: "edge_setups", description: "The latest setups Edge found, with their grade (A+/A/B/C), why, whether they can be taken now and their status.", inputSchema: none },
   { name: "edge_journal", description: "The trade journal: each trade's market, direction, grade, emotion before the trade, result in R and notes, plus stats (win rate, total R by grade, emotion, market) and missed A+ setups. practice: true reads the FX Replay practice log instead.", inputSchema: { type: "object", properties: { practice: { type: "boolean" }, limit: { type: "integer", minimum: 1, maximum: 100 } } } },
   { name: "edge_coach", description: "What Edge's chart coach last saw and said in the current screen-watching session (live or FX Replay practice).", inputSchema: none },
+  { name: "edge_market", description: "The market right now, read with Edge's own supply & demand rules (the same as the home chart and the TradingView scanner), from Yahoo futures candles (they can run a few minutes behind). With a market: price, 1H trend and breaks of structure, the 4H trend, the live 1H zone (top, bottom, wick part, how much is filled, 30% line), the 4H zone, whether price is in a zone, liquidity taken and resting on the 1H, whether orders are allowed now (03:00-11:00 New York), what to wait for, and the last 3 hours of 5-minute candles. Without a market: a quick board of his 9 markets (price, 4H and 15m trend).", inputSchema: { type: "object", properties: { market: { type: "string", enum: ALL_MARKETS } } } },
   { name: "edge_rules", description: "Edge's rules and settings: risk, daily limits, sessions, break-even and exit levels, and the strategies it trades.", inputSchema: none },
 ];
 
 const pick = (o, keys) => Object.fromEntries(keys.filter((k) => o && o[k] !== undefined).map((k) => [k, o[k]]));
+const nyFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23" });
+const nyMin = (t) => { const p = Object.fromEntries(nyFmt.formatToParts(new Date(t)).map((x) => [x.type, x.value])); return Number(p.hour) * 60 + Number(p.minute); };
+// 5-minute candles → 1H on the clock, 4H from 18:00 New York like the CME day (as the home chart does)
+function agg(raw, tf) {
+  const out = [], ms = tf * 60e3;
+  for (const [t, o, h, l, c] of raw) {
+    const k = tf === 240 ? t - (((nyMin(t) - 1080 + 1440) % 240) * 60e3) - (t % 60e3) : Math.floor(t / ms) * ms;
+    const b = out[out.length - 1];
+    if (b && b.t === k) { b.h = Math.max(b.h, h); b.l = Math.min(b.l, l); b.c = c; } else out.push({ t: k, o, h, l, c });
+  }
+  return out;
+}
+// a liquidity pool in words: buy-side = stops above highs, sell-side = stops below lows
+const pool = (x) => ({ side: x.d > 0 ? "buy-side (above highs)" : "sell-side (below lows)", level: x.lvl, ...(x.t1 ? { swept: iso(x.t1), how: x.how } : {}), touches: x.touches });
+const iso = (t) => (t ? new Date(t).toISOString().slice(0, 16) + "Z" : null);
+async function market(m) {
+  const { load } = require("./candles"), E = require("../sdchart.js");
+  if (!m) {
+    const T = require("../trend.js");
+    return { note: "Quick board (15-minute candles, Yahoo, may lag a few minutes). Ask for one market for the full supply & demand read.", rows: await Promise.all(MY_MARKETS.map(async (k) => {
+      try { const bars = await load(k, 20, "15m"), r = T.both(bars, 15), last = bars[bars.length - 1]; return { market: k, price: last && last[4], at: iso(last && last[0]), trend4h: r.h4.dir, trend15m: r.m15 ? r.m15.dir : 0, verdict: r.verdict.text }; }
+      catch (e) { return { market: k, error: e.message }; }
+    })) };
+  }
+  const raw = await load(m, 59, "5m");
+  if (!raw.length) throw new Error("No candles for " + m);
+  const last = raw[raw.length - 1], h1 = agg(raw, 60), h4 = agg(raw, 240);
+  const st = E.read(h1, h4, last[4], nyMin(Date.now()));
+  const liq = (() => { try { return E.liquidity(h1.slice(0, -1)); } catch { return null; } })();
+  const zone = (z) => z && { dir: z.d > 0 ? "demand (buy)" : "supply (sell)", top: z.top, bottom: z.bot, wickEdge: z.wick ?? null, line30: z.l30 ?? null, since: iso(z.t) };
+  return {
+    market: m, price: last[4], candleTime: iso(last[0]), source: "Yahoo futures, 5-minute candles (can lag a few minutes)", newYorkTime: `${String(Math.floor(nyMin(Date.now()) / 60)).padStart(2, "0")}:${String(nyMin(Date.now()) % 60).padStart(2, "0")}`,
+    status: st.status, ordersOpenNow: st.ordersOpen,
+    trend1h: st.trend, breaksSameWay: st.cnt, trend4h: st.t4, zoneWith4h: st.with4h,
+    zone1h: zone(st.zone), filledPct: st.fill != null ? Math.round(st.fill * 100) : null, inZone1h: st.inZone, olderZone1h: zone(st.older),
+    zone4h: zone(st.zone4), inZone4h: st.inZone4,
+    breaks1h: (st.breaks || []).map((b) => ({ kind: b.mss ? "MSS" : "BOS", dir: b.d > 0 ? "up" : "down", level: b.lvl ?? b.level ?? null, at: iso(b.t1) })),
+    liquidity1h: liq && {
+      bias: liq.bias > 0 ? "up (sell-side was swept last)" : liq.bias < 0 ? "down (buy-side was swept last)" : "none",
+      takenRecently: (liq.taken || []).slice(-3).map(pool), restingNearest: (liq.resting || []).slice(0, 4).map(pool),
+    },
+    last5m: raw.slice(-36).map(([t, o, h, l, c]) => [iso(t).slice(11, 16), o, h, l, c]),
+    note: "trend: 1 = up, -1 = down, 0 = none. last5m = [time UTC, open, high, low, close].",
+  };
+}
+
 async function run(name, args, s) {
-  const now = s.now;
+  const now = s ? s.now : Date.now();
   switch (name) {
     case "edge_today": return {
       now: new Date(now).toISOString(), plans: s.plans, gameplan: s.gameplan, open: s.open, guard: s.guard, prop: s.prop, closeOut: s.closeOut,
@@ -32,6 +81,7 @@ async function run(name, args, s) {
     }
     case "edge_coach": return s.coach && s.coach.session ? s.coach.session : { note: "No coach session yet." };
     case "edge_rules": return { settings: s.settings, strategies: s.strategies, markets: s.markets };
+    case "edge_market": return market(args.market && ALL_MARKETS.includes(args.market) ? args.market : null);
   }
   throw new Error("Unknown tool");
 }
@@ -58,7 +108,7 @@ module.exports = async (req, res) => {
     if (method === "tools/list") return reply(res, id, { tools: TOOLS });
     if (method === "tools/call") {
       if (!TOOLS.some((t) => t.name === params.name)) return fail(res, id, -32602, "Unknown tool");
-      const s = await state(store, await brokerFor(store));
+      const s = params.name === "edge_market" ? null : await state(store, await brokerFor(store));
       const text = JSON.stringify(await run(params.name, params.arguments || {}, s));
       return reply(res, id, { content: [{ type: "text", text: text.length > 60000 ? text.slice(0, 60000) + " …(cut)" : text }] });
     }
