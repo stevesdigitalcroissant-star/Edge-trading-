@@ -1,6 +1,6 @@
 ---
 name: supply-demand
-description: Steve's one strategy (Oct 2026): supply & demand, the Smart Risk model, as exact rules. Use for anything about his strategy — drawing zones, explaining, coding the Edge scanner or simulator, TradingView scripts, backtests in edge-data, alerts. Supersedes draw-zones and every earlier strategy.
+description: OLD (superseded by fib-strategy, late Oct 2026) — Steve's supply & demand, the Smart Risk model, as exact rules. Use for anything about his strategy — drawing zones, explaining, coding the Edge scanner or simulator, TradingView scripts, backtests in edge-data, alerts. Supersedes draw-zones and every earlier strategy.
 ---
 
 # Supply & demand — the rules
