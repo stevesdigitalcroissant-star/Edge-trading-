@@ -16,12 +16,13 @@ Sells mirror buys.
 4. **POI + its Fib.** Supply / demand zone or a big-picture S/R level in that area; Fib on the leg that left it.
    4H, 1H and POI OTE areas within ~0.5×ATR1 of each other = **the box**. No overlap → no trade.
 5. **Room.** No major level inside 3R from entry.
-6. **Entry.** In the box only: 5m (or 1m) CHoCH = a candle CLOSE past the **clear swing** — for a sell, the low
+6. **Entry (Steve, 29 Oct: "15m CHoCH, then look for an entry on the 5 or 1 min").** In the box only: **15m** CHoCH
+   = a 15m CLOSE past the **clear swing** — for a sell, the low
    that started the last push up into the box (for a buy, the high that started the last drop). Steve, 29 Oct:
-   "small tiny swings would not hold" — never use a minor fractal inside that push. Limit on the pullback into the
-   FVG / retest the break left. (Silver 11 Mar 2025: tiny-swing CHoCH 07:00 → +2.9R; clear-swing CHoCH at 32.92,
+   "small tiny swings would not hold" — never use a minor fractal inside that push. Then on the 5m / 1m: the pullback, its own CHoCH,
+   limit in that break's FVG (else the retest). Dead if price takes out the 15m move's extreme first. (Silver 11 Mar 2025: tiny-swing CHoCH 07:00 → +2.9R; clear-swing CHoCH at 32.92,
    08:20 → filled 32.965, hit +2R, stopped −1R at 09:30. One trade — the backtest runs both definitions.)
-7. **Stop** past the high (sell) / low (buy) of the move that made the CHoCH, never inside the box. **Target 1:3** (−1.0 extension as a runner idea, ≤ 10R).
+7. **Stop** past the 5m / 1m pullback high (sell) / low (buy), skip if < ~$30 a micro, never inside the box. **Target 1:3** (−1.0 extension as a runner idea, ≤ 10R).
 8. **Hours** 03:00–11:00 New York, 2 trades a day, one per group, no news ±30 min. Volume = info only.
 
 ## Evidence so far
@@ -38,3 +39,14 @@ Sells mirror buys.
   three but ≈ breakeven, and only ~12 trades a year. Supply/demand POIs ≈ 0R, big-level POIs lose (−0.5 to −0.9R, n<20).
 - Clear swing ≫ tiny swing is solid. The full three-Fib box, as automated, has no edge yet → check the automation
   against Steve's own drawing (10 example charts) before judging the idea.
+
+## Backtest 2 — 15m CHoCH, then a 5m / 1m entry (same engine, harsh costs; n is small, ~8–15 trades a year in total)
+| entry after the 15m CHoCH | n | win | avg after costs | before costs |
+|---|---|---|---|---|
+| straight away (stop past the 15m move) | 97 | 37% | +0.06R | +0.14R |
+| 5m pullback, its first small swing break | 80 | 35% | 0.00R | +0.19R |
+| 5m pullback, clear swing (2.5×ATR) | 43 | 33% | −0.08R | +0.10R |
+| 1m pullback, clear swing | 90 | 36% | 0.00R | +0.20R |
+| 1m pullback, tiny swing | 112 | 25% | −0.40R | −0.03R (stops ~$27 — noise) |
+With the old stop ≥ $30 rule: 5m small-swing entry 59 trades, 41% win, +0.20R (2019–22 −0.01, 2023–26 +0.44);
+1m clear 60, 38%, +0.07R. Tighter LTF entries add edge before costs, costs take most of it back. Not proven.
