@@ -8,7 +8,8 @@
   let token = ""; try { token = localStorage.getItem("edge.token") || ""; } catch {}
   let S = null, tab = "now", busy = false, lastSig = "", renderedTab = "";
   try { tab = localStorage.getItem("edge.tab") || "now"; } catch {}
-  if (!["now", "coach", "test", "journal", "rules", "watch", "bias"].includes(tab)) tab = { learn: "coach" }[tab] || "now";
+  if (["coach", "learn", "watch"].includes(tab)) tab = "test"; // Coach was folded into Test (its playbook = "Your rules")
+  if (!["now", "test", "journal", "rules", "bias"].includes(tab)) tab = "now";
 
   async function api(method, body) {
     const r = await fetch("/api/app", { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: body ? JSON.stringify(body) : undefined });
@@ -26,8 +27,8 @@
   window.Edge = { token: () => token, state: () => S, toast, api: (body) => api("POST", body), refresh: () => refresh(), go: (t) => { tab = t; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#" + tab); refresh(); scrollTo(0, 0); } };
 
   // ---------- notifications on this device (Web Push; iPhone/iPad need Edge on the Home Screen)
-  const TABS = ["now", "coach", "journal", "rules", "watch", "bias"];
-  const ALIAS = { setups: "now", learn: "coach" }; // old links still land somewhere sensible
+  const TABS = ["now", "test", "journal", "rules", "bias"];
+  const ALIAS = { setups: "now", learn: "test", coach: "test", watch: "test" }; // old links still land somewhere sensible
   // a link like …/#sim-gold opens the simulator straight away (bookmark it on the laptop / iPad)
   setTimeout(() => { const m = /^#(sim|lab)-(gold|crude|silver|natgas|nq|es|ym|copper)$/.exec(location.hash); if (m && window.EdgeSim) window.EdgeSim[m[1] === "sim" ? "open" : "openLab"](m[2]); }, 1500);
   const fromHash = () => { let h = location.hash.slice(1); h = ALIAS[h] || h; if (TABS.includes(h)) { tab = h; try { localStorage.setItem("edge.tab", tab); } catch {} } };
@@ -164,6 +165,7 @@
     if (n[0]) document.documentElement.dataset.theme = n[0]; else delete document.documentElement.dataset.theme;
     themeShow(); toast(`Theme: ${n[2]}`, 1500);
   });
+  $("#setBtn").addEventListener("click", () => { tab = tab === "rules" ? "now" : "rules"; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#" + tab); render(); scrollTo(0, 0); });
   $("#helpBtn").addEventListener("click", () => { if (tab === "watch") return toast("The live chart coach watches your chart and talks you through it — press Start to begin."); startTour(true); });
   $("#tabs").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-tab]"); if (!b) return;
@@ -196,7 +198,8 @@
 
   function render() {
     document.body.dataset.tab = tab; // wide screens lay each screen out differently
-    for (const b of document.querySelectorAll("#tabs button")) b.classList.toggle("on", b.dataset.tab === tab || (tab === "watch" && b.dataset.tab === "now") || (tab === "bias" && b.dataset.tab === "rules"));
+    for (const b of document.querySelectorAll("#tabs button")) b.classList.toggle("on", b.dataset.tab === tab || (tab === "watch" && b.dataset.tab === "now") || false);
+    $("#setBtn").classList.toggle("on", tab === "rules" || tab === "bias");
     const live = S.setups.filter((x) => x.status === "open" && x.g.take.ok && !(x.expires && S.now > x.expires)).length;
     $("#setupBadge").hidden = !live; $("#setupBadge").textContent = live;
     const g = S.guard;
@@ -211,12 +214,20 @@
     const view = $("#view"), fresh = renderedTab !== tab;
     // keep what you had open (alerts, advanced settings, playbook steps) and where you were in the page
     const open = new Set([...view.querySelectorAll("details[open]")].map((d, i) => d.dataset.keep || `#${i}`)), y = scrollY;
-    view.innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias, test: () => `<div id="drillHost"></div>` })[tab]();
+    view.innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias, test: () => `<div id="drillHost"></div>${rulesCard()}` })[tab]();
     if (tab === "test" && window.EdgeDrill) window.EdgeDrill.mount($("#drillHost")); // the Test tab (drill.js) keeps its own state between redraws
     if (!fresh) { [...view.querySelectorAll("details")].forEach((d, i) => { if (open.has(d.dataset.keep || `#${i}`)) d.open = true; }); if (Math.abs(scrollY - y) > 1) scrollTo(0, y); }
     view.classList.toggle("enter", fresh); if (fresh) setTimeout(() => view.classList.remove("enter"), 700);
     renderedTab = tab;
     bind();
+  }
+
+  // your rules (the playbook), under the Test drills — tap a step for the details
+  function rulesCard() {
+    const P = PB(); if (!P) return "";
+    return `<section class="card" data-tour="playbook"><div class="card-head"><h2>📘 Your rules</h2></div>
+      <div class="pb-book">${P.STEPS.map((st, i) => `<details data-keep="pb-${st.id}"><summary><i>${i + 1}</i><span><b><span class="e3d">${st.icon}</span> ${esc(st.title)}</b><small>${esc(st.short)}</small></span></summary><p>${esc(st.text)}</p></details>`).join("")}</div>
+      <div class="pb-manage"><b>In the trade</b>${P.MANAGE.map((m) => `<span>${esc(m)}</span>`).join("")}</div></section>`;
   }
 
   // the home chart (home.js): on Today it sits above your cards — beside them on a wide screen
@@ -650,12 +661,11 @@
     const radar = Object.entries(S.prices || {}).filter(([, p]) => p && (p.swing15Low != null || p.trendD != null) && S.now - p.time < 3 * 864e5).map(([m]) => m);
     const push = !!pushSub || (S.push && S.push.devices.length > 0);
     let hide = false; try { hide = localStorage.getItem("edge.setupDone") === "1"; } catch {}
-    if (hide || (prop && radar.length >= 14 && push)) return "";
+    if (hide || (radar.length >= 14 && push)) return "";
     const row = (ok, n, title, text, btn, ic) => `<div class="su-row ${ok ? "ok" : ""}">${!ok && ic && window.EdgeArt ? window.EdgeArt.icon(ic) : `<i>${ok ? "✓" : n}</i>`}<div><b>${title}</b><p class="muted">${text}</p></div>${ok ? "" : btn}</div>`;
     return `<section class="card setup-steps" data-tour="getset"><div class="card-head"><h2>🚀 Get set up</h2><button type="button" class="link" data-suhide>Hide</button></div>
-      ${row(prop, 1, "Your prop account", prop ? "The autopilot sizes every trade." : "Pick your firm.", `<button class="btn small primary" data-propset>Set up</button>`, "prop")}
-      ${row(radar.length >= 14, 2, `S&D scanner in TradingView${radar.length ? ` · ${radar.length}/14 markets` : ""}`, radar.length ? `Watching: ${radar.map(mname).join(", ")}.` : "Copy it into TradingView on a computer.", `<button class="btn small" data-copypine="edge_sd_scanner">Copy script</button>`, "paste")}
-      ${row(push, 3, "Notifications on this phone", push ? "Setups, fills and your game plan reach you anywhere." : "Setups reach you anywhere.", pushCapable && Notification.permission !== "denied" ? `<button class="btn small" data-pushon>Turn on</button>` : "", "push")}
+      ${row(radar.length >= 14, 1, `S&D scanner in TradingView${radar.length ? ` · ${radar.length}/14 markets` : ""}`, radar.length ? `Watching: ${radar.map(mname).join(", ")}.` : "Copy it into TradingView on a computer.", `<button class="btn small" data-copypine="edge_sd_scanner">Copy script</button>`, "paste")}
+      ${row(push, 2, "Notifications on this phone", push ? "Setups, fills and your game plan reach you anywhere." : "Setups reach you anywhere.", pushCapable && Notification.permission !== "denied" ? `<button class="btn small" data-pushon>Turn on</button>` : "", "push")}
       ${!radar.length ? `<details class="su-how"><summary>How to add the scanner alerts</summary><ol class="steps"><li>Tap <b>Copy script</b> (your secret is inside), open TradingView on a computer.</li><li>Pine Editor → select all, delete, paste → <b>Save</b> → <b>Add to chart</b> on a <b>5-minute</b> chart of <code>MGC1!</code>.</li><li>Alert (⏰) → Condition: <b>Edge S&amp;D</b> → <b>Any alert() function call</b> → Notifications → <b>Webhook URL</b>: <code>${esc(location.origin)}/api/hook</code> → Create.</li><li>Switch the chart to each of <code>${SD_TV.slice(1).join(" ")}</code> and create the same alert — 14 in all (crude is off).</li></ol></details>` : ""}
     </section>`;
   }
@@ -697,13 +707,6 @@
     const openCard = n ? `<section class="card" data-tour="open"><div class="card-head"><h2>Open trades</h2><button class="btn small closeall" data-closeall>Close everything</button></div>${S.open.map(tradeCard).join("")}</section>` : "";
     const nextNews = S.news.events.filter((e) => e.block && e.time > S.now - s.newsAfterMin * 60e3).slice(0, 3);
     const news = nextNews.length ? `<section class="card slim" data-tour="news"><div class="card-head"><h2>📰 Big news</h2><span class="muted">no trades ${s.newsBeforeMin} min either side</span></div><div class="news">${nextNews.map((e) => { const liveN = S.now >= e.time - s.newsBeforeMin * 60e3 && S.now <= e.time + s.newsAfterMin * 60e3; return `<div class="ev ${liveN ? "live" : ""}"><span class="num">${day(e.time).split(",")[0]} ${time(e.time)}</span><span>${esc(e.title)}<br><small class="muted">${e.markets.map(mname).join(" · ")}</small></span><span class="pill ${liveN ? "bad" : "warn"}">${liveN ? "NO TRADES" : e.impact}</span></div>`; }).join("")}</div></section>` : "";
-    const alerts = `<details class="card slim" data-tour="log" data-keep="alerts"><summary><b>Alerts</b> <span class="muted">${S.log.length ? `· last ${time(S.log[0].at)}` : ""}</span></summary><div class="log" style="margin-top:8px">${S.log.slice(0, 15).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></details>`;
-    const gp = S.gameplan && S.now - S.gameplan.at < 10 * 3600e3 ? `<section class="card slim gameplan" data-tour="gameplan"><div class="row between"><b>${esc(S.gameplan.title)}</b><small class="muted">${time(S.gameplan.at)}</small></div>${S.gameplan.lines.map((l) => `<p>${esc(l)}</p>`).join("")}</section>` : "";
-    // your best markets right now: the TAKE rule's results per market (backtest on your own data, 3 years + the last 12 months)
-    const FOCUS_MK = { asOf: "Sep 2026", top: [["nq", "🥇", 0.96, 52, 21], ["gold", "🥈", 0.76, 52, 33], ["6j", "🥉", 0.44, 55, 67], ["natgas", "🏅", 0.31, 42, 62]], avoid: [["6a", -0.22, 34]] };
-    const focusCard = `<section class="card focus-mk" data-tour="focus"><div class="card-head"><h2>🎯 Watch these first</h2><span class="muted">best for your rule · ${FOCUS_MK.asOf}</span></div>
-      <div class="fm-row">${FOCUS_MK.top.map(([m, md, r, w]) => `<div class="fm"><span class="e3d">${md}</span><b>${esc(S.markets[m] ? S.markets[m].name : m.toUpperCase())}</b><small>+${r}R a trade · ${w}% win</small></div>`).join("")}</div>
-      <p class="muted fm-note">${FOCUS_MK.avoid.map(([m, r, w]) => `⚠️ ${esc(S.markets[m] ? S.markets[m].name : m.toUpperCase())}: ${r}R a trade, ${w}% win — skip it for now.`).join(" ")} Last 3 years of TAKE setups.</p></section>`;
     // the things you can do, as pictures: tap one
     const ART = window.EdgeArt, tile = (ic, title, hint, attr, tour = "") => `<button type="button" class="tile" ${attr} ${tour ? `data-tour="${tour}"` : ""}>${ART ? ART.icon(ic) : ""}<b>${title}</b><small>${hint}</small></button>`;
     const pushOk = pushCapable && Notification.permission !== "denied";
@@ -711,12 +714,9 @@
     const tiles = `<section class="tiles" data-tour="tiles">
       ${tile("paste", "Paste alert", "from TradingView", "data-paste")}
       ${tile("shot", "Log a trade", "upload a screenshot", "data-shot")}
-      ${PL.open ? "" : tile("plan", "Plan a trade", "step by step", "data-plopen", "plan")}
-      ${tile("coach", "Live coach", "talks you through it", "data-gowatch")}
-      ${setupShown || (S.prop && S.prop.cfg && S.prop.cfg.enabled) ? "" : tile("prop", "Prop account", "pass it safely", "data-propset", "prop")}
       ${setupShown || ps.on ? "" : tile("push", "Alerts on", pushOk ? "to this phone" : "how to turn on", pushOk ? "data-pushon" : `data-pushhelp="${esc(ps.text)}"`, "push")}
     </section>`;
-    return `${ceBanner}${pend}${getSet}${hero}${gp}${setups}${tiles}${focusCard}${openCard}${ordersCard()}${propCard()}${planCard()}${stats}${news}${S.journal.length >= 5 ? insightsCard(S.journal, "🧠 Edge noticed", true) : ""}${alerts}`;
+    return `${ceBanner}${pend}${getSet}${hero}${setups}${openCard}${ordersCard()}${tiles}${stats}${news}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -1235,18 +1235,13 @@
       <div class="grid3 mt-stats"><div class="stat"><small>💸 Missed wins</small><b class="${ms.win ? "pos" : ""}">${ms.win}</b><small>${ms.win ? `+${ms.winR.toFixed(1)}R` : "&nbsp;"}</small></div><div class="stat"><small>✅ Good skips</small><b>${ms.loss}</b><small>would have lost</small></div><div class="stat"><small>⏸ Never filled</small><b>${ms.nofill}</b><small>&nbsp;</small></div></div>
       <p class="muted" style="margin:10px 0 0">${verdict}</p>
       ${revd.map((x) => `<div class="mt-row"><span>${x.review.res === "win" ? "💸" : "✅"} <b>${esc(mname(x.market))} ${x.dir === "long" ? "buy" : "sell"}</b> <small class="muted">${day(x.at)}${x.go === true ? " · TAKE" : x.go === false ? " · SKIP" : ""}</small></span><b class="${x.review.res === "win" ? "pos" : "neg"}">${x.review.res === "win" ? `+${x.review.R}R missed` : "−1R avoided"}</b></div>`).join("")}</section>`;
-    return `${jhero}${missed}${judgeCard()}${insightsCard()}${S.practice.length >= 5 ? insightsCard(S.practice, "🧠 From your practice trades") : ""}<section class="card"><div class="grid2">
+    return `${jhero}${S.journal.length >= 5 ? insightsCard() : ""}<section class="card"><div class="grid2">
         <div class="stat"><small>🎯 Win rate</small><b>${st.winRate == null ? "—" : st.winRate + "%"}</b><small>avg ${rs(st.avgR)}</small></div>
         <div class="stat"><small>🏁 Hit the target</small><b>${st.targets}</b></div>
         <div class="stat"><small>🛡️ Saved by break-even</small><b>${st.breakEvens}</b></div>
         <div class="stat"><small>⚠️ Rule breaks</small><b class="${st.ruleBreaks ? "neg" : ""}">${st.ruleBreaks}</b></div>
       </div><details class="jstats-more" data-keep="jmore"><summary>More</summary><div class="grid2" style="margin-top:10px">${grp(st.aPlus, "A+ trades")}${grp(st.other, "A / B")}${grp(st.unplanned, "Unplanned")}</div></details></section>
-      ${S.practice.length ? `<section class="card"><h2>Practice — not counted above</h2><div class="grid2">
-        <div class="stat"><small>Practice total</small><b class="${cls(S.practiceStats.totalR)}">${rs(S.practiceStats.totalR)}</b><small>${S.practiceStats.n} trades</small></div>
-        <div class="stat"><small>Win rate</small><b>${S.practiceStats.winRate == null ? "—" : S.practiceStats.winRate + "%"}</b><small>avg ${rs(S.practiceStats.avgR)}</small></div>
-        ${grp(S.practiceStats.aPlus, "A+ practice")}${grp(S.practiceStats.unplanned, "Unplanned practice")}</div>
-        ${S.practice.slice(0, 30).map(jrow).join("")}</section>` : ""}
-      <section class="card" data-tour="journal"><div class="row between"><h2 style="margin:0">Journal</h2><button class="btn small" id="logTrade">＋ Log a trade I took</button></div>${rows || `<p class="muted">Closed trades appear here.</p>`}</section>`;
+      <section class="card" data-tour="journal"><div class="row between"><h2 style="margin:0">Journal</h2><button class="btn small" id="logTrade">＋ Log a trade I took</button></div>${rows || `<p class="muted">Closed trades appear here.</p>`}</section>${missed}`;
   }
 
   function noteDialog(id) {
@@ -1421,7 +1416,8 @@
         <h3 style="margin-top:18px">David (your voice assistant)</h3>
         <p class="muted">Lets David read Edge: today's plan, setups, journal, coach and rules. Read-only: he can't place, change or close trades.</p>
         <div class="row" style="margin-top:8px"><button class="btn small" id="davidKey">Connect David</button><button class="btn small danger" id="davidRevoke">Disconnect David</button></div>
-      </section>`;
+      </section>
+      <details class="card slim" data-keep="alerts"><summary><b>Alerts log</b> <span class="muted">${S.log.length ? `· last ${time(S.log[0].at)}` : ""}</span></summary><div class="log" style="margin-top:8px">${S.log.slice(0, 30).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></details>`;
   }
 
   // ---------- events
