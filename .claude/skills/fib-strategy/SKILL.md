@@ -50,3 +50,12 @@ Sells mirror buys.
 | 1m pullback, tiny swing | 112 | 25% | −0.40R | −0.03R (stops ~$27 — noise) |
 With the old stop ≥ $30 rule: 5m small-swing entry 59 trades, 41% win, +0.20R (2019–22 −0.01, 2023–26 +0.44);
 1m clear 60, 38%, +0.07R. Tighter LTF entries add edge before costs, costs take most of it back. Not proven.
+
+## Backtest 3 — Steve's trend ladder (Daily BOS → 4H explosive move → 4H retracement → 15m CHoCH → 5m CHoCH entry)
+scratchpad trend.js, 9 mkts 2019–2026, harsh costs, stop ≥ $30, flat 16:00 (or hold ≤ 5 days for big targets).
+- Trade A (end of retracement, with trend), 5m clear-swing entry: 1,025 trades, 28% win, −0.19R (before costs −0.06R).
+  1:5 → −0.16R, 1:7 → −0.04R (hold ≤ 5 days). Both halves negative. Tiny-swing 5m entry: 2,180 trades, −0.23R.
+- Trade B (the retracement, 1:3): 172 trades, 32% win, −0.06R (2023–26 +0.05R).
+- Retracement depth (incl. Fib 0.5–0.79), displacement candle, 2023+ volume spike: none separates winners.
+- Lesson: timing ladders (CHoCH on CHoCH) ≈ random entries. The only edge found so far came from LOCATION filters
+  on the S&D trades (mature zone, room, chop, big-picture ①②③: +0.51R on 134 trades).
