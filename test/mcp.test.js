@@ -30,8 +30,8 @@ test("handshake, tool list and every tool answer, all read-only", async () => {
   assert.equal(init.j.result.serverInfo.name, "edge");
   assert.equal((await call({ jsonrpc: "2.0", method: "notifications/initialized" }, key)).code, 202);
   const list = (await call({ jsonrpc: "2.0", id: 2, method: "tools/list" }, key)).j.result.tools.map((t) => t.name);
-  assert.deepEqual(list, ["edge_today", "edge_setups", "edge_journal", "edge_coach", "edge_market", "edge_rules"]);
-  for (const name of list.filter((n) => n !== "edge_market")) { // edge_market fetches prices: its own test below
+  assert.deepEqual(list, ["edge_today", "edge_setups", "edge_journal", "edge_coach", "edge_market", "edge_scan", "edge_rules"]);
+  for (const name of list.filter((n) => n !== "edge_market" && n !== "edge_scan")) { // edge_market fetches prices: its own test below
     const r = (await call({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name, arguments: {} } }, key)).j.result;
     assert.ok(!r.isError, name + ": " + r.content[0].text);
     JSON.parse(r.content[0].text);
@@ -59,5 +59,9 @@ test("edge_market reads a market with Edge's own supply & demand rules", async (
     const board = JSON.parse((await call({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "edge_market", arguments: {} } }, key)).j.result.content[0].text);
     assert.equal(board.rows.length, 9);
     assert.ok(board.rows.every((x) => !x.error), JSON.stringify(board.rows[0]));
+    const scan = JSON.parse((await call({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "edge_scan", arguments: {} } }, key)).j.result.content[0].text);
+    assert.equal(scan.rows.length, 9);
+    assert.ok(scan.rows.every((x) => !x.error && typeof x.stage === "string"), JSON.stringify(scan.rows[0]));
+    assert.ok(scan.rows.every((x, i) => i === 0 || scan.rows[i - 1].score >= x.score), "best first");
   } finally { candles.load = real; }
 });

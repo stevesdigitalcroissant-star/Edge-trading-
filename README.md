@@ -273,9 +273,10 @@ window with your chart: TradingView, **FX Replay**, Tradovate or NinjaTrader. No
 
 Settings → **David** → *Connect David* makes a key (shown once; only its hash is stored). In David, add your own
 tool named `edge` with the address `https://<your Edge>/api/mcp` and that key. `api/mcp.js` is a small MCP server
-with six **read-only** tools: today (plans, open trades, guardrails, news, bias), setups, journal (real or practice),
+with seven **read-only** tools: today (plans, open trades, guardrails, news, bias), setups, journal (real or practice),
 coach, rules, and market: a live read of one market by the home chart's own supply & demand rules (Yahoo candles:
-price, 1H/4H trend and zones, fill, liquidity, orders open now, the last 3 hours of 5m candles), or a board of the 9. Nothing there can place, change or close a trade, or touch the broker or the rules.
+price, 1H/4H trend and zones, fill, liquidity, orders open now, the last 3 hours of 5m candles), or a board of the 9; and scan: the 9 ranked by how close each is to a setup (in or near the 1H zone, with the 4H
+trend, liquidity swept on the right side, 30% filled), with what to wait for. Nothing there can place, change or close a trade, or touch the broker or the rules.
 *Disconnect David* stops the key.
 
 ## The strategy, as rules
