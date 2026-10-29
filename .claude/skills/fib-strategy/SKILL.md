@@ -16,8 +16,12 @@ Sells mirror buys.
 4. **POI + its Fib.** Supply / demand zone or a big-picture S/R level in that area; Fib on the leg that left it.
    4H, 1H and POI OTE areas within ~0.5×ATR1 of each other = **the box**. No overlap → no trade.
 5. **Room.** No major level inside 3R from entry.
-6. **Entry.** In the box only: 5m (or 1m) CHoCH, limit on the pullback into its FVG / retest.
-7. **Stop** past the swing of the CHoCH move, never inside the box. **Target 1:3** (−1.0 extension as a runner idea, ≤ 10R).
+6. **Entry.** In the box only: 5m (or 1m) CHoCH = a candle CLOSE past the **clear swing** — for a sell, the low
+   that started the last push up into the box (for a buy, the high that started the last drop). Steve, 29 Oct:
+   "small tiny swings would not hold" — never use a minor fractal inside that push. Limit on the pullback into the
+   FVG / retest the break left. (Silver 11 Mar 2025: tiny-swing CHoCH 07:00 → +2.9R; clear-swing CHoCH at 32.92,
+   08:20 → filled 32.965, hit +2R, stopped −1R at 09:30. One trade — the backtest runs both definitions.)
+7. **Stop** past the high (sell) / low (buy) of the move that made the CHoCH, never inside the box. **Target 1:3** (−1.0 extension as a runner idea, ≤ 10R).
 8. **Hours** 03:00–11:00 New York, 2 trades a day, one per group, no news ±30 min. Volume = info only.
 
 ## Evidence so far
