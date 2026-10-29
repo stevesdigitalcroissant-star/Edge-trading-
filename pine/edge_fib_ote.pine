@@ -18,9 +18,9 @@
 //  6  Levels     Entry (market at the CHoCH close, or a limit at the chosen entry array), stop past the sweep + buffer,
 //                TP1 at 1:2 (partial, then break-even), runners: 4H swing extreme, −0.27, −0.62, volume POC or fixed R.
 //  7  Filters    New York session window (default 03:00–11:00), manual news blackout, HTF conflict = no trade.
-//  9  Add-on     80 SMA, and a volume profile of the last bars (POC orange, value-area high / low grey).
 //  8  Backtest   Every entry type is simulated side by side (trades, win rate, average R, total R, max drawdown),
 //                SMT and no-SMT setups kept apart. Conservative: a candle that touches both stop and target = stop.
+//  9  Add-on     80 SMA, and a volume profile of the last bars (POC orange, value-area high / low grey).
 //
 //@version=6
 indicator("Edge — Fibonacci OTE", shorttitle = "Edge OTE", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500, max_bars_back = 1000)
