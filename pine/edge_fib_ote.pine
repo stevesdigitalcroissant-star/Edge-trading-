@@ -1,0 +1,696 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0
+//
+// EDGE — Fibonacci OTE (optimal trade entry) · Daily + 4H trend · 4H and 1H Fib · POI zones · sweep → CHoCH entry
+// ---------------------------------------------------------------------------------------------------------------
+// Runs on the 15m, 5m or 1m chart. Higher-timeframe data comes from request.security with lookahead OFF and the
+// previous (closed) HTF bar only ( expr[1] ), so nothing on the chart ever repaints. Signals fire on closed candles.
+//
+//  1  Trend      Daily AND 4H market structure must agree (swing highs/lows + the last break of structure).
+//  2  Fib        The last completed impulse swing on the 4H and on the 1H, in the trend direction. OTE = 0.62–0.79,
+//                0.705 is the main reference (thick line). Extensions −0.27 / −0.62 are targets.
+//  3  POI        1H and 4H supply/demand (last opposite candle before a displacement that breaks structure) and FVGs.
+//                Fresh / mitigated / % filled; removed once price closes through; grey once a trade came from it.
+//  4  Grade      A+ = inside the 4H AND 1H OTE bands, overlapping a fresh zone, Daily + 4H agree.
+//                B  = inside the 4H band + a fresh zone, not the 1H band ("B, half size").
+//                1H band only = "WAIT: likely deeper pullback".
+//  5  Trigger    Inside an A+ / B area: a liquidity sweep of a recent swing (or equal lows/highs), then a CHoCH —
+//                a candle CLOSE past the chart-timeframe swing — optionally a displacement candle, optionally SMT.
+//  6  Levels     Entry (market at the CHoCH close, or a limit at the chosen entry array), stop past the sweep + buffer,
+//                TP1 at 1:2 (partial, then break-even), runners: 4H swing extreme, −0.27, −0.62, volume POC or fixed R.
+//  7  Filters    New York session window (default 03:00–11:00), manual news blackout, HTF conflict = no trade.
+//  8  Backtest   Every entry type is simulated side by side (trades, win rate, average R, total R, max drawdown),
+//                SMT and no-SMT setups kept apart. Conservative: a candle that touches both stop and target = stop.
+//
+//@version=6
+indicator("Edge — Fibonacci OTE", shorttitle = "Edge OTE", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500, max_bars_back = 1000)
+
+// ============================================================================================ INPUTS
+G_TR = "1 · Trend (Daily + 4H)"
+htfLen      = input.int(5, "HTF swing pivot length", minval = 2, maxval = 20, group = G_TR, tooltip = "Bars each side for a Daily / 4H / 1H swing high or low.")
+strictTrend = input.bool(true, "Need higher highs AND higher lows (lower for shorts)", group = G_TR, tooltip = "Off = the direction of the last break of structure alone.")
+
+G_FIB = "2 · Fibonacci"
+showFib4  = input.bool(true, "Draw the 4H Fib", group = G_FIB)
+showFib1  = input.bool(true, "Draw the 1H Fib", group = G_FIB)
+col4      = input.color(color.new(#d9a648, 82), "4H OTE band", group = G_FIB, inline = "c")
+col1      = input.color(color.new(#4b8bd9, 82), "1H OTE band", group = G_FIB, inline = "c")
+
+G_POI = "3 · POI zones"
+dispMultHTF = input.float(1.2, "HTF displacement (body ≥ × ATR)", minval = 0.5, step = 0.1, group = G_POI)
+useFVGasPOI = input.bool(true, "Fair value gaps count as POI", group = G_POI)
+showZones   = input.bool(true, "Draw the zones", group = G_POI)
+
+G_ENT = "5 · Entry trigger (chart timeframe)"
+ltfLen     = input.int(3, "Chart swing pivot length", minval = 1, maxval = 10, group = G_ENT)
+eqTolTicks = input.int(4, "Equal lows / highs tolerance (ticks)", minval = 0, group = G_ENT)
+chochMode  = input.string("Swing formed after the sweep", "CHoCH level", options = ["Swing formed after the sweep", "Last swing before the sweep"], group = G_ENT)
+entryType  = input.string("Fair Value Gap", "Entry type (drawn + alerted)", options = ["Fair Value Gap", "Order Block", "Balance Price Range", "Breaker Block", "Inverse FVG", "LTF leg 0.705", "Market (CHoCH close)"], group = G_ENT)
+obAt       = input.string("50%", "Order block / breaker entry at", options = ["Open", "50%"], group = G_ENT)
+expiryBars = input.int(30, "Cancel a pending limit after (bars)", minval = 1, group = G_ENT)
+
+G_FLT = "Filters (each can be switched off to test it)"
+useDisp   = input.bool(true, "Displacement on the CHoCH candle", group = G_FLT)
+dispMult  = input.float(1.5, "  Body ≥ × ATR(20)", minval = 0.5, step = 0.1, group = G_FLT)
+dispBody  = input.float(70, "  Body ≥ % of the candle", minval = 0, maxval = 100, group = G_FLT)
+dispVol   = input.bool(true, "  Volume above its 20-bar average", group = G_FLT)
+smtMode   = input.string("Optional", "SMT divergence", options = ["Off", "Optional", "Required"], group = G_FLT)
+smtSym    = input.symbol("", "  Correlated symbol (empty = auto: NQ↔ES, YM→ES, gold↔silver)", group = G_FLT)
+smtLook   = input.int(20, "  SMT lookback (bars)", minval = 5, group = G_FLT)
+
+G_RISK = "6 · Trade levels"
+bufTicks   = input.int(2, "Stop buffer past the sweep (ticks)", minval = 0, group = G_RISK)
+tp1R       = input.float(2.0, "TP1 (R)", minval = 0.5, step = 0.5, group = G_RISK)
+partialPct = input.float(50, "Partial at TP1 (%)", minval = 0, maxval = 100, group = G_RISK)
+runnerTgt  = input.string("Ext −0.27", "Runner target", options = ["4H swing (0)", "Ext −0.27", "Ext −0.62", "Volume POC", "Fixed R"], group = G_RISK)
+fixedR     = input.float(15, "  Fixed R (when chosen)", minval = 2, group = G_RISK)
+vpBars     = input.int(300, "Volume POC lookback (bars)", minval = 50, maxval = 900, group = G_RISK)
+riskUSD    = input.float(150, "Risk per trade ($)", minval = 1, group = G_RISK)
+
+G_SES = "7 · Session and news"
+sessStr   = input.session("0300-1100", "Orders allowed (New York time)", group = G_SES)
+flatAtEnd = input.bool(false, "Close open trades at the session end (backtest)", group = G_SES)
+newsStr   = input.string("", "News times (New York) — e.g. 2026-10-30 08:30, 10:00", group = G_SES, tooltip = "Comma-separated. With a date = that day only; a bare HH:MM = every day.")
+newsMins  = input.int(30, "  No signals this many minutes either side", minval = 0, group = G_SES)
+
+G_UI = "Display"
+showTable = input.bool(true, "Status table (top right)", group = G_UI)
+showStats = input.bool(true, "Backtest table (bottom right)", group = G_UI)
+
+// ============================================================================================ TYPES
+type Zone
+    float top
+    float bot
+    int   t       = na
+    bool  demand  = true
+    bool  fresh   = true
+    float fill    = 0.0
+    bool  spent   = false
+    bool  dead    = true
+    string name   = ""
+    box   bx
+
+type Trade
+    int   dir     = 0
+    int   state   = 0      // 0 idle · 1 pending limit · 2 open · 3 open, TP1 taken (stop at break-even)
+    float entry   = na
+    float stop    = na
+    float tp1     = na
+    float runner  = na
+    float risk    = na
+    float inval   = na     // close beyond this before the fill = cancelled
+    float sweep   = na
+    int   bar0    = na
+    bool  smt     = false
+
+type Stat
+    int   n     = 0
+    int   wins  = 0
+    float sumR  = 0.0
+    float cum   = 0.0
+    float peak  = 0.0
+    float maxDD = 0.0
+
+// ============================================================================================ HTF STRUCTURE (runs inside request.security)
+// Swings, trend, the last impulse legs (for the Fib), the last displacement zones and FVGs — on the HTF's own bars.
+f_htf(int len, float dm, bool strict) =>
+    float ph = ta.pivothigh(high, len, len)
+    float pl = ta.pivotlow(low, len, len)
+    float atr = ta.atr(14)
+    var float lastH = na
+    var float prevH = na
+    var int   lastHt = na
+    var float lastL = na
+    var float prevL = na
+    var int   lastLt = na
+    var bool  hBroken = false
+    var bool  lBroken = false
+    var int   bos = 0
+    var float upLo = na
+    var float upHi = na
+    var int   upLoT = na
+    var int   upHiT = na
+    var float dnHi = na
+    var float dnLo = na
+    var int   dnHiT = na
+    var int   dnLoT = na
+    if not na(ph)
+        prevH := lastH
+        lastH := ph
+        lastHt := time[len]
+        hBroken := false
+        if not na(lastL) and lastLt < lastHt   // the low that started this up-leg
+            upLo := lastL
+            upLoT := lastLt
+            upHi := ph
+            upHiT := lastHt
+    if not na(pl)
+        prevL := lastL
+        lastL := pl
+        lastLt := time[len]
+        lBroken := false
+        if not na(lastH) and lastHt < lastLt
+            dnHi := lastH
+            dnHiT := lastHt
+            dnLo := pl
+            dnLoT := lastLt
+    bool bosUp = false
+    bool bosDn = false
+    if not na(lastH) and not hBroken and close > lastH
+        hBroken := true
+        bos := 1
+        bosUp := true
+    if not na(lastL) and not lBroken and close < lastL
+        lBroken := true
+        bos := -1
+        bosDn := true
+    bool hh = not na(lastH) and not na(prevH) and lastH > prevH
+    bool hl = not na(lastL) and not na(prevL) and lastL > prevL
+    bool lh = not na(lastH) and not na(prevH) and lastH < prevH
+    bool ll = not na(lastL) and not na(prevL) and lastL < prevL
+    int trend = strict ? (bos == 1 and hh and hl ? 1 : bos == -1 and lh and ll ? -1 : 0) : bos
+    // supply / demand: the last opposite candle before a displacement candle that breaks structure
+    var float dTop = na
+    var float dBot = na
+    var int   dT = na
+    var float sTop = na
+    var float sBot = na
+    var int   sT = na
+    float body = math.abs(close - open)
+    if bosUp and close > open and body >= dm * atr
+        for i = 1 to 10
+            if close[i] < open[i]
+                dTop := high[i]
+                dBot := low[i]
+                dT := time[i]
+                break
+    if bosDn and close < open and body >= dm * atr
+        for i = 1 to 10
+            if close[i] > open[i]
+                sTop := high[i]
+                sBot := low[i]
+                sT := time[i]
+                break
+    // fair value gaps (the latest of each side)
+    var float fuTop = na
+    var float fuBot = na
+    var int   fuT = na
+    var float fdTop = na
+    var float fdBot = na
+    var int   fdT = na
+    if low > high[2]
+        fuTop := low
+        fuBot := high[2]
+        fuT := time[1]
+    if high < low[2]
+        fdTop := low[2]
+        fdBot := high
+        fdT := time[1]
+    [trend, upLo, upHi, upLoT, upHiT, dnHi, dnLo, dnHiT, dnLoT, dTop, dBot, dT, sTop, sBot, sT, fuTop, fuBot, fuT, fdTop, fdBot, fdT]
+
+// the same, one HTF bar back: only closed HTF bars reach the chart (with lookahead off this never repaints)
+f_htfClosed(int len, float dm, bool strict) =>
+    [a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20] = f_htf(len, dm, strict)
+    [a0[1], a1[1], a2[1], a3[1], a4[1], a5[1], a6[1], a7[1], a8[1], a9[1], a10[1], a11[1], a12[1], a13[1], a14[1], a15[1], a16[1], a17[1], a18[1], a19[1], a20[1]]
+
+[trD, _d1, _d2, _d3, _d4, _d5, _d6, _d7, _d8, _d9, _d10, _d11, _d12, _d13, _d14, _d15, _d16, _d17, _d18, _d19, _d20] = request.security(syminfo.tickerid, "D", f_htfClosed(htfLen, dispMultHTF, strictTrend), lookahead = barmerge.lookahead_off)
+[tr4, upLo4, upHi4, upLoT4, upHiT4, dnHi4, dnLo4, dnHiT4, dnLoT4, dTop4, dBot4, dT4, sTop4, sBot4, sT4, fuTop4, fuBot4, fuT4, fdTop4, fdBot4, fdT4] = request.security(syminfo.tickerid, "240", f_htfClosed(htfLen, dispMultHTF, strictTrend), lookahead = barmerge.lookahead_off)
+[tr1, upLo1, upHi1, upLoT1, upHiT1, dnHi1, dnLo1, dnHiT1, dnLoT1, dTop1, dBot1, dT1, sTop1, sBot1, sT1, fuTop1, fuBot1, fuT1, fdTop1, fdBot1, fdT1] = request.security(syminfo.tickerid, "60", f_htfClosed(htfLen, dispMultHTF, strictTrend), lookahead = barmerge.lookahead_off)
+
+// ============================================================================================ SMT (correlated market, chart timeframe)
+f_autoCorr() =>
+    string root = syminfo.root
+    root == "NQ" or root == "MNQ" ? "CME_MINI:ES1!" : root == "ES" or root == "MES" ? "CME_MINI:NQ1!" : root == "YM" or root == "MYM" ? "CME_MINI:ES1!" : root == "GC" or root == "MGC" ? "COMEX:SI1!" : root == "SI" or root == "SIL" ? "COMEX:GC1!" : ""
+string corrSym = smtSym != "" ? smtSym : f_autoCorr()
+bool smtOn = smtMode != "Off" and corrSym != ""
+[cLow, cHigh] = request.security(smtOn ? corrSym : syminfo.tickerid, timeframe.period, [low, high], lookahead = barmerge.lookahead_off)
+bool smtBull = smtOn and low < ta.lowest(low, smtLook)[1] and not (cLow < ta.lowest(cLow, smtLook)[1])     // we made a new low, they didn't
+bool smtBear = smtOn and high > ta.highest(high, smtLook)[1] and not (cHigh > ta.highest(cHigh, smtLook)[1])
+
+// ============================================================================================ SESSION + NEWS
+bool inSess = not na(time(timeframe.period, sessStr, "America/New_York"))
+var array<int> newsAt = array.new<int>()      // dated events (timestamps)
+var array<int> newsDaily = array.new<int>()   // every-day times (minutes after midnight, New York)
+if barstate.isfirst and str.length(newsStr) > 0
+    for raw in str.split(newsStr, ",")
+        string s = str.trim(raw)
+        if str.length(s) >= 16      // YYYY-MM-DD HH:MM
+            int y = int(str.tonumber(str.substring(s, 0, 4)))
+            int mo = int(str.tonumber(str.substring(s, 5, 7)))
+            int d = int(str.tonumber(str.substring(s, 8, 10)))
+            int hh = int(str.tonumber(str.substring(s, 11, 13)))
+            int mi = int(str.tonumber(str.substring(s, 14, 16)))
+            if not na(y) and not na(mo) and not na(d) and not na(hh) and not na(mi)
+                newsAt.push(timestamp("America/New_York", y, mo, d, hh, mi, 0))
+        else if str.length(s) >= 4  // HH:MM
+            array<string> p = str.split(s, ":")
+            if p.size() == 2
+                float hh = str.tonumber(p.get(0))
+                float mi = str.tonumber(p.get(1))
+                if not na(hh) and not na(mi)
+                    newsDaily.push(int(hh * 60 + mi))
+bool inNews = false
+for t in newsAt
+    if math.abs(time - t) <= newsMins * 60000
+        inNews := true
+int nyMin = hour(time, "America/New_York") * 60 + minute(time, "America/New_York")
+for m in newsDaily
+    if math.abs(nyMin - m) <= newsMins
+        inNews := true
+
+// ============================================================================================ DIRECTION + FIB LEVELS
+bool conflict = na(trD) or na(tr4) or trD == 0 or tr4 == 0 or trD != tr4
+int dir = conflict ? 0 : tr4
+// Fib anchors: A = the 0 level (swing extreme in the trade direction), B = the 1 level (the swing's origin)
+float A4 = dir == 1 ? upHi4 : dir == -1 ? dnLo4 : na
+float B4 = dir == 1 ? upLo4 : dir == -1 ? dnHi4 : na
+int   tA4 = dir == 1 ? upHiT4 : dir == -1 ? dnLoT4 : na
+int   tB4 = dir == 1 ? upLoT4 : dir == -1 ? dnHiT4 : na
+float A1 = dir == 1 ? upHi1 : dir == -1 ? dnLo1 : na
+float B1 = dir == 1 ? upLo1 : dir == -1 ? dnHi1 : na
+int   tB1 = dir == 1 ? upLoT1 : dir == -1 ? dnHiT1 : na
+fLvl(float a, float b, float p) => a + p * (b - a)
+fChanged(int a, int b) => na(a) != na(b) or (not na(a) and a != b)   // na-safe "is it different"
+float ote4a = fLvl(A4, B4, 0.62)
+float ote4b = fLvl(A4, B4, 0.79)
+float ote1a = fLvl(A1, B1, 0.62)
+float ote1b = fLvl(A1, B1, 0.79)
+bool in4 = not na(ote4a) and high >= math.min(ote4a, ote4b) and low <= math.max(ote4a, ote4b)
+bool in1 = not na(ote1a) and high >= math.min(ote1a, ote1b) and low <= math.max(ote1a, ote1b)
+
+// draw the two Fibs (only the latest swing of each; redrawn when a new swing forms)
+var array<line>  fib4L = array.new<line>()
+var array<label> fib4T = array.new<label>()
+var box fib4B = na
+var array<line>  fib1L = array.new<line>()
+var array<label> fib1T = array.new<label>()
+var box fib1B = na
+var int fib4Key = na
+var int fib1Key = na
+LEVELS = array.from(0.0, 0.5, 0.62, 0.705, 0.79, 1.0, -0.27, -0.62)
+fClearFib(array<line> ls, array<label> tx) =>
+    for l in ls
+        l.delete()
+    for x in tx
+        x.delete()
+    ls.clear()
+    tx.clear()
+fDrawFib(array<line> ls, array<label> tx, float a, float b, int t0, color c, string tag) =>
+    fClearFib(ls, tx)
+    for p in LEVELS
+        float y = fLvl(a, b, p)
+        bool main = p == 0.705
+        color lc = p < 0 ? color.new(color.teal, 20) : main ? color.new(c, 0) : color.new(c, 45)
+        ls.push(line.new(t0, y, time, y, xloc.bar_time, extend.right, lc, p == 0.62 or p == 0.79 ? line.style_dashed : line.style_solid, main ? 3 : 1))
+        tx.push(label.new(time, y, str.format("{0} {1}", tag, str.tostring(p)), xloc.bar_time, yloc.price, color(na), label.style_label_left, lc, size.tiny))
+if barstate.isconfirmed
+    int k4 = dir == 0 or na(tB4) ? na : tB4 * dir
+    if fChanged(k4, fib4Key)
+        fib4Key := k4
+        fib4B.delete()
+        if showFib4 and not na(k4)
+            fDrawFib(fib4L, fib4T, A4, B4, tB4, color.new(#d9a648, 0), "4H")
+            fib4B := box.new(tB4, math.max(ote4a, ote4b), time, math.min(ote4a, ote4b), color(na), 0, line.style_solid, extend.right, xloc.bar_time, col4)
+        else
+            fClearFib(fib4L, fib4T)
+    int k1 = dir == 0 or na(tB1) ? na : tB1 * dir
+    if fChanged(k1, fib1Key)
+        fib1Key := k1
+        fib1B.delete()
+        if showFib1 and not na(k1)
+            fDrawFib(fib1L, fib1T, A1, B1, tB1, color.new(#4b8bd9, 0), "1H")
+            fib1B := box.new(tB1, math.max(ote1a, ote1b), time, math.min(ote1a, ote1b), color(na), 0, line.style_solid, extend.right, xloc.bar_time, col1)
+        else
+            fClearFib(fib1L, fib1T)
+
+// ============================================================================================ POI ZONES (on the chart: fresh / mitigated / filled / spent)
+var array<Zone> zones = array.new<Zone>()
+if barstate.isfirst
+    for nm in array.from("1H demand", "1H supply", "4H demand", "4H supply", "1H FVG+", "1H FVG−", "4H FVG+", "4H FVG−")
+        zones.push(Zone.new(na, na, na, str.contains(nm, "demand") or str.contains(nm, "+"), true, 0.0, false, true, nm, na))
+fFeed(int i, float top, float bot, int t) =>
+    Zone z = zones.get(i)
+    if not na(t) and t != z.t and not na(top) and not na(bot) and top > bot
+        z.bx.delete()
+        z.top := top
+        z.bot := bot
+        z.t := t
+        z.fresh := true
+        z.fill := 0.0
+        z.spent := false
+        z.dead := false
+        if showZones
+            z.bx := box.new(t, top, time, bot, color(na), 0, line.style_solid, extend.right, xloc.bar_time, color.new(z.demand ? color.teal : color.red, 85), z.name, size.tiny, color.new(z.demand ? color.teal : color.red, 30), text.align_left, text.align_top)
+fFeed(0, dTop1, dBot1, dT1)
+fFeed(1, sTop1, sBot1, sT1)
+fFeed(2, dTop4, dBot4, dT4)
+fFeed(3, sTop4, sBot4, sT4)
+if useFVGasPOI
+    fFeed(4, fuTop1, fuBot1, fuT1)
+    fFeed(5, fdTop1, fdBot1, fdT1)
+    fFeed(6, fuTop4, fuBot4, fuT4)
+    fFeed(7, fdTop4, fdBot4, fdT4)
+// a fresh zone in the trade direction that overlaps the band [lo, hi]; returns its index or −1
+fZoneHit(int d, float lo, float hi) =>
+    int hit = -1
+    for [i, z] in zones
+        if not z.dead and z.fresh and not z.spent and (z.demand == (d == 1)) and z.top >= lo and z.bot <= hi
+            hit := i
+            break
+    hit
+
+// ============================================================================================ GRADE
+float b4lo = math.min(ote4a, ote4b)
+float b4hi = math.max(ote4a, ote4b)
+float b1lo = math.min(ote1a, ote1b)
+float b1hi = math.max(ote1a, ote1b)
+int zA = dir != 0 and in4 and in1 ? fZoneHit(dir, math.max(b4lo, b1lo), math.min(b4hi, b1hi)) : -1
+int zA2 = dir != 0 and in4 and in1 and zA < 0 ? fZoneHit(dir, b4lo, b4hi) : -1
+int zB = dir != 0 and in4 and not in1 ? fZoneHit(dir, b4lo, b4hi) : -1
+string grade = dir == 0 ? "" : in4 and in1 and (zA >= 0 or zA2 >= 0) ? "A+" : zB >= 0 ? "B" : in1 and not in4 ? "WAIT" : ""
+int gradeZone = grade == "A+" ? (zA >= 0 ? zA : zA2) : grade == "B" ? zB : -1
+
+// zones update AFTER grading (freshness is judged as of the bar before)
+for z in zones
+    if not z.dead
+        float pen = z.demand ? z.top - low : high - z.bot
+        if pen >= 0
+            z.fresh := false
+            z.fill := math.max(z.fill, math.min(1.0, pen / math.max(z.top - z.bot, syminfo.mintick)))
+        if (z.demand and close < z.bot) or (not z.demand and close > z.top)
+            z.dead := true
+            z.bx.delete()
+        else if showZones and not na(z.bx)
+            z.bx.set_bgcolor(z.spent ? color.new(color.gray, 85) : color.new(z.demand ? color.teal : color.red, z.fresh ? 82 : 92))
+            z.bx.set_text(str.format("{0} · {1}", z.name, z.spent ? "spent" : z.fresh ? "fresh" : str.format("{0}% filled", math.round(z.fill * 100))))
+
+// ============================================================================================ CHART-TF SWINGS, SWEEP, CHoCH
+float lph = ta.pivothigh(high, ltfLen, ltfLen)
+float lpl = ta.pivotlow(low, ltfLen, ltfLen)
+var float sHi = na
+var int   sHiBar = na
+var float sLo = na
+var int   sLoBar = na
+var float eqLo = na     // equal lows (the deeper of the pair) — liquidity
+var float eqHi = na
+float tol = eqTolTicks * syminfo.mintick
+if not na(lph)
+    eqHi := not na(sHi) and math.abs(lph - sHi) <= tol ? math.max(lph, sHi) : na
+    sHi := lph
+    sHiBar := bar_index - ltfLen
+if not na(lpl)
+    eqLo := not na(sLo) and math.abs(lpl - sLo) <= tol ? math.min(lpl, sLo) : na
+    sLo := lpl
+    sLoBar := bar_index - ltfLen
+float atr20 = ta.atr(20)
+float volAvg = ta.sma(volume, 20)
+
+// the setup in progress: 0 none · 1 armed (in an A+ / B area) · 2 swept (waiting for the CHoCH)
+var int    st = 0
+var int    stDir = 0
+var string stGrade = ""
+var int    stZone = -1
+var int    stKey = na
+var float  swExt = na
+var int    swBar = na
+var bool   swSMT = false
+var float  chLvl = na
+var string lastWait = ""
+
+int keyNow = na(fib4Key) ? na : fib4Key
+bool sigLong = false
+bool sigShort = false
+if barstate.isconfirmed
+    // reset when the trend or the 4H swing changes
+    if st > 0 and (conflict or dir != stDir or fChanged(keyNow, stKey))
+        st := 0
+    // arm inside an A+ / B area
+    if st == 0 and (grade == "A+" or grade == "B")
+        st := 1
+        stDir := dir
+        stGrade := grade
+        stZone := gradeZone
+        stKey := keyNow
+        swExt := na
+        chLvl := na
+    if st > 0
+        // invalidation before the trigger: a close beyond the far edge of the 0.79 level, or beyond the sweep
+        float far = fLvl(A4, B4, 0.79)
+        if (stDir == 1 and (close < far or (not na(swExt) and close < swExt))) or (stDir == -1 and (close > far or (not na(swExt) and close > swExt)))
+            st := 0
+    if st > 0
+        // the liquidity sweep: beyond the last swing (or equal lows / highs), then a close back inside
+        float liq = stDir == 1 ? (na(eqLo) ? sLo : math.min(eqLo, sLo)) : (na(eqHi) ? sHi : math.max(eqHi, sHi))
+        bool swept = not na(liq) and (stDir == 1 ? low < liq and close > liq : high > liq and close < liq)
+        if swept
+            st := 2
+            swExt := na(swExt) ? (stDir == 1 ? low : high) : stDir == 1 ? math.min(swExt, low) : math.max(swExt, high)
+            swBar := bar_index
+            swSMT := stDir == 1 ? smtBull : smtBear
+            chLvl := chochMode == "Last swing before the sweep" ? (stDir == 1 ? sHi : sLo) : na
+        if st == 2 and chochMode == "Swing formed after the sweep"
+            if stDir == 1 and not na(lph) and bar_index - ltfLen > swBar
+                chLvl := lph
+            if stDir == -1 and not na(lpl) and bar_index - ltfLen > swBar
+                chLvl := lpl
+        // the CHoCH: a close past that swing, on a displacement candle if asked
+        if st == 2 and not na(chLvl) and bar_index > swBar
+            bool brk = stDir == 1 ? close > chLvl : close < chLvl
+            float body = math.abs(close - open)
+            bool dispOk = not useDisp or (body >= dispMult * atr20 and body >= dispBody / 100 * (high - low) and (stDir == 1 ? close > open : close < open) and (not dispVol or na(volume) or volume > volAvg))
+            bool smtOk = smtMode != "Required" or swSMT
+            if brk and dispOk and smtOk and inSess and not inNews
+                if stDir == 1
+                    sigLong := true
+                else
+                    sigShort := true
+            else if brk and not dispOk
+                st := 0   // a break without displacement: no setup
+    // "WAIT" — only in the 1H band: a deeper pullback is likely
+    if grade == "WAIT" and lastWait != str.tostring(keyNow)
+        lastWait := str.tostring(keyNow)
+        label.new(bar_index, dir == 1 ? low : high, "WAIT: likely deeper pullback", style = dir == 1 ? label.style_label_up : label.style_label_down, color = color.new(color.gray, 30), textcolor = color.white, size = size.small)
+
+// ============================================================================================ ENTRY ARRAYS (searched on the leg sweep → CHoCH)
+// Each returns the limit price for that entry type, or na when the leg doesn't have one.
+fEntry(string kind, int d, int sb) =>
+    int leg = math.min(bar_index - sb, 250)       // candles from the sweep to the CHoCH
+    int n = leg + 12                              // and a little before the sweep (the move into it)
+    float px = na
+    if kind == "Market (CHoCH close)"
+        px := close
+    else if kind == "LTF leg 0.705"
+        float ext = d == 1 ? low : high
+        for i = 0 to leg
+            ext := d == 1 ? math.min(ext, low[i]) : math.max(ext, high[i])
+        px := close + 0.705 * (ext - close)
+    else if kind == "Fair Value Gap" or kind == "Balance Price Range"
+        // the latest FVG in the trade direction inside the leg: midpoint
+        float fTop = na
+        float fBot = na
+        for i = 0 to leg
+            if d == 1 and low[i] > high[i + 2]
+                fTop := low[i]
+                fBot := high[i + 2]
+                break
+            if d == -1 and high[i] < low[i + 2]
+                fTop := low[i + 2]
+                fBot := high[i]
+                break
+        if kind == "Fair Value Gap"
+            px := na(fTop) ? na : (fTop + fBot) / 2
+        else if not na(fTop)
+            // BPR: that FVG overlapping an opposite FVG made on the way into the sweep
+            for i = leg to n
+                float oTop = d == 1 ? low[i + 2] : low[i]
+                float oBot = d == 1 ? high[i] : high[i + 2]
+                bool opp = d == 1 ? high[i] < low[i + 2] : low[i] > high[i + 2]
+                if opp and oTop > fBot and oBot < fTop
+                    float t2 = math.min(fTop, oTop)
+                    float b2 = math.max(fBot, oBot)
+                    px := (t2 + b2) / 2
+                    break
+    else if kind == "Order Block"
+        // the last opposite candle before the move that made the CHoCH
+        for i = 1 to leg + 1
+            if (d == 1 and close[i] < open[i]) or (d == -1 and close[i] > open[i])
+                px := obAt == "Open" ? open[i] : (high[i] + low[i]) / 2
+                break
+    else if kind == "Breaker Block"
+        // the last same-direction candle before the drop (rally) that made the swept low (high)
+        for i = leg + 1 to n
+            if (d == 1 and close[i] > open[i]) or (d == -1 and close[i] < open[i])
+                px := obAt == "Open" ? open[i] : (high[i] + low[i]) / 2
+                break
+    else if kind == "Inverse FVG"
+        // an opposite FVG made on the way into the sweep that price has now closed through: its midpoint
+        for i = leg to n
+            bool opp = d == 1 ? high[i] < low[i + 2] : low[i] > high[i + 2]
+            float oTop = d == 1 ? low[i + 2] : low[i]
+            float oBot = d == 1 ? high[i] : high[i + 2]
+            if opp and (d == 1 ? close > oTop : close < oBot)
+                px := (oTop + oBot) / 2
+                break
+    // a limit must be on the right side of the market and of the stop
+    if not na(px) and kind != "Market (CHoCH close)"
+        px := (d == 1 and px >= close) or (d == -1 and px <= close) ? na : px
+    px
+
+// the volume POC of the last vpBars bars (50 rows): a runner target
+fPOC(int n) =>
+    float hi = ta.highest(high, n)
+    float lo = ta.lowest(low, n)
+    float poc = na
+    if barstate.isconfirmed and (sigLong or sigShort) and hi > lo
+        array<float> bins = array.new<float>(50, 0.0)
+        for i = 0 to n - 1
+            int k = math.min(49, math.max(0, int((hl2[i] - lo) / (hi - lo) * 50)))
+            bins.set(k, bins.get(k) + nz(volume[i]))
+        int best = bins.indexof(bins.max())
+        poc := lo + (best + 0.5) / 50 * (hi - lo)
+    poc
+float pocNow = fPOC(vpBars)
+
+// ============================================================================================ TRADES: every entry type simulated side by side
+KINDS = array.from("Fair Value Gap", "Order Block", "Balance Price Range", "Breaker Block", "Inverse FVG", "LTF leg 0.705", "Market (CHoCH close)")
+var array<Trade> trades = array.new<Trade>()
+var array<Stat>  stats = array.new<Stat>()
+var Stat statSMT = Stat.new()
+var Stat statNoSMT = Stat.new()
+if barstate.isfirst
+    for k in KINDS
+        trades.push(Trade.new())
+        stats.push(Stat.new())
+fRecord(Stat s, float R) =>
+    s.n += 1
+    s.wins += R > 0 ? 1 : 0
+    s.sumR += R
+    s.cum += R
+    s.peak := math.max(s.peak, s.cum)
+    s.maxDD := math.max(s.maxDD, s.peak - s.cum)
+fClose(int k, Trade t, float R) =>
+    fRecord(stats.get(k), R)
+    if KINDS.get(k) == entryType
+        fRecord(t.smt ? statSMT : statNoSMT, R)
+        label.new(bar_index, t.dir == 1 ? high : low, str.format("{0}{1}R", R >= 0 ? "+" : "", str.tostring(R, "#.##")), style = t.dir == 1 ? label.style_label_down : label.style_label_up, color = R > 0 ? color.new(color.teal, 10) : color.new(color.red, 10), textcolor = color.white, size = size.tiny)
+    t.state := 0
+
+float pct = partialPct / 100
+fRm(float px, float e, int d, float risk) => str.tostring(math.round(d * (px - e) / risk, 1))   // the R multiple of a level
+if barstate.isconfirmed
+    // manage what's already there: fills, stops, TP1 + break-even, runners, cancels
+    for [k, t] in trades
+        if t.state == 1
+            bool cancel = (t.dir == 1 and (close < t.inval or close < t.sweep or high >= t.tp1)) or (t.dir == -1 and (close > t.inval or close > t.sweep or low <= t.tp1)) or bar_index - t.bar0 > expiryBars
+            bool filled = t.dir == 1 ? low <= t.entry : high >= t.entry
+            if filled and bar_index > t.bar0
+                t.state := 2
+            else if cancel
+                t.state := 0
+        if t.state >= 2 and bar_index > t.bar0
+            float rNow = t.dir * (close - t.entry) / t.risk
+            float runR = t.dir * (t.runner - t.entry) / t.risk
+            if (t.dir == 1 and low <= t.stop) or (t.dir == -1 and high >= t.stop)
+                fClose(k, t, t.state == 3 ? pct * tp1R : -1.0)
+            else if t.state == 2 and ((t.dir == 1 and high >= t.tp1) or (t.dir == -1 and low <= t.tp1))
+                if runR <= tp1R or pct >= 1
+                    fClose(k, t, tp1R)
+                else
+                    t.state := 3
+                    t.stop := t.entry
+            if t.state == 3 and ((t.dir == 1 and high >= t.runner) or (t.dir == -1 and low <= t.runner))
+                fClose(k, t, pct * tp1R + (1 - pct) * runR)
+            if t.state >= 2 and flatAtEnd and inSess[1] and not inSess
+                fClose(k, t, t.state == 3 ? pct * tp1R + (1 - pct) * rNow : rNow)
+
+    // a new signal: one setup per zone; every entry type gets its own order
+    if sigLong or sigShort
+        int d = sigLong ? 1 : -1
+        if stZone >= 0
+            Zone z = zones.get(stZone)
+            z.spent := true
+        float stopPx = d == 1 ? swExt - bufTicks * syminfo.mintick : swExt + bufTicks * syminfo.mintick
+        for [k, t] in trades
+            if t.state != 0
+                continue
+            float e = fEntry(KINDS.get(k), d, swBar)
+            if na(e) or (d == 1 and e <= stopPx) or (d == -1 and e >= stopPx)
+                continue
+            float risk = math.abs(e - stopPx)
+            float runner = runnerTgt == "4H swing (0)" ? A4 : runnerTgt == "Ext −0.27" ? fLvl(A4, B4, -0.27) : runnerTgt == "Ext −0.62" ? fLvl(A4, B4, -0.62) : runnerTgt == "Volume POC" ? pocNow : e + d * fixedR * risk
+            if na(runner) or d * (runner - e) <= 0
+                runner := e + d * tp1R * risk
+            t.dir := d
+            t.entry := e
+            t.stop := stopPx
+            t.risk := risk
+            t.tp1 := e + d * tp1R * risk
+            t.runner := runner
+            t.inval := fLvl(A4, B4, 0.79)
+            t.sweep := swExt
+            t.bar0 := bar_index
+            t.smt := swSMT
+            t.state := KINDS.get(k) == "Market (CHoCH close)" ? 2 : 1
+            // draw the chosen entry type's levels
+            if KINDS.get(k) == entryType
+                float pv = syminfo.pointvalue
+                float perC = risk * pv
+                float qty = perC > 0 ? math.floor((stGrade == "B" ? riskUSD / 2 : riskUSD) / perC) : 0
+                int x2 = bar_index + 25
+                line.new(bar_index, e, x2, e, color = color.new(color.white, 0), width = 2)
+                line.new(bar_index, stopPx, x2, stopPx, color = color.red, width = 2)
+                line.new(bar_index, t.tp1, x2, t.tp1, color = color.teal, style = line.style_dashed)
+                label.new(x2, t.tp1, str.format("TP1 1:{0} · {1}% off, then BE", str.tostring(tp1R), str.tostring(partialPct)), style = label.style_label_left, color = color(na), textcolor = color.teal, size = size.small)
+                for [j, lv] in array.from(A4, fLvl(A4, B4, -0.27), fLvl(A4, B4, -0.62))
+                    if not na(lv) and d * (lv - e) > tp1R * risk
+                        string nm = j == 0 ? "4H swing" : j == 1 ? "Ext −0.27" : "Ext −0.62"
+                        line.new(bar_index, lv, x2, lv, color = color.new(color.teal, 40), style = line.style_dotted)
+                        label.new(x2, lv, str.format("{0} · 1:{1}", nm, fRm(lv, e, d, risk)), style = label.style_label_left, color = color(na), textcolor = color.new(color.teal, 20), size = size.small)
+                if runnerTgt == "Volume POC" and not na(pocNow) and d * (pocNow - e) > 0
+                    label.new(x2, pocNow, str.format("Volume POC · 1:{0}", fRm(pocNow, e, d, risk)), style = label.style_label_left, color = color(na), textcolor = color.orange, size = size.small)
+                string txt = str.format("{0} {1}{2}\n{3} · entry {4}\nstop {5} · {6} contracts{7}", stGrade == "B" ? "B, half size" : "A+", d == 1 ? "LONG" : "SHORT", t.smt ? " · SMT" : "", entryType, str.tostring(e, format.mintick), str.tostring(stopPx, format.mintick), str.tostring(qty), t.state == 1 ? "\nlimit — waiting for the fill" : "")
+                label.new(bar_index, d == 1 ? low : high, txt, style = d == 1 ? label.style_label_up : label.style_label_down, color = d == 1 ? color.new(color.teal, 0) : color.new(color.red, 0), textcolor = color.white, size = size.small)
+                alert(str.format("Edge OTE {0} {1} {2} · {3} · entry {4} · stop {5} · TP1 {6} · {7} contracts", syminfo.ticker, stGrade, d == 1 ? "LONG" : "SHORT", entryType, str.tostring(e, format.mintick), str.tostring(stopPx, format.mintick), str.tostring(t.tp1, format.mintick), str.tostring(qty)), alert.freq_once_per_bar_close)
+        st := 0
+plotshape(sigLong, "OTE long", shape.triangleup, location.belowbar, color.teal, size = size.small)
+plotshape(sigShort, "OTE short", shape.triangledown, location.abovebar, color.red, size = size.small)
+alertcondition(sigLong, "OTE long", "Edge OTE: long signal (A+ / B) on {{ticker}}")
+alertcondition(sigShort, "OTE short", "Edge OTE: short signal (A+ / B) on {{ticker}}")
+
+// ============================================================================================ TABLES
+fTr(int t) => t == 1 ? "▲ Bullish" : t == -1 ? "▼ Bearish" : "— Mixed"
+fTc(int t) => t == 1 ? color.teal : t == -1 ? color.red : color.gray
+var table tb = table.new(position.top_right, 2, 5, color.new(#111923, 10), color.new(#334155, 0), 1, color.new(#334155, 0), 1)
+if showTable and barstate.islast
+    string ses = inNews ? "News blackout" : inSess ? "Open" : "Orders not allowed"
+    string gtxt = conflict ? "NO TRADE: HTF conflict" : grade == "A+" ? "A+" : grade == "B" ? "B, half size" : grade == "WAIT" ? "WAIT: likely deeper pullback" : st == 2 ? stGrade + " · swept, wait for CHoCH" : st == 1 ? stGrade + " · wait for a sweep" : "No setup"
+    tb.cell(0, 0, "Daily", text_color = color.gray, text_size = size.small)
+    tb.cell(1, 0, fTr(trD), text_color = fTc(trD), text_size = size.small)
+    tb.cell(0, 1, "4H", text_color = color.gray, text_size = size.small)
+    tb.cell(1, 1, fTr(tr4), text_color = fTc(tr4), text_size = size.small)
+    tb.cell(0, 2, "1H", text_color = color.gray, text_size = size.small)
+    tb.cell(1, 2, fTr(tr1), text_color = fTc(tr1), text_size = size.small)
+    tb.cell(0, 3, "Session", text_color = color.gray, text_size = size.small)
+    tb.cell(1, 3, ses, text_color = inSess and not inNews ? color.teal : color.orange, text_size = size.small)
+    tb.cell(0, 4, "Setup", text_color = color.gray, text_size = size.small)
+    tb.cell(1, 4, gtxt, text_color = conflict ? color.red : grade == "A+" ? color.teal : grade == "B" ? color.orange : color.white, text_size = size.small)
+var table tst = table.new(position.bottom_right, 6, KINDS.size() + 4, color.new(#111923, 10), color.new(#334155, 0), 1, color.new(#334155, 0), 1)
+fRow(int r, string nm, Stat s, bool on) =>
+    tst.cell(0, r, nm, text_color = on ? color.yellow : color.white, text_size = size.tiny, text_halign = text.align_left)
+    tst.cell(1, r, str.tostring(s.n), text_color = color.white, text_size = size.tiny)
+    tst.cell(2, r, s.n > 0 ? str.tostring(math.round(100.0 * s.wins / s.n)) + "%" : "—", text_color = color.white, text_size = size.tiny)
+    tst.cell(3, r, s.n > 0 ? str.tostring(s.sumR / s.n, "#.##") : "—", text_color = s.sumR >= 0 ? color.teal : color.red, text_size = size.tiny)
+    tst.cell(4, r, str.tostring(s.sumR, "#.#"), text_color = s.sumR >= 0 ? color.teal : color.red, text_size = size.tiny)
+    tst.cell(5, r, str.tostring(-s.maxDD, "#.#"), text_color = color.orange, text_size = size.tiny)
+var bool merged = false
+if showStats and barstate.islast
+    for [c, h] in array.from("Entry type", "Trades", "Win %", "Avg R", "Total R", "Max DD")
+        tst.cell(c, 0, h, text_color = color.gray, text_size = size.tiny)
+    for [k, nm] in KINDS
+        fRow(k + 1, nm, stats.get(k), nm == entryType)
+    if smtMode == "Optional"
+        fRow(KINDS.size() + 1, entryType + " · with SMT", statSMT, false)
+        fRow(KINDS.size() + 2, entryType + " · no SMT", statNoSMT, false)
+    tst.cell(0, KINDS.size() + 3, "Backtest on this chart's history · a candle touching stop and target counts as the stop", text_color = color.gray, text_size = size.tiny, text_halign = text.align_left)
+    if not merged
+        tst.merge_cells(0, KINDS.size() + 3, 5, KINDS.size() + 3)
+        merged := true
