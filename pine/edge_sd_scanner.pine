@@ -3,7 +3,6 @@
 // EDGE — Supply & Demand scanner (1H zones · 5m confirmation)
 // ---------------------------------------------------------------------------
 // Put it on a 5-minute chart of each market you trade. One alert per chart.
-// At the bottom: a clean add-on (80 SMA + Volume Profile POC / VAH / VAL lines) for context only.
 //
 //   1. 1H trend    : a 1H candle CLOSES past the last 1H swing = break of structure (BOS).
 //                    Trade only when the last two BOS point the same way.
@@ -776,57 +775,3 @@ if showPanel and barstate.islast
         if pNote != ""
             table.cell(panel, 0, 11, "Note", text_color = color.gray, text_size = pS, text_halign = text.align_left)
             table.cell(panel, 1, 11, pNote, text_color = color.new(#f0c94b, 0), text_size = pS, text_halign = text.align_left)
-
-// ---------------------------------------------------------------------------
-// Clean add-on: 80 SMA + Volume Profile (POC / VAH / VAL) — on the chart only. Alerts, grades and
-// TAKE/SKIP don't use them (Edge's tests found no edge in volume as a rule; this is context to look at).
-// POC = the price with the most volume in the lookback; VAH / VAL = the top and bottom of the value area
-// (the rows around the POC holding 70% of the volume).
-showSMA = input.bool(true, "Show 80 SMA", group = "Clean add-on")
-smaLen = input.int(80, "SMA length", minval = 1, group = "Clean add-on")
-showVP = input.bool(true, "Show Volume Profile lines", group = "Clean add-on")
-vpLook = input.int(150, "VP lookback bars", minval = 20, maxval = 500, group = "Clean add-on")
-vpRows = input.int(40, "VP rows", minval = 10, maxval = 100, group = "Clean add-on")
-vaPct = input.float(70, "Value area %", minval = 10, maxval = 100, group = "Clean add-on") / 100
-
-sma80 = ta.sma(close, smaLen)
-plot(showSMA ? sma80 : na, "80 SMA", color = color.new(color.gray, 40), linewidth = 1)
-
-vpHi = ta.highest(high, vpLook)
-vpLo = ta.lowest(low, vpLook)
-
-var line pocL = na
-var line vahL = na
-var line valL = na
-
-if showVP and barstate.islast and vpHi > vpLo
-    vpStep = (vpHi - vpLo) / vpRows
-    vols = array.new_float(vpRows, 0.0)
-    for i = 0 to vpLook - 1
-        idx = math.min(vpRows - 1, math.max(0, int((hl2[i] - vpLo) / vpStep)))
-        array.set(vols, idx, array.get(vols, idx) + nz(volume[i]))
-    vpTotal = array.sum(vols)
-    line.delete(pocL)
-    line.delete(vahL)
-    line.delete(valL)
-    // no volume on this symbol: no lines rather than wrong ones
-    if vpTotal > 0
-        pocIdx = array.indexof(vols, array.max(vols))
-        vaUp = pocIdx
-        vaDn = pocIdx
-        acc = array.get(vols, pocIdx)
-        while acc < vpTotal * vaPct and (vaUp < vpRows - 1 or vaDn > 0)
-            vUp = vaUp < vpRows - 1 ? array.get(vols, vaUp + 1) : -1.0
-            vDn = vaDn > 0 ? array.get(vols, vaDn - 1) : -1.0
-            if vUp >= vDn
-                vaUp += 1
-                acc += vUp
-            else
-                vaDn -= 1
-                acc += vDn
-        poc = vpLo + vpStep * (pocIdx + 0.5)
-        vah = vpLo + vpStep * (vaUp + 1)
-        val = vpLo + vpStep * vaDn
-        pocL := line.new(bar_index - vpLook, poc, bar_index, poc, color = color.new(color.orange, 30), style = line.style_dotted, extend = extend.right)
-        vahL := line.new(bar_index - vpLook, vah, bar_index, vah, color = color.new(color.gray, 60), style = line.style_dotted, extend = extend.right)
-        valL := line.new(bar_index - vpLook, val, bar_index, val, color = color.new(color.gray, 60), style = line.style_dotted, extend = extend.right)
