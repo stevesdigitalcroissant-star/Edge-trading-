@@ -62,8 +62,8 @@
     const z = zoneOf(), tr = S.trade, r = S.res;
     const R = tr && r && r.x != null ? (tr.dir * (r.x - tr.e)) / Math.abs(tr.e - tr.sl) : null;
     S.step = "done"; S.k = X.m.length - 1; S.R = R; done++;
-    saveLabel({ mk: X.mk, day: X.day, v: 1, tfDrawn: S.tf, noZone: S.noZone, zone: z && { ...z, dir: zoneDir(z), why: [...S.why] },
-      trade: tr && { ...tr, placedMin: X.m[tr.k][4], fillMin: r && r.fill != null ? X.m[r.fill][4] : null }, outcome: r && { how: r.how, R: R == null ? null : +R.toFixed(2), exitMin: X.m[r.k][4] }, noTrade: !tr, at: Date.now() });
+    S.id = `${X.mk}|${X.day}|${Date.now()}`; S.label = { id: S.id, mk: X.mk, day: X.day, v: 1, noteZone: S.noteZ || "", tfDrawn: S.tf, noZone: S.noZone, zone: z && { ...z, dir: zoneDir(z), why: [...S.why] },
+      trade: tr && { ...tr, placedMin: X.m[tr.k][4], fillMin: r && r.fill != null ? X.m[r.fill][4] : null }, outcome: r && { how: r.how, R: R == null ? null : +R.toFixed(2), exitMin: X.m[r.k][4] }, noTrade: !tr, at: Date.now() }; saveLabel(S.label);
     paint();
   }
 
@@ -80,6 +80,7 @@
     if (S.step === "zone") body = `<p class="tc-ask">${S.taps.length < 2 ? `<b>Mark your zone.</b> Tap its ${S.taps.length ? "other edge" : "top or bottom"} on the chart — where would you look for a trade today?` : `<b>Your ${dirW ? dirW + " " : ""}zone:</b> ${fx(z.lo)} – ${fx(z.hi)}. Why this one? (tap all that fit)`}</p>
       <div class="tc-tf"><button class="${S.tf === "1h" ? "on" : ""}" data-t="tf1">1H · 15 days</button><button class="${S.tf === "4h" ? "on" : ""}" data-t="tf4">4H · 3 months</button><button class="${S.zoom ? "on" : ""}" data-t="zoom">${S.zoom ? "Zoom in" : "Zoom out"}</button></div>
       <canvas class="tc-cv" data-t="cv"></canvas>
+      ${z ? `<textarea class="tc-note" data-n="z" rows="2" placeholder="Tell Claude why, in your words (optional) — e.g. what makes this zone good, what you'll wait for">${esc(S.noteZ || "")}</textarea>` : ""}
       ${z ? `<div class="tc-why">${WHY.map((w, i) => `<button class="${S.why.has(w) ? "on" : ""}" style="--c:${CH[i % CH.length]}" data-w="${esc(w)}">${esc(w)}</button>`).join("")}</div>` : ""}
       <div class="tc-act"><button class="btn small tc-soft" data-t="nozone">No zone I'd trade today</button>${S.taps.length ? '<button class="btn small" data-t="clear">Redraw</button>' : ""}<button class="btn small primary" data-t="watch" ${z ? "" : "disabled"}>Watch the day ▶</button></div>`;
     else if (S.step === "watch" || S.step === "place") { const pl = S.place, need = ["ENTRY", "STOP", "TARGET"][pl.length];
@@ -90,6 +91,7 @@
     else { const R = S.R, tr = S.trade, r = S.res;
       body = `<p class="tc-ask tc-res ${tr && r.how !== "never filled" ? (S.R >= 0 ? "win" : "loss") : "flat"}">${tr ? (r.how === "never filled" ? "<b>Your order never filled.</b>" : `<b>${r.how === "target" ? "🎯 Target hit" : r.how === "stop" ? "🛑 Stopped" : "Closed at 16:00"}: ${R >= 0 ? "+" : "−"}${Math.abs(R).toFixed(1)}R</b> (${R >= 0 ? "+" : "−"}$${Math.abs(Math.round(R * 150))} at $150 risk).`) : "<b>No trade.</b> Here's how the day played out."} <small>${esc(X.day)} · saved ✓</small></p>
         <canvas class="tc-cv" data-t="cv"></canvas>
+        <textarea class="tc-note" data-n="t" rows="2" placeholder="Anything to tell Claude about this one? (optional) — why you entered there, what you'd do differently">${esc(S.noteT || "")}</textarea>
         <div class="tc-act"><button class="btn small primary" data-t="next">${done >= GOAL ? "That's 30 — keep going?" : "Next chart ▶"}</button></div>`; }
     ov.innerHTML = top + body;
     const cv = ov.querySelector("canvas"); if (cv) draw(cv);
@@ -135,9 +137,9 @@
     if (a === "undo") { S.place.pop(); return paint(); }
     if (a === "r3") { const [en, sl] = S.place; S.place[2] = en + 3 * (en - sl); return paint(); }
     if (a === "confirm") { const [en, sl, tp] = S.place, dir = sl < en ? 1 : -1; S.trade = { dir, e: en, sl, tp, k: S.k }; S.res = play(S.trade, S.k); return finish(); }
-    if (a === "next") return nextChart();
+    if (a === "next") { if (S.noteT && S.label) saveLabel({ ...S.label, noteTrade: S.noteT }).then(() => saved != null && saved--); return nextChart(); } // same id: updates, doesn't add
   }
-  function open() { if (!ov) { ov = document.createElement("div"); ov.className = "teach-ov"; ov.addEventListener("click", onClick); addEventListener("resize", () => ov.isConnected && paint()); }
+  function open() { if (!ov) { ov = document.createElement("div"); ov.className = "teach-ov"; ov.addEventListener("click", onClick); ov.addEventListener("input", (e) => { const n = e.target.dataset && e.target.dataset.n; if (n && S) S[n === "z" ? "noteZ" : "noteT"] = e.target.value.slice(0, 1000); }); addEventListener("resize", () => ov.isConnected && paint()); }
     document.body.appendChild(ov); document.body.classList.add("teach-on"); flushQueue(); if (!X) nextChart(); else paint(); }
   function close() { stopPlay(); if (ov) ov.remove(); document.body.classList.remove("teach-on"); refreshCount(); }
 
