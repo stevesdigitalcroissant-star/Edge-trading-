@@ -147,7 +147,7 @@
   // ---------- the card on the Test tab
   function paintCard() { if (!card) return; card.innerHTML = `<section class="card teach-card"><div class="card-head"><h2>✏️ Teach Edge your way</h2></div>
     <p class="muted" style="margin:0 0 10px">Real past charts, one after another. Mark <b>your</b> zone, then play the day and place <b>your</b> trade — or pass. After 20–30, Edge learns how you draw and rebuilds the scanner around it.</p>
-    <div class="tc-cardrow"><span>${saved == null ? "" : `<b>${saved}</b> examples saved`}</span><button class="btn small primary" data-t="open">Start marking ▶</button></div></section>`; }
+    <div class="tc-cardrow"><span>${saved == null ? "" : `<b>${saved}</b> examples saved`}</span><span class="tc-cardbtns">${location.pathname === "/teach" ? "" : '<a class="btn small" href="/teach">Full page ↗</a>'}<button class="btn small primary" data-t="open">Start marking ▶</button></span></div></section>`; }
   function mount(host) { if (!host) return; if (!card) { card = document.createElement("div"); card.addEventListener("click", (e) => { if (e.target.closest('[data-t="open"]')) open(); }); refreshCount(); }
     if (card.parentNode !== host) host.appendChild(card); paintCard(); }
   window.EdgeTeach = { mount, open, close, play: (x, tr, from) => { const keep = X; X = x; try { return play(tr, from); } finally { X = keep; } } };

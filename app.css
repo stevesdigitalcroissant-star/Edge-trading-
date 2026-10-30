@@ -1196,6 +1196,8 @@ body.teach-on { overflow: hidden; }
 .tc-msg { padding: 30px 6px; color: #a9b0dc; }
 .tc-note { width: 100%; box-sizing: border-box; resize: vertical; border-radius: 12px; padding: 10px 12px; font: 500 14px/1.4 var(--font); color: #f3f4ff; background: rgba(255, 255, 255, .06); border: 1px solid rgba(199, 125, 255, .35); }
 .tc-note:focus { outline: none; border-color: #c77dff; box-shadow: 0 0 0 3px rgba(199, 125, 255, .25); }
-.tc-cardrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tc-cardrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.tc-cardbtns { display: flex; gap: 8px; }
+.tc-cardbtns a.btn { text-decoration: none; color: inherit; }
 .teach-card { background: linear-gradient(135deg, rgba(124, 92, 255, .16), rgba(0, 212, 255, .08) 60%, rgba(46, 242, 166, .10)), var(--panel); border-color: rgba(140, 150, 255, .3); }
 .teach-card .btn.primary { background: linear-gradient(135deg, #7c5cff, #00d4ff); color: #fff; }

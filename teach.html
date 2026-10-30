@@ -42,7 +42,8 @@
     page.innerHTML = `${intro}<form class="tp-card" id="f"><b>Sign in with your Edge account</b>
       <label for="e">Email</label><input id="e" type="email" autocomplete="username" required>
       <label for="p">Password</label><input id="p" type="password" autocomplete="current-password" required>
-      <p class="tp-err" id="err">${msg || ""}</p><button class="btn" type="submit">Sign in and start</button></form>`;
+      <p class="tp-err" id="err">${msg || ""}</p><button class="btn" type="submit">Sign in and start</button>
+      <p style="font-size:13px;margin:14px 0 0">Don't know your login? Open the <b>Edge app</b> (you're signed in there) → <b>Test</b> → <b>Teach Edge</b> → <b>Full page ↗</b>. Forgot your password? Edge's sign-in screen → <b>Forgot password?</b> uses the recovery code you saved when you made the account.</p></form>`;
     document.getElementById("f").addEventListener("submit", async (ev) => {
       ev.preventDefault(); const err = document.getElementById("err"); err.textContent = "";
       try {
@@ -56,7 +57,7 @@
   async function start() {
     const r = await fetch("/api/candles?teach=1&label=1", { headers: { Authorization: `Bearer ${tok()}` } }).catch(() => null);
     if (!r || r.status === 401) return signIn(r ? "" : "No connection — try again.");
-    page.innerHTML = `${intro}<div id="host" style="margin-top:18px"></div>`;
+    page.innerHTML = `${intro}<div id="host" style="margin-top:18px"></div><p style="text-align:center;margin-top:18px"><a href="/" style="color:#a9b0dc">← Back to Edge</a></p>`;
     window.EdgeTeach.mount(document.getElementById("host")); window.EdgeTeach.open();
   }
   start();
