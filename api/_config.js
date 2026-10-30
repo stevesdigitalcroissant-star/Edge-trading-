@@ -193,7 +193,7 @@ const DEFAULT_SETTINGS = {
   coachTradeSec: 20, // …and while a trade is open
   coachDailyChecks: 600, // cost guard: max Coach checks per day
   // which alerts reach your phone (push / Telegram); the dashboard log always has all of them
-  notify: { setup: true, action: true, warn: true, closed: true, news: true, locked: true, skip: false, info: true },
+  notify: { level: true, setup: true, action: true, warn: true, closed: true, news: true, locked: true, skip: false, info: true },
 };
 
 // Weekly fundamentals: each factor is answered +1 (bullish), -1 (bearish) or 0 (neutral/unclear).

@@ -33,7 +33,7 @@ test("handshake, tool list; David reads, and writes only the journal, his notes 
   assert.match(init.j.result.instructions, /support & resistance/);
   assert.equal((await call({ jsonrpc: "2.0", method: "notifications/initialized" }, key)).code, 202);
   const list = (await call({ jsonrpc: "2.0", id: 2, method: "tools/list" }, key)).j.result.tools.map((t) => t.name);
-  assert.deepEqual(list, ["edge_today", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_journal", "edge_journal_write", "edge_style", "edge_style_write", "edge_rules"]);
+  assert.deepEqual(list, ["edge_today", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_journal", "edge_journal_write", "edge_style", "edge_style_write", "edge_watch", "edge_watch_link", "edge_rules"]);
   assert.ok(!list.some((n) => /order|trade_|close|place|stop_move/.test(n)), "no trading tools");
   for (const name of ["edge_today", "edge_journal", "edge_rules", "edge_levels", "edge_style"]) { const r = await tool(key, name); assert.ok(!r.err, name + ": " + r.err); }
   assert.match(JSON.stringify((await tool(key, "edge_rules")).out.strategy), /Heikin Ashi/);

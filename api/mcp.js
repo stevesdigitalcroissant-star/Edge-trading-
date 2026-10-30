@@ -25,6 +25,8 @@ const TOOLS = [
   { name: "edge_journal_write", description: "Write in his journal what you saw him do. New trade: market, dir, entry, stop (target, exit, resultR if known), emotion, followedRules, notes, tags (e.g. 'waited for the HA flip', 'entered early', 'moved stop'). To add to a trade already there (Edge records broker fills itself), pass its id with your notes / result — notes are added, never replaced. Say back what you wrote.", inputSchema: { type: "object", properties: { id: STR, market: MK, dir: { type: "string", enum: ["long", "short"] }, entry: NUM, stop: NUM, target: NUM, exit: NUM, resultR: NUM, openedAt: STR, closedAt: STR, emotion: { type: "string", enum: ["calm", "fomo", "revenge", "bored", "scared", "confident"] }, followedRules: { type: "boolean" }, notes: STR, tags: { type: "array", items: STR, maxItems: 10 } } } },
   { name: "edge_style", description: "Your notes on how Steve trades — his strengths, habits, recurring mistakes and the rules he keeps — newest first. Read them at the start of a session so your feedback builds on what you already learned.", inputSchema: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 200 } } } },
   { name: "edge_style_write", description: "Save one thing you learned about how Steve trades (a strength, habit, mistake or rule he follows), in one or two plain sentences, with an example from today if you have one.", inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["strength", "habit", "mistake", "rule", "goal"] }, note: STR, market: MK }, required: ["kind", "note"] } },
+  { name: "edge_watch", description: "Edge's level watch: whether you're linked to hear its alerts live, and the latest alerts (price at one of his levels, BUY / SELL setups). Edge checks his saved levels every 5 minutes on closed candles, even with the app closed.", inputSchema: none },
+  { name: "edge_watch_link", description: "Link yourself so Edge tells you, as they happen, when price touches one of his levels, when a BUY / SELL setup forms there, and when a trade closes. Pass the address your instructions give you for Edge alerts. Send an empty url to unlink.", inputSchema: { type: "object", properties: { url: STR }, required: ["url"] } },
   { name: "edge_rules", description: "His strategy in steps (simple support & resistance, Heikin Ashi + regular candles, the 80 SMA) and his risk settings and limits.", inputSchema: none },
 ];
 
@@ -147,6 +149,18 @@ async function run(name, args, s, store) {
       await store.hset("journal", id, t);
       return { written: pick(t, ["id", "market", "dir", "entry", "initialSL", "tp", "exit", "resultR", "emotion", "followedRules", "tags", "note"]) };
     }
+    case "edge_watch": {
+      const [hook, ev, L] = await Promise.all([store.get("davidHook"), store.lrange("lw:events", 10), savedLevels(store)]);
+      return { linked: !!(hook && hook.url), marketsWatched: Object.keys(L).filter((m) => (L[m] || []).length), latest: ev, how: "Touch = a closed 15m candle within 0.25 × 15m ATR of his level (then quiet until price moves 1.5 ATR away). Setup = within 12 five-minute candles of a touch, the 5m Heikin Ashi flips his way, the 5m candle closes back on the right side of the level and the 80 SMA agrees." };
+    }
+    case "edge_watch_link": {
+      const u = String(args.url || "").trim();
+      if (!u) { await store.set("davidHook", null); return { linked: false }; }
+      let ok = false; try { const x = new URL(u); ok = x.protocol === "https:" && !/^(\d+\.){3}\d+$|^\[|^localhost$/i.test(x.hostname); } catch {}
+      if (!ok || u.length > 500) throw new Error("That address must start with https://");
+      await store.set("davidHook", { url: u, at: now });
+      return { linked: true, note: "Edge will send level touches, setups and closed trades here." };
+    }
     case "edge_style": return { notes: await store.lrange("david:style", Math.min(Math.max(Number(args.limit) || 60, 1), 200)) };
     case "edge_style_write": {
       if (!clip(args.note, 1).length) throw new Error("What did you learn?");
@@ -180,7 +194,7 @@ module.exports = async (req, res) => {
     if (method === "tools/list") return reply(res, id, { tools: TOOLS });
     if (method === "tools/call") {
       if (!TOOLS.some((t) => t.name === params.name)) return fail(res, id, -32602, "Unknown tool");
-      const light = ["edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_style", "edge_style_write"].includes(params.name) || (params.name === "edge_journal_write");
+      const light = ["edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_style", "edge_style_write", "edge_watch", "edge_watch_link"].includes(params.name) || (params.name === "edge_journal_write");
       const s = light ? null : await state(store, await brokerFor(store));
       const text = JSON.stringify(await run(params.name, params.arguments || {}, s, store));
       return reply(res, id, { content: [{ type: "text", text: text.length > 60000 ? text.slice(0, 60000) + " …(cut)" : text }] });
@@ -192,3 +206,4 @@ module.exports = async (req, res) => {
 };
 
 module.exports.TOOLS = TOOLS;
+Object.assign(module.exports, { ALL_MARKETS, MY_MARKETS, agg, heikin, atrOf, sma, readOne });
