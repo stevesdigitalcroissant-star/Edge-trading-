@@ -154,10 +154,10 @@
 
   // light · dark · follow the device — remembered on this device
   const TI = (d) => `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">${d}</svg>`;
-  const THEMES = [["", TI('<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/>'), "Follows your device"], ["light", TI('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'), "Light"], ["dark", TI('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'), "Dark"]];
+  const THEMES = [["", TI('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'), "Sunrise (bright)"], ["dark", TI('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'), "Dark"]];
   const themeNow = () => { try { return localStorage.getItem("edge.theme") || ""; } catch { return ""; } };
   const themeShow = () => { const t = THEMES.find((x) => x[0] === themeNow()) || THEMES[0], b = $("#themeBtn"); b.innerHTML = t[1]; b.title = `Theme: ${t[2]}`;
-    const dark = t[0] === "dark" || (!t[0] && !matchMedia("(prefers-color-scheme: light)").matches); const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = dark ? "#08090b" : "#f4f2ee"; };
+    const dark = t[0] === "dark"; const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = dark ? "#08090b" : "#fff7ef"; };
   themeShow();
   $("#themeBtn").addEventListener("click", () => {
     const i = THEMES.findIndex((x) => x[0] === themeNow()), n = THEMES[(i + 1) % THEMES.length];
@@ -662,18 +662,22 @@
   }
 
 
+  // a warm hello and one short mindset line a day (same line all day, a new one tomorrow)
+  const hello = () => { const h = new Date().getHours(); return h < 5 ? "Late night 🌙" : h < 12 ? "Good morning ☀️" : h < 18 ? "Good afternoon 🌤️" : "Good evening 🌅"; };
+  const MINDSET = ["Your edge is in waiting for your level — not in trading more.", "One clean trade beats five rushed ones.", "A loss taken at your stop is a trade done right.", "Patience at the level, then let the plan work.", "Same risk every time — let the numbers grow quietly.", "You don't need every move. You need yours.", "Protect your energy: no level, no trade.", "Small wins, kept rules, a growing line.", "Calm hands, clear levels, clean entries.", "Review, learn, come back sharper."];
+  const mindset = () => MINDSET[Math.floor(Date.now() / 864e5) % MINDSET.length];
   function viewNow() {
     const g = S.guard, s = S.settings;
     const live = S.setups.filter((x) => x.status === "open" && x.g.take.ok && !(x.expires && S.now > x.expires));
     const inTrade = S.open.length, ses = sessionNow();
     const [stateTxt, stateColor, headline, sub] = inTrade ? ["In a trade", "var(--info)", "Stick to your plan.", "David is on the line — tell him what you see, he writes it down."]
       : ses.open ? ["Session open", "var(--good)", `${ses.name} session — watch your levels.`, "Price at your level → wait for the 5m: Heikin Ashi turns, the candle closes back, the 80 SMA agrees."]
-      : ["Ready", "var(--good)", "Market's quiet for you.", `London opens in ${Math.floor(ses.inMin / 60)}h ${String(ses.inMin % 60).padStart(2, "0")}m.`];
+      : ["Ready", "var(--good)", `${hello()} Market's quiet for you.`, `London opens in ${Math.floor(ses.inMin / 60)}h ${String(ses.inMin % 60).padStart(2, "0")}m — rest, review your journal, set your levels.`];
     const art = !window.EdgeArt ? "" : window.EdgeArt.scene(inTrade ? "trade" : ses.open ? "session" : "quiet");
     const share = S.share.share, C = 2 * Math.PI * 40;
     const hero = `<section class="card hero ${art ? "with3d" : ""}" data-tour="hero" style="--state:${stateColor}">${art}
       <div><div class="state"><span class="dot live"></span>${stateTxt}</div>
-        <div class="headline">${headline}</div><p class="sub">${sub}</p></div>
+        <div class="headline">${headline}</div><p class="sub">${sub}</p><p class="mindset">✨ ${esc(mindset())}</p></div>
     </section>`;
     const wk = (() => { const d = new Date(S.now); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.getTime(); })();
     const weekR = Math.round(S.journal.filter((t) => t.resultR != null && (t.closedAt || t.openedAt) >= wk).reduce((a, t) => a + t.resultR, 0) * 100) / 100;
@@ -1393,7 +1397,7 @@
     const ok = (b) => (b ? `<span class="pill good">on</span>` : `<span class="pill warn">off</span>`);
     const hook = `${location.origin}/api/hook`;
     const ps = pushStatus();
-    const kinds = [["setup", "A+ setups ready to take"], ["action", "Act now: move stop to break-even, take profit, Coach alerts"], ["warn", "Rule checks: stop moved, no stop, structure broke against you"], ["news", "News coming (before the no-trade window)"], ["closed", "Trade closed + result"], ["locked", "Done for the day (limits hit)"], ["skip", "Setups that aren't A+ (to see what you skipped)"], ["info", "Other"]];
+    const kinds = [["closed", "Trade closed + result"], ["warn", "Stop moved or missing on an open trade"], ["news", "Big news coming"], ["info", "Other (David, journal)"]];
     const notifCard = `<section class="card"><h2>Notifications</h2>
         <div class="row between"><span class="pill ${ps.on ? "good" : "warn"}" style="white-space:normal;max-width:100%">${esc(ps.text)}</span>
           ${ps.on ? `<span class="row"><button class="btn small" data-testalert>Send a test</button><button class="btn small danger" data-pushoff>Turn off here</button></span>` : pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on for this device</button>` : ""}</div>

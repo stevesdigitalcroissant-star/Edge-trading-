@@ -1,56 +1,45 @@
-/* Edge — graphite & champagne gold. Tokens first; every colour below comes from them. */
+/* Edge — "Sunrise": warm cream, white cards, a sunny orange→coral accent, mint wins, coral losses. Bright by default
+   (to lift the mood); the old graphite & gold look stays as the Dark theme. Tokens first; every colour comes from them. */
 :root {
+  --bg: #fff7ef;
+  --bg-glow: radial-gradient(900px 520px at 8% -120px, rgba(255, 183, 120, .45), transparent 60%), radial-gradient(800px 520px at 100% 0%, rgba(140, 200, 255, .35), transparent 60%), radial-gradient(900px 600px at 50% 110%, rgba(255, 170, 200, .28), transparent 60%);
+  --panel: #ffffff;
+  --panel2: #fff5ec;
+  --panel3: #ffeadb;
+  --line: rgba(120, 72, 40, .09);
+  --line2: rgba(120, 72, 40, .16);
+  --hi: inset 0 1px 0 rgba(255, 255, 255, .9);
+  --shadow: 0 2px 6px rgba(255, 140, 80, .08), 0 18px 40px -18px rgba(150, 80, 160, .28);
+  --text: #2b2340;
+  --muted: #776c86;
+  --faint: #a99fb6;
+  --accent: #f2762e;
+  --accent2: #e8562a;
+  --gold: linear-gradient(135deg, #ffd166 0%, #ff9f43 50%, #ff6b6b 100%);
+  --on-accent: #ffffff;
+  --good: #12a46c; --bad: #e8436a; --warn: #e48a07; --info: #3b7bf0;
+  --c4h: #8b5cf6; --c15: #3b82f6; --c5: #e4a400; --liq: #57606a; /* one colour per timeframe */
+  --radius: 22px;
+  --radius-sm: 14px;
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --display: "Sora", "Inter", -apple-system, sans-serif;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
   --bg: #08090b;
   --bg-glow: radial-gradient(1200px 600px at 50% -200px, rgba(214, 177, 108, .10), transparent 60%);
-  --panel: #111317;
-  --panel2: #171a1f;
-  --panel3: #1e2228;
-  --line: rgba(255, 255, 255, .07);
-  --line2: rgba(255, 255, 255, .12);
+  --panel: #111317; --panel2: #171a1f; --panel3: #1e2228;
+  --line: rgba(255, 255, 255, .07); --line2: rgba(255, 255, 255, .12);
   --hi: inset 0 1px 0 rgba(255, 255, 255, .04);
   --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 12px 32px -12px rgba(0, 0, 0, .6);
-  --text: #eef0f3;
-  --muted: #8a919c;
-  --faint: #5c636d;
-  --accent: #d9b46c;
-  --accent2: #b98a3f;
+  --text: #eef0f3; --muted: #8a919c; --faint: #5c636d;
+  --accent: #d9b46c; --accent2: #b98a3f;
   --gold: linear-gradient(135deg, #f1d79f 0%, #d9b46c 45%, #ad7f37 100%);
   --on-accent: #1b1407;
   --good: #3ccf91; --bad: #f2626b; --warn: #f0a94b; --info: #6aa8ff;
-  --c4h: #a879f0; --c15: #4b8ff0; --c5: #f2cd5a; --liq: #c9d1d9; /* one colour per timeframe — same as the TradingView script */
-  --radius: 18px;
-  --radius-sm: 12px;
-  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --display: "Sora", "Inter", -apple-system, sans-serif;
+  --c4h: #a879f0; --c15: #4b8ff0; --c5: #f2cd5a; --liq: #c9d1d9;
+  --radius: 18px; --radius-sm: 12px;
   color-scheme: dark;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --bg: #f4f2ee;
-    --bg-glow: radial-gradient(1200px 600px at 50% -200px, rgba(185, 138, 63, .12), transparent 60%);
-    --panel: #ffffff; --panel2: #f6f4f0; --panel3: #eeebe5;
-    --line: rgba(20, 18, 14, .08); --line2: rgba(20, 18, 14, .14);
-    --hi: inset 0 1px 0 rgba(255, 255, 255, .8);
-    --shadow: 0 1px 2px rgba(20, 18, 14, .06), 0 12px 32px -14px rgba(20, 18, 14, .18);
-    --text: #16130e; --muted: #6b665d; --faint: #9a948a;
-    --accent: #a8792f; --accent2: #8a6022;
-    --good: #12925a; --bad: #d23a43; --warn: #b9710f; --info: #2a6fd6;
-    --liq: #57606a;
-    color-scheme: light;
-  }
-}
-:root[data-theme="light"] {
-    --bg: #f4f2ee;
-    --bg-glow: radial-gradient(1200px 600px at 50% -200px, rgba(185, 138, 63, .12), transparent 60%);
-    --panel: #ffffff; --panel2: #f6f4f0; --panel3: #eeebe5;
-    --line: rgba(20, 18, 14, .08); --line2: rgba(20, 18, 14, .14);
-    --hi: inset 0 1px 0 rgba(255, 255, 255, .8);
-    --shadow: 0 1px 2px rgba(20, 18, 14, .06), 0 12px 32px -14px rgba(20, 18, 14, .18);
-    --text: #16130e; --muted: #6b665d; --faint: #9a948a;
-    --accent: #a8792f; --accent2: #8a6022;
-    --good: #12925a; --bad: #d23a43; --warn: #b9710f; --info: #2a6fd6;
-    --liq: #57606a;
-    color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -65,7 +54,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* ---------- brand */
 .brand { display: flex; align-items: center; gap: 10px; font: 700 16px/1 var(--display); letter-spacing: .18em; text-transform: uppercase; }
-.brand img { border-radius: 9px; box-shadow: 0 0 0 1px var(--line2), 0 6px 18px -6px rgba(217, 180, 108, .45); }
+.brand img { border-radius: 9px; box-shadow: 0 0 0 1px var(--line2), 0 6px 18px -6px rgba(242, 118, 46, .45); }
 .brand span { background: var(--gold); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
 /* ---------- login */
@@ -1267,3 +1256,10 @@ body.teach-on { overflow: hidden; }
 .gc-stats em { display: block; font-style: normal; font-size: 11px; color: var(--faint); margin-top: 1px; }
 .gc-stats em.up { color: var(--good); } .gc-stats em.down { color: var(--bad); }
 @media (max-width: 420px) { .gc-stats { grid-template-columns: repeat(2, 1fr); } .growcard .headline { font-size: 30px; } }
+
+/* Sunrise touches: a warm hero, a mindset line, a sunny logo tile */
+:root:not([data-theme="dark"]) .hero { background: linear-gradient(140deg, #fff 0%, #fff4e8 45%, #ffe9f1 100%); }
+:root:not([data-theme="dark"]) .growcard { background: linear-gradient(160deg, #fff 0%, #fffaf3 60%, #f3f8ff 100%); }
+:root:not([data-theme="dark"]) .brand img { filter: hue-rotate(-12deg) saturate(1.3); }
+:root:not([data-theme="dark"]) .tabs button.on { background: linear-gradient(135deg, #ffe7d1, #ffd9e3); }
+.mindset { margin: 10px 0 0; padding: 8px 12px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--text); font-weight: 600; font-size: 13.5px; display: inline-block; }
