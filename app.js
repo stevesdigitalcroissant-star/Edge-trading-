@@ -1214,17 +1214,72 @@
     const pct = (a) => (a.length ? Math.round((100 * a.filter(kept).length) / a.length) : null), avg = (a) => (a.length ? a.reduce((x, t) => x + t.resultR, 0) / a.length : null);
     let streak = 0, bestStreak = 0; for (const t of closed) { streak = kept(t) ? streak + 1 : 0; bestStreak = Math.max(bestStreak, streak); }
     const arrow = (a, b) => (a == null || b == null ? "" : b > a ? `<span class="up">▲</span>` : b < a ? `<span class="down">▼</span>` : "");
-    const chips = closed.length >= 4 ? `<div class="growchips">
-        <div><small>Rules kept</small><b>${pct(Bh)}% ${arrow(pct(A), pct(Bh))}</b><small>was ${pct(A)}%</small></div>
-        <div><small>Per trade</small><b class="${cls(avg(Bh))}">${rs(Math.round(avg(Bh) * 100) / 100)} ${arrow(avg(A), avg(Bh))}</b><small>was ${rs(Math.round(avg(A) * 100) / 100)}</small></div>
-        <div><small>Rules streak</small><b>${streak} 🔥</b><small>best ${bestStreak}</small></div></div>` : "";
-    const jhero = `<section class="card hero with3d grow-hero" data-tour="results" style="--state:${st.totalR > 0 ? "var(--good)" : st.totalR < 0 ? "var(--bad)" : "var(--accent)"}">${window.EdgeArt && window.EdgeArt.growth ? window.EdgeArt.growth(closed) : ""}
-      <div><div class="state">Your growth</div><div class="headline">${st.n ? `<span class="${cls(st.totalR)}">${rs(st.totalR)}</span> · ${st.n} trade${st.n > 1 ? "s" : ""}` : "No trades yet."}</div><p class="sub">${st.n ? "Your running total, week by week — the gold ball climbs it, the flag marks your best." : "Trade with David on the line — every trade he logs grows this."}</p></div>${chips}</section>`;
+    const jhero = growthCard(closed, kept);
     return `${jhero}${fixCard()}${S.journal.length >= 5 ? insightsCard() : ""}<section class="card"><div class="grid2">
         <div class="stat"><small>🎯 Win rate</small><b>${st.winRate == null ? "—" : st.winRate + "%"}</b><small>avg ${rs(st.avgR)}</small></div>
         <div class="stat"><small>📏 Rules kept</small><b>${pct(closed) == null ? "—" : pct(closed) + "%"}</b><small>${closed.filter((t) => !kept(t)).length} broken</small></div>
       </div></section>
       <section class="card" data-tour="journal"><div class="row between"><h2 style="margin:0">Journal</h2><button class="btn small" id="logTrade">＋ Log a trade I took</button></div>${rows || `<p class="muted">Closed trades appear here — and the ones David logs for you.</p>`}</section>${davidCard()}`;
+  }
+
+  // ---------- Journal: your growth — the running total of your trades as a clean line (tap / hover for any trade),
+  // your weeks as green / red bars underneath, and the four numbers that show whether you're getting better
+  let growRange = "all"; try { growRange = localStorage.getItem("edge.growRange") || "all"; } catch {}
+  function growthCard(closedAll, kept) {
+    const days = { "1m": 31, "3m": 92, all: 1e5 }[growRange] || 1e5, from = S.now - days * 864e5;
+    const T = closedAll.filter((t) => (t.closedAt || t.openedAt || 0) >= from), usd1 = riskNow();
+    const head = (inner) => `<section class="card growcard" data-tour="results"><div class="gc-top"><div><div class="state">Your growth</div>${inner}</div>
+      <div class="seg gc-range">${[["1m", "1M"], ["3m", "3M"], ["all", "All"]].map(([k, l]) => `<button type="button" data-grow="${k}" class="${growRange === k ? "on" : ""}">${l}</button>`).join("")}</div></div>`;
+    if (T.length < 2) return head(`<div class="headline">${T.length ? rs(T[0].resultR) : "No trades yet"}</div><p class="sub">${closedAll.length ? "Not enough trades in this period — try All." : "Trade with David on the line — every trade he logs draws this line."}</p>`) + "</section>";
+    let cum = 0, peak = 0, maxDD = 0; const pts = [{ v: 0, t: null }];
+    for (const t of T) { cum += t.resultR; peak = Math.max(peak, cum); maxDD = Math.max(maxDD, peak - cum); pts.push({ v: cum, t }); }
+    const total = Math.round(cum * 100) / 100, W = 600, H = 190, padL = 6, padR = 46, padT = 14, padB = 22;
+    const lo = Math.min(0, ...pts.map((p) => p.v)), hi = Math.max(...pts.map((p) => p.v), lo + 1), X = (i) => padL + (i / (pts.length - 1)) * (W - padL - padR), Y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+    const line = pts.map((p, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join("");
+    const area = `${line}L${X(pts.length - 1).toFixed(1)},${Y(lo).toFixed(1)}L${X(0).toFixed(1)},${Y(lo).toFixed(1)}Z`;
+    const tv = [lo, (lo + hi) / 2, hi], ticks = tv.map((v) => `<line x1="${padL}" x2="${W - padR}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" class="gc-grid"/>`).join("");
+    const pc = (y) => ((y / H) * 100).toFixed(2), px = (x) => ((x / W) * 100).toFixed(2);
+    const tickLbl = tv.map((v) => `<span class="gc-tick" style="top:${pc(Y(v))}%">${v >= 0 ? "+" : "−"}${Math.abs(Math.round(v))}R</span>`).join("");
+    const zero = lo < 0 ? `<line x1="${padL}" x2="${W - padR}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" class="gc-zero"/>` : "";
+    const peakY = Y(peak), last = pts[pts.length - 1];
+    const fd = (t) => new Date(t).toLocaleDateString([], { day: "numeric", month: "short" });
+    // weeks: green / red bars (Monday-based), the most recent 12
+    const wk = new Map(); for (const t of T) { const d = new Date(t.closedAt || t.openedAt); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); const k = d.getTime(); wk.set(k, (wk.get(k) || 0) + t.resultR); }
+    const weeks = [...wk.entries()].sort((a, b) => a[0] - b[0]).slice(-12), wmax = Math.max(1, ...weeks.map(([, v]) => Math.abs(v))), green = weeks.filter(([, v]) => v > 0).length;
+    const bars = weeks.map(([k, v]) => `<div class="gc-wk" title="Week of ${fd(k)}: ${rs(Math.round(v * 100) / 100)}"><i class="${v >= 0 ? "pos" : "neg"}" style="height:${Math.max(4, (Math.abs(v) / wmax) * 50)}%"></i></div>`).join("");
+    const half = Math.floor(T.length / 2), A = T.slice(0, half), B = T.slice(half), pct = (a) => (a.length ? Math.round((100 * a.filter(kept).length) / a.length) : 0), avg = (a) => (a.length ? a.reduce((x, t) => x + t.resultR, 0) / a.length : 0);
+    let streak = 0; for (let i = T.length - 1; i >= 0 && kept(T[i]); i--) streak++;
+    const trend = (a, b, fmt) => `<em class="${b > a ? "up" : b < a ? "down" : ""}">${b > a ? "▲" : b < a ? "▼" : "="} from ${fmt(a)}</em>`;
+    const R2 = (v) => rs(Math.round(v * 100) / 100);
+    window.__grow = { pts: pts.map((p) => ({ v: p.v, x: X(pts.indexOf(p)), y: Y(p.v), t: p.t && { m: mname(p.t.market), d: p.t.dir, r: p.t.resultR, at: p.t.closedAt || p.t.openedAt } })), W, H };
+    return head(`<div class="headline"><span class="${cls(total)}">${rs(total)}</span>${usd1 ? ` <small class="gc-usd ${cls(total)}">${total >= 0 ? "+" : "−"}$${Math.abs(Math.round(total * usd1)).toLocaleString("en-US")}</small>` : ""}</div>
+      <p class="sub">${T.length} trades · best ${rs(Math.round(peak * 100) / 100)} · ${fd(T[0].closedAt || T[0].openedAt)} → ${fd(last.t.closedAt || last.t.openedAt)}</p>`) + `
+      <div class="gc-chart"><div class="gc-plot"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="gc-svg" role="img" aria-label="Running total ${rs(total)} over ${T.length} trades">
+        <defs><linearGradient id="gcFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".28"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+        ${ticks}${zero}<line x1="${padL}" x2="${W - padR}" y1="${peakY.toFixed(1)}" y2="${peakY.toFixed(1)}" class="gc-peak"/>
+        <path d="${area}" fill="url(#gcFill)"/><path d="${line}" class="gc-line" pathLength="1"/>
+        <g class="gc-hover" hidden><line class="gc-cross" y1="${padT}" y2="${H - padB}"/></g>
+      </svg>${tickLbl}<span class="gc-peaklbl" style="top:${pc(peakY)}%">best</span>
+      <i class="gc-dot" style="left:${px(X(pts.length - 1))}%;top:${pc(Y(last.v))}%"></i><i class="gc-hdot" hidden></i>
+      <div class="gc-tip" hidden></div></div><div class="gc-x"><span>${fd(T[0].closedAt || T[0].openedAt)}</span><span>${fd(last.t.closedAt || last.t.openedAt)}</span></div></div>
+      <div class="gc-weeks"><div class="gc-wk-head"><small>Weeks</small><small>${green} of ${weeks.length} green</small></div><div class="gc-wk-row">${bars}</div></div>
+      <div class="gc-stats">
+        <div><small>Rules kept</small><b>${pct(B)}%</b>${trend(pct(A), pct(B), (v) => v + "%")}</div>
+        <div><small>Per trade</small><b class="${cls(avg(B))}">${R2(avg(B))}</b>${trend(avg(A), avg(B), R2)}</div>
+        <div><small>Worst dip</small><b class="neg">−${(Math.round(maxDD * 10) / 10).toFixed(1)}R</b><em>from a high</em></div>
+        <div><small>Rules streak</small><b>${streak}</b><em>trades in a row</em></div>
+      </div></section>`;
+  }
+  function bindGrowth(v) {
+    v.querySelectorAll("[data-grow]").forEach((b) => b.addEventListener("click", () => { growRange = b.dataset.grow; try { localStorage.setItem("edge.growRange", growRange); } catch {} render(); }));
+    const svg = v.querySelector(".gc-svg"), G = window.__grow; if (!svg || !G) return;
+    const hov = svg.querySelector(".gc-hover"), cross = hov.querySelector(".gc-cross"), dot = v.querySelector(".gc-hdot"), tip = v.querySelector(".gc-tip");
+    const show = (e) => { const r = svg.getBoundingClientRect(), x = ((e.clientX - r.left) / r.width) * G.W; let p = G.pts[0]; for (const q of G.pts) if (Math.abs(q.x - x) < Math.abs(p.x - x)) p = q;
+      hov.hidden = false; dot.hidden = false; cross.setAttribute("x1", p.x); cross.setAttribute("x2", p.x); dot.style.left = `${(p.x / G.W) * 100}%`; dot.style.top = `${(p.y / G.H) * 100}%`;
+      tip.hidden = false; tip.innerHTML = p.t ? `<b>${esc(p.t.m)} ${p.t.d}</b> <span class="${cls(p.t.r)}">${rs(p.t.r)}</span><br><small>${day(p.t.at)} · total ${rs(Math.round(p.v * 100) / 100)}</small>` : "<small>Start</small>";
+      const px = (p.x / G.W) * r.width; tip.style.left = `${Math.min(Math.max(px, 70), r.width - 70)}px`; };
+    svg.addEventListener("pointermove", show); svg.addEventListener("pointerdown", show);
+    svg.addEventListener("pointerleave", () => { hov.hidden = true; dot.hidden = true; tip.hidden = true; });
   }
 
   // the things you did wrong, most costly first: broken rules, the mistakes David tagged, trading on emotion
@@ -1382,7 +1437,7 @@
 
   // ---------- events
   function bind() {
-    const v = $("#view");
+    const v = $("#view"); bindGrowth(v);
     bindPlan(); bindCoach();
     v.querySelectorAll("[data-snap]").forEach((b) => b.addEventListener("click", (e) => {
       e.stopPropagation(); const t = S.journal.find((x) => x.id === b.dataset.snap); if (!t || !window.EdgeSim) return toast("Simulator still loading — try again.");
