@@ -16,8 +16,8 @@
       text: "At support: the Heikin Ashi candle turns green AND the regular candle closes back above the level. At resistance: Heikin Ashi turns red AND the candle closes back below. That's the entry — the script alerts it as a BUY / SELL setup." },
     { id: "stop", icon: "🛡️", title: "Stop past the level", short: "Where the level has failed", req: true,
       text: "The stop goes on the other side of the level, past the touch candle — if price gets there, the level didn't hold." },
-    { id: "session", icon: "⏰", title: "Your limits", short: "Same size every trade · max 2 a day", req: true,
-      text: "Same risk on every trade, two trades a day at most, no trades right around big news." },
+    { id: "session", icon: "⚖️", title: "Same risk every time", short: "Same size on every trade", req: true,
+      text: "Risk the same amount on every trade, so your journal shows what your trading is really worth. Be careful right around big news — price can jump." },
   ];
   const MANAGE = [
     "Hands off — let it hit the stop or the target.",

@@ -1220,3 +1220,11 @@ body.teach-on { overflow: hidden; }
 .growchips b { display: block; font-size: 18px; }
 .growchips small { color: var(--muted); font-size: 11.5px; line-height: 1.3; display: block; }
 .growchips .up { color: var(--good); } .growchips .down { color: var(--bad); }
+
+/* Journal: what to fix */
+.fix-row { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.fix-row:first-of-type { border-top: 0; }
+.fix-row i { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-weight: 800; font-size: 13px; background: color-mix(in srgb, var(--bad) 22%, var(--panel2)); color: var(--bad); }
+.fix-row small { display: block; margin-top: 2px; }
+.fix-david { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--panel2); border-left: 3px solid var(--warn); }
+.fix-david p { margin: 6px 0 0; }

@@ -204,7 +204,7 @@
     $("#setupBadge").hidden = !live; $("#setupBadge").textContent = live;
     const g = S.guard;
     $("#topStatus").className = `pill ${g.ok ? "good" : "bad"}`;
-    $("#topStatus").innerHTML = `<span class="dot ${g.ok ? "live" : ""}"></span>${g.ok ? "Ready" : "Locked"}`;
+    $("#topStatus").innerHTML = `<span class="dot live"></span>Ready`;
     const coachTab = tab === "watch"; // the live chart coach (screen share) keeps running while you switch tabs
     $("#view").hidden = coachTab;
     homeSync();
@@ -235,17 +235,12 @@
 
   // ---------- "What am I looking at?" — a guided tour, one thing at a time (auto the first time on each screen; ? in the top bar any time)
   const TOURS = {
-    test: [["drill", "Train your eye", "A made-up setup from your rules. Look at the zone: how old is it, how much room to the leg high, how wide, is the pullback clean? Tap <b>TAKE</b> or <b>SKIP</b> — then watch it play out and see why it won or lost."]],
     now: [
-      ["confirm", "Edge spotted your trade", "Your order filled, so Edge recorded the trade. Check the numbers match your platform, pick how you feel, tap <b>All correct</b>."],
-      ["hero", "What to do right now", "One line. <b>Session open</b> = look for your setup. <b>Setup ready</b> = confirm it below. <b>In a trade</b> = hands off. <b>Locked</b> = a limit was hit — done for today."],
-      ["setups", "Edge found a setup", "From your TradingView alerts. Check it, say how you feel, and confirm — Edge sends the order with its stop and target."],
-      ["open", "Your open trades", "Where price is between your stop and target, and what to do next. Edge pings you at +3R to lock in profit."],
-      ["gameplan", "Your game plan", "When London and New York open, Edge sends a 5-minute brief: trades left, what to risk, which markets sit at a zone, the news. A recap comes after the session."],
-      ["prop", "Your prop account", "Where the account stands against the firm's rules, what to risk on the next trade (the autopilot only ever makes you smaller), and your real odds of passing."],
-      ["plan", "Plan a trade", "Your playbook, step by step. Tick each step as you check it on the chart, type your three prices — Edge checks 3R–10R, sizes it for your $ risk and sends or tracks the order."],
-      ["kpis", "Your day in 3 numbers", "Trades taken out of your max, today's result in R (1R = what you risk on one trade), and the loss limit that locks trading for the day."],
-      ["push", "Alerts on this device", "Turn this on so Edge can buzz you when an order fills, a setup appears, or it's time to lock in profit."],
+      ["confirm", "Edge spotted your trade", "Check the numbers match your platform, pick how you feel, tap <b>All correct</b>."],
+      ["hero", "What to do right now", "One line: is the session open, are you in a trade. Price at your level → wait for the 5m signal."],
+      ["open", "Your open trades", "Where price is between your stop and target."],
+      ["kpis", "Your day and week", "Trades today, today's result in R and this week's (1R = what you risk on one trade)."],
+      ["push", "Alerts on this device", "Turn this on so Edge can reach you here."],
     ],
     coach: [
       ["train", "How well you keep your playbook", "Out of the steps in your playbook, how many you kept in your last 20 practice trades."],
@@ -671,23 +666,21 @@
     const g = S.guard, s = S.settings;
     const live = S.setups.filter((x) => x.status === "open" && x.g.take.ok && !(x.expires && S.now > x.expires));
     const inTrade = S.open.length, ses = sessionNow();
-    const [stateTxt, stateColor, headline, sub] = !g.ok
-      ? ["Locked", "var(--bad)", "Not trading right now.", g.reasons.map(esc).join("<br>")]
-      : live.length ? ["Setup ready", "var(--accent)", `${live.length} setup${live.length > 1 ? "s" : ""} waiting for your OK.`, `Check it below — it's only valid for ${Math.max(1, Math.round((Math.min(...live.map((x) => x.expires || S.now + s.setupExpiryMin * 60e3)) - S.now) / 60e3))} more minutes.`]
-      : inTrade ? ["In a trade", "var(--info)", "Hands off. The plan manages it.", S.open.map((t) => `${esc(mname(t.market))}: ${t.lockR != null ? `lock in +${t.lockR}R at +${t.beR}R, then trail · ` : ""}target ${t.tpR ? `${t.tpR}R` : fx(t.tp)}`).join("<br>")]
-      : (S.orders || []).length ? ["Order waiting", "var(--info)", "Your limit is in. Let price come to you.", "No chasing — if it runs to the target without you, it's cancelled."]
-      : ses.open ? ["Session open", "var(--good)", `${ses.name} session — look for your setup.`, "No setup, no trade."]
+    const [stateTxt, stateColor, headline, sub] = inTrade ? ["In a trade", "var(--info)", "Stick to your plan.", "David is on the line — tell him what you see, he writes it down."]
+      : ses.open ? ["Session open", "var(--good)", `${ses.name} session — watch your levels.`, "Price at your level → wait for the 5m: Heikin Ashi turns, the candle closes back, the 80 SMA agrees."]
       : ["Ready", "var(--good)", "Market's quiet for you.", `London opens in ${Math.floor(ses.inMin / 60)}h ${String(ses.inMin % 60).padStart(2, "0")}m.`];
-    const art = !window.EdgeArt ? "" : window.EdgeArt.scene(!g.ok ? "locked" : live.length ? "setup" : inTrade ? "trade" : (S.orders || []).length ? "order" : ses.open ? "session" : "quiet");
+    const art = !window.EdgeArt ? "" : window.EdgeArt.scene(inTrade ? "trade" : ses.open ? "session" : "quiet");
     const share = S.share.share, C = 2 * Math.PI * 40;
     const hero = `<section class="card hero ${art ? "with3d" : ""}" data-tour="hero" style="--state:${stateColor}">${art}
-      <div><div class="state"><span class="dot ${g.ok ? "live" : ""}"></span>${stateTxt}</div>
+      <div><div class="state"><span class="dot live"></span>${stateTxt}</div>
         <div class="headline">${headline}</div><p class="sub">${sub}</p></div>
     </section>`;
+    const wk = (() => { const d = new Date(S.now); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.getTime(); })();
+    const weekR = Math.round(S.journal.filter((t) => t.resultR != null && (t.closedAt || t.openedAt) >= wk).reduce((a, t) => a + t.resultR, 0) * 100) / 100;
     const stats = `<div class="kpis" data-tour="kpis">
-      <div><small>Trades</small><b>${g.tradesToday}<small class="muted"> / ${s.maxTradesPerDay}</small></b><em>taken today</em></div>
+      <div><small>Trades</small><b>${g.tradesToday}</b><em>today</em></div>
       <div><small>Today</small><b class="${cls(g.rToday)}">${rs(g.rToday)}</b><em>profit / loss</em></div>
-      <div><small>Loss limit</small><b>−${s.maxDailyLossR}R</b><em>stop for the day</em></div>
+      <div><small>This week</small><b class="${cls(weekR)}">${rs(weekR)}</b><em>${S.journal.filter((t) => (t.closedAt || t.openedAt) >= wk).length} trades</em></div>
     </div>`;
     const ps = pushStatus();
     const ce = S.closeOut || {}, n = S.open.length;
@@ -697,19 +690,18 @@
     const pend = S.open.filter((t) => t.pending).map(confirmCard).join("");
     const setups = live.length ? `<section class="card" data-tour="setups"><div class="card-head"><h2>📣 Edge found a setup</h2><span class="muted">confirm to send it</span></div><div class="setup-list">${live.map((x) => (x.strategy === "sd" ? sdCard(x) : x.strategy === "playbook" ? radarCard(x) : setupCard(x))).join("")}</div></section>` : "";
     if (S.prop && S.prop.cfg && S.prop.cfg.enabled && !CO.ex) loadExamples(); // your practice results feed the pass odds
-    const openCard = n ? `<section class="card" data-tour="open"><div class="card-head"><h2>Open trades</h2><button class="btn small closeall" data-closeall>Close everything</button></div>${S.open.map(tradeCard).join("")}</section>` : "";
+    const openCard = n ? `<section class="card" data-tour="open"><div class="card-head"><h2>Open trades</h2></div>${S.open.map(tradeCard).join("")}</section>` : "";
     const nextNews = S.news.events.filter((e) => e.block && e.time > S.now - s.newsAfterMin * 60e3).slice(0, 3);
-    const news = nextNews.length ? `<section class="card slim" data-tour="news"><div class="card-head"><h2>📰 Big news</h2><span class="muted">no trades ${s.newsBeforeMin} min either side</span></div><div class="news">${nextNews.map((e) => { const liveN = S.now >= e.time - s.newsBeforeMin * 60e3 && S.now <= e.time + s.newsAfterMin * 60e3; return `<div class="ev ${liveN ? "live" : ""}"><span class="num">${day(e.time).split(",")[0]} ${time(e.time)}</span><span>${esc(e.title)}<br><small class="muted">${e.markets.map(mname).join(" · ")}</small></span><span class="pill ${liveN ? "bad" : "warn"}">${liveN ? "NO TRADES" : e.impact}</span></div>`; }).join("")}</div></section>` : "";
+    const news = nextNews.length ? `<section class="card slim" data-tour="news"><div class="card-head"><h2>📰 Big news</h2><span class="muted">price can jump around it</span></div><div class="news">${nextNews.map((e) => { const liveN = S.now >= e.time - s.newsBeforeMin * 60e3 && S.now <= e.time + s.newsAfterMin * 60e3; return `<div class="ev ${liveN ? "live" : ""}"><span class="num">${day(e.time).split(",")[0]} ${time(e.time)}</span><span>${esc(e.title)}<br><small class="muted">${e.markets.map(mname).join(" · ")}</small></span><span class="pill ${liveN ? "bad" : "warn"}">${liveN ? "NOW" : e.impact}</span></div>`; }).join("")}</div></section>` : "";
     // the things you can do, as pictures: tap one
     const ART = window.EdgeArt, tile = (ic, title, hint, attr, tour = "") => `<button type="button" class="tile" ${attr} ${tour ? `data-tour="${tour}"` : ""}>${ART ? ART.icon(ic) : ""}<b>${title}</b><small>${hint}</small></button>`;
     const pushOk = pushCapable && Notification.permission !== "denied";
     const getSet = getSetCard(), setupShown = !!getSet; // while "Get set up" shows, the prop + alerts steps live there
     const tiles = `<section class="tiles" data-tour="tiles">
-      ${tile("paste", "Paste alert", "from TradingView", "data-paste")}
       ${tile("shot", "Log a trade", "upload a screenshot", "data-shot")}
       ${setupShown || ps.on ? "" : tile("push", "Alerts on", pushOk ? "to this phone" : "how to turn on", pushOk ? "data-pushon" : `data-pushhelp="${esc(ps.text)}"`, "push")}
     </section>`;
-    return `${ceBanner}${pend}${getSet}${hero}${setups}${openCard}${ordersCard()}${tiles}${stats}${news}`;
+    return `${pend}${getSet}${hero}${openCard}${tiles}${stats}${news}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -1228,11 +1220,32 @@
         <div><small>Rules streak</small><b>${streak} 🔥</b><small>best ${bestStreak}</small></div></div>` : "";
     const jhero = `<section class="card hero with3d grow-hero" data-tour="results" style="--state:${st.totalR > 0 ? "var(--good)" : st.totalR < 0 ? "var(--bad)" : "var(--accent)"}">${window.EdgeArt && window.EdgeArt.growth ? window.EdgeArt.growth(closed) : ""}
       <div><div class="state">Your growth</div><div class="headline">${st.n ? `<span class="${cls(st.totalR)}">${rs(st.totalR)}</span> · ${st.n} trade${st.n > 1 ? "s" : ""}` : "No trades yet."}</div><p class="sub">${st.n ? "Your running total, week by week — the gold ball climbs it, the flag marks your best." : "Trade with David on the line — every trade he logs grows this."}</p></div>${chips}</section>`;
-    return `${jhero}${S.journal.length >= 5 ? insightsCard() : ""}<section class="card"><div class="grid2">
+    return `${jhero}${fixCard()}${S.journal.length >= 5 ? insightsCard() : ""}<section class="card"><div class="grid2">
         <div class="stat"><small>🎯 Win rate</small><b>${st.winRate == null ? "—" : st.winRate + "%"}</b><small>avg ${rs(st.avgR)}</small></div>
         <div class="stat"><small>📏 Rules kept</small><b>${pct(closed) == null ? "—" : pct(closed) + "%"}</b><small>${closed.filter((t) => !kept(t)).length} broken</small></div>
       </div></section>
       <section class="card" data-tour="journal"><div class="row between"><h2 style="margin:0">Journal</h2><button class="btn small" id="logTrade">＋ Log a trade I took</button></div>${rows || `<p class="muted">Closed trades appear here — and the ones David logs for you.</p>`}</section>${davidCard()}`;
+  }
+
+  // the things you did wrong, most costly first: broken rules, the mistakes David tagged, trading on emotion
+  function fixCard() {
+    const T = S.journal.filter((t) => t.resultR != null), kept = (t) => (t.followedRules != null ? t.followedRules : !(t.ruleBreaks || []).length);
+    if (!T.length) return "";
+    const avg = (a) => a.reduce((x, t) => x + t.resultR, 0) / a.length, good = T.filter(kept), base = good.length ? avg(good) : 0;
+    const GOOD = /waited|patient|followed|kept|clean|good/i, groups = new Map(), add = (k, t) => { if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); };
+    for (const t of T) {
+      for (const g of t.tags || []) if (!GOOD.test(g)) add(g, t);
+      for (const b of t.ruleBreaks || []) add(b.replace(/^skipped: /, "skipped "), t);
+      if (["fomo", "revenge", "bored", "scared"].includes(t.emotion)) add(`trading on ${t.emotion}`, t);
+    }
+    const rows = [...groups.entries()].filter(([, a]) => a.length >= 1).map(([k, a]) => ({ k, n: a.length, avg: avg(a), cost: (base - avg(a)) * a.length, last: Math.max(...a.map((t) => t.closedAt || t.openedAt || 0)) }))
+      .filter((r) => r.cost > 0).sort((a, b) => b.cost - a.cost).slice(0, 5);
+    const notes = (S.davidStyle || []).filter((n) => n.kind === "mistake").slice(0, 3);
+    if (!rows.length && !notes.length) return `<section class="card"><div class="card-head"><h2>✅ What to fix</h2></div><p class="muted" style="margin:0">Nothing costly yet — keep trading your rules.</p></section>`;
+    return `<section class="card fixcard"><div class="card-head"><h2>⚠️ What to fix</h2><span class="muted">most costly first</span></div>
+      ${rows.map((r, i) => `<div class="fix-row"><i>${i + 1}</i><div><b>${esc(r.k[0].toUpperCase() + r.k.slice(1))}</b><small class="muted">${r.n} time${r.n > 1 ? "s" : ""} · ${rs(Math.round(r.avg * 100) / 100)} a trade vs ${rs(Math.round(base * 100) / 100)} when you keep your rules · last ${day(r.last)}</small></div><b class="neg">−${(Math.round(r.cost * 10) / 10).toFixed(1)}R</b></div>`).join("")}
+      ${notes.length ? `<div class="fix-david"><small class="muted">🎧 David noticed</small>${notes.map((n) => `<p>${esc(n.note)}</p>`).join("")}</div>` : ""}
+      <p class="muted" style="margin:10px 0 0;font-size:12.5px">−R = what it cost you compared with trading your rules.</p></section>`;
   }
 
   // what David (the voice assistant) learned about how you trade — he writes these as he watches you
@@ -1343,59 +1356,11 @@
           <li><b>Alert</b> (clock icon) → Condition: <b>Edge · S/R Watch</b> → <b>Any alert() function call</b> → <b>Once per bar close</b> → turn on app notifications → Create. One alert covers every pair.</li>
         </ol>
       </section>`;
-    const stratCard = `<section class="card"><h2>📘 Your strategy</h2>
-        <p class="muted" style="margin-top:0">The numbers Edge holds you to on every trade.</p>
-        <div class="grid2">${n("minR", "Never take less than (R)", "0.5")}${n("maxR", "Target at most (R)", "0.5")}
-          ${n("lockAtR", "Lock in profit when the trade reaches (R)", "0.5")}${n("lockToR", "…by moving the stop to (R)", "0.5")}
-          <label class="f">Risk per trade ($)<input id="riskUsd" type="number" step="10" value="${riskNow()}"></label>
-
-          ${n("maxTradesPerDay", "Max trades per day")}${n("maxDailyLossR", "Stop for the day after losing (R)", "0.5")}${n("cooldownMin", "Break after a loss (min)", "5")}</div>
+    const stratCard = `<section class="card"><h2>💵 Your risk</h2>
+        <p class="muted" style="margin-top:0">What one trade risks — your journal turns every result into dollars with it.</p>
+        <div class="grid2"><label class="f">Risk per trade ($)<input id="riskUsd" type="number" step="10" value="${riskNow()}"></label></div>
         <div class="row" style="margin-top:12px"><button class="btn primary" data-saverules>Save</button></div></section>`;
-    return `${rulesCard()}${stratCard}${notifCard}<section class="card"><h2>Connections</h2>
-        <div class="grid2">
-          <div class="stat"><small>TradingView webhook</small><b style="font-size:15px">${ok(S.hookReady)}</b></div>
-          <div class="stat"><small>Broker</small><b style="font-size:15px">${esc(S.broker.label)}</b>${S.broker.account && !S.broker.account.error ? `<small>${S.broker.account.name ? `${esc(S.broker.account.name)} · ` : ""}${S.broker.account.balance != null ? `${esc(S.broker.account.currency)} ${Number(S.broker.account.balance).toFixed(2)}` : ""}</small>` : S.broker.account && S.broker.account.error ? `<small class="err">${esc(S.broker.account.error)}</small>` : ""}</div>
-          <div class="stat"><small>Phone notifications</small><b style="font-size:15px">${S.push.devices.length ? `<span class="pill good">${S.push.devices.length} device${S.push.devices.length > 1 ? "s" : ""}</span>` : `<span class="pill warn">off</span>`}</b></div>
-          <div class="stat"><small>Storage</small><b style="font-size:15px">${S.storage === "memory" ? `<span class="pill bad">not saved</span>` : esc(S.storage)}</b></div>
-        </div>
-        ${S.broker.kind === "manual" ? `<div class="connect"><button class="btn tv-connect" data-tvconnect>Connect Tradovate</button>
-          <p class="muted">${S.tvOAuth ? "Sign in on Tradovate's page — Edge then places your trades (entry, stop, target) and sees the fills itself." : "Edge places your trades on your Tradovate account — entry, stop and target — and sees the fills itself. You'll need your Tradovate login and an API key (Tradovate → Settings → API Access)."}</p></div>`
-          : S.broker.kind === "tradovate" ? `<div class="connect ok"><b>✅ Tradovate connected</b>${S.broker.account && S.broker.account.name ? ` <span class="muted">· ${esc(S.broker.account.name)}</span>` : ""}${S.broker.account && S.broker.account.error ? `<p class="err" style="margin:6px 0 0;flex-basis:100%">${esc(S.broker.account.error)}</p>${/expired|sign-in/i.test(S.broker.account.error) ? `<button class="btn tv-connect" data-tvconnect style="flex-basis:100%">Reconnect Tradovate</button>` : ""}` : ""}${S.tradovateApp ? `<button class="btn small" data-tvdisconnect style="margin-left:auto">Disconnect</button>` : ""}</div>` : ""}
-        <p class="muted">Webhook URL for your TradingView alert: <code>${esc(hook)}</code></p>
-        <div class="row"><button class="btn small" data-testalert>Send a test alert</button></div>
-      </section>
-      ${tvCard}
-      <section class="card slim"><div class="row between"><div><b>🏁 Prop account</b><p class="muted" style="margin:4px 0 0">${S.prop && S.prop.cfg && S.prop.cfg.enabled ? `${esc((FIRMS()[S.prop.cfg.firm] || {}).name || "Custom")} · ${S.prop.cfg.phase === "funded" ? "funded" : "evaluation"} — the risk autopilot sizes every trade.` : "Not set up — your firm's rules, the risk autopilot and your pass odds."}</p></div><button class="btn small" data-propset>${S.prop && S.prop.cfg && S.prop.cfg.enabled ? "Edit" : "Set up"}</button></div></section>
-      <details class="card adv" data-keep="adv"><summary><h2>Advanced</h2><span class="muted">exits, hours, AI coach</span></summary>
-      <section class="card"><h2>Exits</h2><div class="grid2">
-        ${n("beAtR", "Supply & demand: stop to break-even at (R)", "0.1")}${n("tpAtR", "Supply & demand: take profit at (R)", "0.1")}${n("beOffsetR", "Break-even buffer (R)", "0.01")}
-        <label class="f">Target moved further away<select data-set="enforceTP"><option value="true" ${s.enforceTP ? "selected" : ""}>Put it back (greed check)</option><option value="false" ${s.enforceTP ? "" : "selected"}>Allow</option></select></label>
-        <label class="f">15m structure breaks against me<select data-set="structureExit">${["notify", "close", "off"].map((v) => `<option ${s.structureExit === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
-        <label class="f">Big news & stop not at BE<select data-set="newsOpenTrade">${["warn", "close"].map((v) => `<option ${s.newsOpenTrade === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
-      </div></section>
-      <section class="card"><h2>Risk & discipline</h2><div class="grid2">
-        ${n("riskPct", "Risk per trade (% — used when no $ amount is set)", "0.1")}${n("accountSize", "Account size (manual mode)", "100")}
-        ${n("maxOpen", "Max open trades")}
-        ${n("setupExpiryMin", "Setup valid for (min)", "1")}
-        ${n("maxChaseR", "Refuse entry if price ran past it by (R)", "0.1")}
-        ${n("newsBeforeMin", "No trades before news (min)", "5")}${n("newsAfterMin", "No trades after news (min)", "5")}
-      </div></section>
-      <section class="card"><h2>Session close-out</h2><div class="grid2">
-        <label class="f">Be out of every trade by (${esc(s.tz)})<input data-set="flatBy" value="${esc(s.flatBy)}" placeholder="16:40"></label>
-        ${n("flatWarnMin", "Warn me this many minutes before", "5")}${n("noNewTradesMin", "No new trades this close to it (min)", "5")}
-        <label class="f">At the close-out<select data-set="autoFlat"><option value="false" ${s.autoFlat ? "" : "selected"}>Warn me loudly</option><option value="true" ${s.autoFlat ? "selected" : ""}>Close Edge-managed trades for me</option></select></label>
-      </div><p class="muted">Set this a few minutes before your prop firm's own close-out time (check their rules).</p></section>
-      <section class="card"><h2>Coach</h2><div class="grid2">
-        ${n("coachIdleSec", "Check the chart every (s) while waiting", "5")}${n("coachTradeSec", "…and while in a trade (s)", "5")}
-        ${n("coachDailyChecks", "Max checks per day (cost guard)", "50")}
-        <div class="stat"><small>Claude connection</small><b style="font-size:15px">${S.coach.ready ? `<span class="pill good">on</span>` : `<span class="pill warn">add ANTHROPIC_API_KEY</span>`}</b></div>
-      </div></section>
-      <section class="card"><h2>Trading hours</h2><div class="grid2">${sess}
-        <label class="f">Time zone<input data-set="tz" value="${esc(s.tz)}"></label></div>
-        <div class="row" style="margin-top:12px"><button class="btn primary" data-saverules>Save</button></div>
-        <p class="muted">Changing rules is allowed — but never in the middle of a trade, and never right after a loss.</p></section>
-      <section class="card"><h2>Weekly bias (optional)</h2><p class="muted" style="margin-top:0">COT, dollar, yields, inventories — a note on each market for the week.</p><a class="btn small" href="#bias">Open weekly bias</a></section>
-      </details>
+    return `${rulesCard()}${stratCard}${tvCard}${notifCard}
       <section class="card"><h2>Account</h2>
         <div class="acct"><div class="avatar">${esc((S.account && S.account.email || "?")[0].toUpperCase())}</div>
           <div><b>${esc(S.account ? S.account.email : "")}</b><small class="muted">Member since ${S.account ? new Date(S.account.created).toLocaleDateString([], { month: "long", year: "numeric" }) : ""}</small></div></div>
