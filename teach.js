@@ -96,7 +96,7 @@
     const scale = `<button class="${S.vz > 1 ? "on" : ""}" data-t="vz">↕ ${S.vz > 1 ? `room ×${S.vz}` : "more room"}</button><button class="${S.zoom > 1 ? "on" : ""}" data-t="zoom">↔ ${S.zoom > 1 ? `zoom ×${S.zoom}` : "zoom out"}</button>`;
     let body = "";
     if (S.step === "zone") body = `<p class="tc-ask">${nz ? `<b>${nz} zone${nz > 1 ? "s" : ""} marked.</b> Drag an edge to correct it, drag inside to move it, or drag on an empty spot to add another. Why? (tap all that fit — and say in the note which zone you'd trade from)` : `<b>Draw your zone:</b> press and drag up or down across it on the chart. Then drag its edges to fine-tune. See more than one? Draw them all.`}</p>
-      <div class="tc-tf"><button class="${S.tf === "1h" ? "on" : ""}" data-t="tf1">1H</button><button class="${S.tf === "4h" ? "on" : ""}" data-t="tf4">4H</button>${scale}</div>
+      <div class="tc-tf">${[["4h", "4H"], ["1h", "1H"], ["15m", "15m"], ["5m", "5m"]].map(([v, w]) => `<button class="${S.tf === v ? "on" : ""}" data-t="ztf" data-v="${v}">${w}</button>`).join("")}${scale}</div>
       <canvas class="tc-cv"></canvas>${zoneChips}
       ${nz ? `<textarea class="tc-note" data-n="z" rows="2" placeholder="Tell Claude why, in your words (optional) — which candles the zone comes from, which one you'd trade, what you'll wait for">${esc(S.noteZ || "")}</textarea>
       <div class="tc-why">${WHY.map((w, i) => `<button class="${S.why.has(w) ? "on" : ""}" style="--c:${CH[i % CH.length]}" data-w="${esc(w)}">${esc(w)}</button>`).join("")}</div>` : ""}
@@ -122,7 +122,8 @@
   // which day a candle is on, counted from the session you're trading (day 1)
   function dayTag(k) { let d = 0; for (let i = X.at + 1; i <= k; i++) if (X.m[i][4] >= 1080 && X.m[i - 1][4] < 1080) d++; return d ? ` · day ${d + 1}` : ""; }
   function draw(cv) {
-    if (S.step === "zone") { const bars = S.tf === "4h" ? X.h4 : X.h, slots = Math.min(bars.length, (S.tf === "4h" ? 150 : 110) * S.zoom);
+    if (S.step === "zone") { // 4H / 1H history, or the last 24 hours on the 15m / 5m — all up to the 18:00 open
+      const bars = S.tf === "4h" ? X.h4 : S.tf === "1h" ? X.h : view(X.m.slice(0, X.at + 1), S.tf).bars, slots = Math.min(bars.length, ({ "4h": 150, "1h": 110, "15m": 96, "5m": 120 }[S.tf]) * S.zoom);
       chart(cv, bars, { dec: X.dec, slots, vz: S.vz, bands: bandsOf(true), levels: S.zones.flatMap((q) => [q.lo, q.hi]), now: 1 }); return; }
     const end = S.step === "done" ? X.m.length : S.k + 1, V = view(X.m.slice(0, end), S.wtf), bars = V.bars, at = (k) => V.map[Math.min(k, V.map.length - 1)], tr = S.trade, q = S.step === "place" ? S.pos : tr, lines = [];
     if (q) [["entry", q.e, "#5cc8ff"], ["stop", q.sl, "#ff4d7d"], ["target", q.tp, "#2ef2a6"]].forEach(([lab, v, col]) => lines.push({ v, col, lab, from: at(q.k), grip: S.step === "place" }));
@@ -169,7 +170,7 @@
     if (a === "close") return close();
     if (a === "retry") return nextChart();
     if (!S) return;
-    if (a === "tf1" || a === "tf4") { S.tf = a === "tf1" ? "1h" : "4h"; return paint(); }
+    if (a === "ztf") { S.tf = t.dataset.v; return paint(); }
     if (a === "zoom") { S.zoom = S.zoom >= 4 ? 1 : S.zoom * 2; return paint(); }
     if (a === "vz") { S.vz = S.vz >= 4 ? 1 : S.vz >= 2 ? 4 : 2; return paint(); }
     if (a === "delz") { S.zones.splice(Number(t.dataset.i), 1); return paint(); }
