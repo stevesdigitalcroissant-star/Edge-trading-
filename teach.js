@@ -21,7 +21,7 @@
   async function nextChart() {
     if (pool.length < 3) { try { const j = await api(""); pool = pool.concat((j.items || []).sort(() => Math.random() - 0.5)); err = ""; } catch (e) { err = e.message; } }
     X = pool.shift() || null;
-    S = X && { step: "zone", tf: "1h", zoom: false, taps: [], why: new Set(), k: X.at, playing: false, speed: 1, place: [], trade: null, res: null, noZone: false };
+    S = X && { step: "zone", tf: "1h", zoom: false, taps: [], why: new Set(), k: X.at, playing: false, speed: 1, place: [], trade: null, res: null, noZone: false, t0: Date.now(), log: [] };
     paint();
   }
 
@@ -62,7 +62,7 @@
     const z = zoneOf(), tr = S.trade, r = S.res;
     const R = tr && r && r.x != null ? (tr.dir * (r.x - tr.e)) / Math.abs(tr.e - tr.sl) : null;
     S.step = "done"; S.k = X.m.length - 1; S.R = R; done++;
-    S.id = `${X.mk}|${X.day}|${Date.now()}`; S.label = { id: S.id, mk: X.mk, day: X.day, v: 1, noteZone: S.noteZ || "", tfDrawn: S.tf, noZone: S.noZone, zone: z && { ...z, dir: zoneDir(z), why: [...S.why] },
+    S.id = `${X.mk}|${X.day}|${Date.now()}`; S.label = { id: S.id, mk: X.mk, day: X.day, v: 2, secs: Math.round((Date.now() - S.t0) / 1000), log: S.log, noteZone: S.noteZ || "", tfDrawn: S.tf, noZone: S.noZone, zone: z && { ...z, dir: zoneDir(z), why: [...S.why] },
       trade: tr && { ...tr, placedMin: X.m[tr.k][4], fillMin: r && r.fill != null ? X.m[r.fill][4] : null }, outcome: r && { how: r.how, R: R == null ? null : +R.toFixed(2), exitMin: X.m[r.k][4] }, noTrade: !tr, at: Date.now() }; saveLabel(S.label);
     paint();
   }
@@ -113,12 +113,13 @@
 
   function onTap(e) {
     const cv = e.target.closest("canvas"); if (!cv || !cv._map) return; const rect = cv.getBoundingClientRect(), p = cv._map.p(e.clientY - rect.top);
-    if (S.step === "zone") { if (S.taps.length >= 2) S.taps = []; S.taps.push(p); S.noZone = false; paint(); }
-    else if (S.step === "place" && S.place.length < 3) { S.place.push(p); paint(); }
+    if (S.step === "zone") { if (S.taps.length >= 2) S.taps = []; S.taps.push(p); S.noZone = false; log("zoneTap", p); paint(); }
+    else if (S.step === "place" && S.place.length < 3) { S.place.push(p); log("placeTap", p); paint(); }
   }
+  const log = (a, v) => { if (S && S.log.length < 400) S.log.push([a, Math.round((Date.now() - S.t0) / 100) / 10, S.k, ...(v == null ? [] : [typeof v === "number" ? +v.toPrecision(7) : v])]); };
   function onClick(e) {
-    const w = e.target.closest("[data-w]"); if (w) { const k = w.dataset.w; S.why.has(k) ? S.why.delete(k) : S.why.add(k); w.classList.toggle("on"); return; }
-    const t = e.target.closest("[data-t]"); if (!t) return; const a = t.dataset.t;
+    const w = e.target.closest("[data-w]"); if (w) { const k = w.dataset.w; S.why.has(k) ? S.why.delete(k) : S.why.add(k); log("why", k); w.classList.toggle("on"); return; }
+    const t = e.target.closest("[data-t]"); if (!t) return; const a = t.dataset.t; if (a !== "cv") log(a);
     if (a === "cv") return onTap(e);
     if (a === "close") return close();
     if (a === "retry") return nextChart();
@@ -149,5 +150,5 @@
     <div class="tc-cardrow"><span>${saved == null ? "" : `<b>${saved}</b> examples saved`}</span><button class="btn small primary" data-t="open">Start marking ▶</button></div></section>`; }
   function mount(host) { if (!host) return; if (!card) { card = document.createElement("div"); card.addEventListener("click", (e) => { if (e.target.closest('[data-t="open"]')) open(); }); refreshCount(); }
     if (card.parentNode !== host) host.appendChild(card); paintCard(); }
-  window.EdgeTeach = { mount, open, play: (x, tr, from) => { const keep = X; X = x; try { return play(tr, from); } finally { X = keep; } } };
+  window.EdgeTeach = { mount, open, close, play: (x, tr, from) => { const keep = X; X = x; try { return play(tr, from); } finally { X = keep; } } };
 })();
