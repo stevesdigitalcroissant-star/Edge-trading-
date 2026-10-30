@@ -214,7 +214,8 @@
     const view = $("#view"), fresh = renderedTab !== tab;
     // keep what you had open (alerts, advanced settings, playbook steps) and where you were in the page
     const open = new Set([...view.querySelectorAll("details[open]")].map((d, i) => d.dataset.keep || `#${i}`)), y = scrollY;
-    view.innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias, test: () => `<div id="drillHost"></div>${rulesCard()}` })[tab]();
+    view.innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias, test: () => `<div id="teachHost"></div><div id="drillHost"></div>${rulesCard()}` })[tab]();
+    if (tab === "test" && window.EdgeTeach) window.EdgeTeach.mount($("#teachHost")); // "Teach Edge" (teach.js): mark your own zones and trades
     if (tab === "test" && window.EdgeDrill) window.EdgeDrill.mount($("#drillHost")); // the Test tab (drill.js) keeps its own state between redraws
     if (!fresh) { [...view.querySelectorAll("details")].forEach((d, i) => { if (open.has(d.dataset.keep || `#${i}`)) d.open = true; }); if (Math.abs(scrollY - y) > 1) scrollTo(0, y); }
     view.classList.toggle("enter", fresh); if (fresh) setTimeout(() => view.classList.remove("enter"), 700);
