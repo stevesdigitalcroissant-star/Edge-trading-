@@ -1,0 +1,163 @@
+//@version=6
+// Edge · S/R Watch — your own support & resistance levels, watched on every pair at once, so you don't sit at the chart.
+//
+// 1) TOUCH  — price comes to one of your levels (within a small zone around it) → one alert. That level then goes quiet:
+//             it only counts again after price has LEFT it (moved away by a set distance, either way).
+// 2) ENTRY  — after a touch, the turn: the Heikin Ashi candle flips your way (red → green at support, green → red at
+//             resistance) AND the regular candle closes back on the right side of the level AND the 80 SMA agrees
+//             (above it for buys at support, below it for sells at resistance) → a second alert: "BUY / SELL setup".
+//
+// One alert covers every pair: add it with "Any alert() function call", Once per bar close.
+// Levels: one line per pair in the box, e.g.
+//     OANDA:XAUUSD = 2405.5, 2380, 2351.2
+//     OANDA:EURUSD = 1.0850, 1.0790
+// Use the exact symbol TradingView shows (exchange:ticker). Up to 20 pairs, up to 8 levels each.
+// Signals are on CLOSED candles of the chart's timeframe — nothing repaints.
+indicator("Edge · S/R Watch", overlay = true, max_lines_count = 200, max_labels_count = 200)
+
+// ---------------------------------------------------------------------------------------------------- inputs
+levelsTxt = input.text_area("OANDA:XAUUSD = 2405.5, 2380\nOANDA:EURUSD = 1.0850, 1.0790", "Pairs and levels (one pair per line:  SYMBOL = level, level …)", group = "Your levels")
+tolMult   = input.float(0.25, "Touch zone — how close counts as a touch (× ATR)", minval = 0.0, step = 0.05, group = "Touch")
+leaveMult = input.float(1.5, "Must leave by — distance before the level counts again (× ATR)", minval = 0.1, step = 0.1, group = "Touch")
+atrLen    = input.int(14, "ATR length", minval = 1, group = "Touch")
+smaLen    = input.int(80, "SMA length", minval = 1, group = "Entry confirmation")
+useSma    = input.bool(true, "Entry needs the SMA to agree (buy above it, sell below it)", group = "Entry confirmation")
+useHa     = input.bool(true, "Entry needs the Heikin Ashi candle to flip your way", group = "Entry confirmation")
+useClose  = input.bool(true, "Entry needs the regular candle to close back on the right side of the level", group = "Entry confirmation")
+confBars  = input.int(12, "Entry must come within this many candles of the touch", minval = 1, group = "Entry confirmation")
+alertTouch = input.bool(true, "Alert on touches", group = "Alerts")
+alertEntry = input.bool(true, "Alert on entry setups", group = "Alerts")
+showHa    = input.bool(false, "Draw Heikin Ashi candles on this chart", group = "This chart")
+showTable = input.bool(true, "Show the pairs table", group = "This chart")
+
+// ---------------------------------------------------------------------------------------------------- helpers
+// Heikin Ashi from regular candles: close = average of OHLC, open = midpoint of the previous HA candle
+f_ha() =>
+    hac = (open + high + low + close) / 4
+    var float hao = na
+    hao := na(hao) ? (open + close) / 2 : (hao + hac[1]) / 2
+    [hao, hac]
+
+// everything the watcher needs from one symbol, on the chart's timeframe
+f_pack(int aLen, int sLen) =>
+    [hao, hac] = f_ha()
+    [close, high, low, close[1], ta.atr(aLen), ta.sma(close, sLen), hao, hac, hao[1], hac[1]]
+
+f_short(string s) =>
+    parts = str.split(s, ":")
+    array.size(parts) > 1 ? array.get(parts, 1) : s
+
+// ---------------------------------------------------------------------------------------------------- parse the box once
+var array<string> syms   = array.new<string>()
+var array<float>  lvPx   = array.new<float>()   // every level, flat
+var array<int>    lvSym  = array.new<int>()     // which pair it belongs to
+var array<int>    lvState = array.new<int>()    // -1 not started · 0 armed (waiting for a touch) · 1 touched (waiting for price to leave)
+var array<int>    lvSide = array.new<int>()     // at the touch: 1 = support (came from above) · -1 = resistance (came from below)
+var array<int>    lvTouchBar = array.new<int>()
+var array<bool>   lvEntryDone = array.new<bool>()
+if barstate.isfirst
+    for ln in str.split(levelsTxt, "\n")
+        eq = str.split(ln, "=")
+        if array.size(eq) == 2 and array.size(syms) < 20
+            sym = str.trim(array.get(eq, 0))
+            if str.length(sym) > 0
+                array.push(syms, sym)
+                si = array.size(syms) - 1
+                n = 0
+                for p in str.split(array.get(eq, 1), ",")
+                    v = str.tonumber(str.trim(p))
+                    if not na(v) and n < 8
+                        array.push(lvPx, v)
+                        array.push(lvSym, si)
+                        array.push(lvState, -1)
+                        array.push(lvSide, 0)
+                        array.push(lvTouchBar, 0)
+                        array.push(lvEntryDone, false)
+                        n += 1
+
+// ---------------------------------------------------------------------------------------------------- watch every pair
+var table tb = table.new(position.top_right, 6, 22, bgcolor = color.new(#0b0c1a, 10), border_color = color.new(#5cc8ff, 70), border_width = 1)
+nSyms = array.size(syms)
+if showTable and barstate.islast
+    table.clear(tb, 0, 0, 5, 21)
+    hdr = array.from("Pair", "Price", "Nearest level", "Distance", "80 SMA", "HA")
+    for c = 0 to 5
+        table.cell(tb, c, 0, array.get(hdr, c), text_color = #ffd36e, text_size = size.small)
+
+for si = 0 to math.max(nSyms - 1, 0)
+    if nSyms == 0
+        break
+    sym = array.get(syms, si)
+    [c, h, l, pc, atr, sma, hao, hac, haoP, hacP] = request.security(sym, timeframe.period, f_pack(atrLen, smaLen), lookahead = barmerge.lookahead_off, ignore_invalid_symbol = true)
+    name = f_short(sym)
+    haGreen = hac > hao
+    haFlipUp = hac > hao and hacP <= haoP
+    haFlipDn = hac < hao and hacP >= haoP
+    nearest = float(na)
+    for k = 0 to math.max(array.size(lvPx) - 1, 0) // (Pine loops also count down — guard the empty case)
+        if array.size(lvPx) == 0
+            break
+        if array.get(lvSym, k) != si
+            continue
+        lv = array.get(lvPx, k)
+        if na(c) or na(atr)
+            continue
+        if na(nearest) or math.abs(c - lv) < math.abs(c - nearest)
+            nearest := lv
+        if not barstate.isconfirmed
+            continue
+        tol = atr * tolMult
+        leave = atr * leaveMult
+        st = array.get(lvState, k)
+        if st == -1 // first candle we see: if price is already sitting at the level, wait for it to leave first
+            array.set(lvState, k, math.abs(c - lv) > leave ? 0 : 1)
+            continue
+        if st == 0 and l <= lv + tol and h >= lv - tol
+            side = pc >= lv ? 1 : -1
+            array.set(lvState, k, 1)
+            array.set(lvSide, k, side)
+            array.set(lvTouchBar, k, bar_index)
+            array.set(lvEntryDone, k, false)
+            if alertTouch
+                alert(name + (side == 1 ? " touched SUPPORT " : " touched RESISTANCE ") + str.tostring(lv) + " · price " + str.tostring(c) + " · " + (c > sma ? "above" : "below") + " the 80 SMA · HA " + (haGreen ? "green" : "red"), alert.freq_once_per_bar_close)
+        else if st == 1
+            side = array.get(lvSide, k)
+            // the entry: within confBars of the touch, once
+            if not array.get(lvEntryDone, k) and bar_index - array.get(lvTouchBar, k) <= confBars
+                buyOk = side == 1 and (not useHa or haFlipUp) and (not useClose or c > lv) and (not useSma or c > sma)
+                sellOk = side == -1 and (not useHa or haFlipDn) and (not useClose or c < lv) and (not useSma or c < sma)
+                if buyOk or sellOk
+                    array.set(lvEntryDone, k, true)
+                    if alertEntry
+                        alert(name + (buyOk ? " BUY setup at support " : " SELL setup at resistance ") + str.tostring(lv) + " · price " + str.tostring(c) + " · HA turned " + (buyOk ? "green" : "red") + " · " + (c > sma ? "above" : "below") + " the 80 SMA", alert.freq_once_per_bar_close)
+            // price has left the level (either way) → it counts again next time
+            if math.abs(c - lv) > leave
+                array.set(lvState, k, 0)
+    if showTable and barstate.islast and si < 21
+        dist = na(nearest) or na(atr) or atr == 0 ? na : (c - nearest) / atr
+        table.cell(tb, 0, si + 1, name, text_color = color.white, text_size = size.small)
+        table.cell(tb, 1, si + 1, na(c) ? "symbol?" : str.tostring(c), text_color = na(c) ? #ff4d7d : color.white, text_size = size.small)
+        table.cell(tb, 2, si + 1, na(nearest) ? "–" : str.tostring(nearest), text_color = color.white, text_size = size.small)
+        table.cell(tb, 3, si + 1, na(dist) ? "–" : str.tostring(dist, "#.#") + " ATR", text_color = not na(dist) and math.abs(dist) <= tolMult ? #ffb020 : color.white, text_size = size.small)
+        table.cell(tb, 4, si + 1, na(sma) ? "–" : c > sma ? "above" : "below", text_color = c > sma ? #2ef2a6 : #ff4d7d, text_size = size.small)
+        table.cell(tb, 5, si + 1, haGreen ? "green" : "red", text_color = haGreen ? #2ef2a6 : #ff4d7d, text_size = size.small)
+
+// ---------------------------------------------------------------------------------------------------- this chart
+sma80 = ta.sma(close, smaLen)
+atrChart = ta.atr(atrLen)
+plot(sma80, "80 SMA", color = #c77dff, linewidth = 2)
+[hoC, hcC] = f_ha()
+plotcandle(showHa ? hoC : na, showHa ? math.max(high, math.max(hoC, hcC)) : na, showHa ? math.min(low, math.min(hoC, hcC)) : na, showHa ? hcC : na, "Heikin Ashi", color = hcC > hoC ? color.new(#2ef2a6, 20) : color.new(#ff4d7d, 20), wickcolor = color.gray, bordercolor = na)
+// your levels for this chart's symbol, with the touch zone
+if barstate.islast
+    for k = 0 to math.max(array.size(lvPx) - 1, 0)
+        if array.size(lvPx) == 0
+            break
+        s = array.get(syms, array.get(lvSym, k))
+        if s == syminfo.tickerid or f_short(s) == syminfo.ticker
+            lv = array.get(lvPx, k)
+            a = atrChart
+            col = lv < close ? #2ef2a6 : #ff4d7d
+            line.new(bar_index - 300, lv, bar_index + 10, lv, color = col, width = 2)
+            box.new(bar_index - 300, lv + a * tolMult, bar_index + 10, lv - a * tolMult, border_color = na, bgcolor = color.new(col, 85))
+            label.new(bar_index + 10, lv, (lv < close ? "S " : "R ") + str.tostring(lv) + (array.get(lvState, k) == 1 ? "  · touched, waiting to leave" : ""), style = label.style_label_left, color = color.new(col, 20), textcolor = #0b0c1a, size = size.small)

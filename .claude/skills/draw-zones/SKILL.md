@@ -1,6 +1,6 @@
 ---
 name: draw-zones
-description: How Steve draws support/resistance zones (areas of interest) — big picture first, 4H line chart, 6 months, distinct touches only. Use whenever drawing, detecting, coding, explaining or backtesting zones for Edge (app, simulator, TradingView scripts, research in edge-data), or when placing rectangle / position tools on a chart.
+description: RETIRED 30 Oct 2026 — Steve started over with simple support & resistance (see sr-simple). Old zone drawing notes kept only as history; never use them to build, explain or alert.
 ---
 
 # Drawing zones the way Steve does

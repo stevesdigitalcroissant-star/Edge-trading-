@@ -1,6 +1,6 @@
 ---
 name: supply-demand
-description: Steve's CURRENT strategy (back in charge 29 Oct 2026, after Fib was tested and dropped): supply & demand + big-picture rules ①②③, the Smart Risk model, as exact rules. Use for anything about his strategy — drawing zones, explaining, coding the Edge scanner or simulator, TradingView scripts, backtests in edge-data, alerts. Supersedes draw-zones and every earlier strategy.
+description: RETIRED 30 Oct 2026 — Steve started over with simple support & resistance (see sr-simple). Old supply & demand notes kept only as history; never use them to build, explain or alert.
 ---
 
 # Supply & demand — the rules
