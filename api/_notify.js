@@ -21,7 +21,7 @@ const KINDS = {
   news: { title: "📰 News coming", sticky: false, url: "/#now" },
   locked: { title: "🔒 Done for today", sticky: false, url: "/#now" },
   skip: { title: "⛔ Not your setup", sticky: false, url: "/#setups" },
-  sr: { title: "📍 Your level", sticky: true, url: "/#now" },
+  level: { title: "📍 At your level", sticky: false, url: "/#now" },
   info: { title: "Edge", sticky: false, url: "/#now" },
 };
 
@@ -90,4 +90,17 @@ async function notify(store, text, kind = "info") {
   return pushed > 0 || tg;
 }
 
-module.exports = { notify, push, subscribe, unsubscribe, vapid, KINDS };
+// David (the voice assistant) hears what happens too, when he linked himself (edge_watch_link): level touches, setups and
+// closed trades go to his address, signed with the David key's hash (only Edge and David know it), so he can explain the
+// chart to Steve and journal the trade. Best effort: never holds up Edge.
+async function toDavid(store, event) {
+  const [hook, key] = await Promise.all([store.get("davidHook").catch(() => null), store.get("davidKey").catch(() => null)]);
+  if (!hook || !hook.url || !key || !key.hash) return false;
+  const body = JSON.stringify({ ...event, sentAt: Date.now() });
+  try {
+    const r = await fetch(hook.url, { method: "POST", headers: { "Content-Type": "application/json", "X-Edge-Signature": crypto.createHmac("sha256", key.hash).update(body).digest("hex") }, body, signal: AbortSignal.timeout(8000) });
+    return r.ok;
+  } catch { return false; }
+}
+
+module.exports = { notify, push, subscribe, unsubscribe, vapid, toDavid, KINDS };

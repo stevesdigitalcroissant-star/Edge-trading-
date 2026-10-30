@@ -269,15 +269,23 @@ window with your chart: TradingView, **FX Replay**, Tradovate or NinjaTrader. No
   low effort), roughly a cent or two. A 3-hour session is typically a few dollars. There's a daily cap in Rules.
   Only the shared window is sent, never the rest of your screen.
 
-## David (voice assistant) reads Edge
+## David (voice assistant) keeps your journal and watches your levels
 
-Settings → **David** → *Connect David* makes a key (shown once; only its hash is stored). In David, add your own
-tool named `edge` with the address `https://<your Edge>/api/mcp` and that key. `api/mcp.js` is a small MCP server
-with seven **read-only** tools: today (plans, open trades, guardrails, news, bias), setups, journal (real or practice),
-coach, rules, and market: a live read of one market by the home chart's own supply & demand rules (Yahoo candles:
-price, 1H/4H trend and zones, fill, liquidity, orders open now, the last 3 hours of 5m candles), or a board of the 9; and scan: the 9 ranked by how close each is to a setup (in or near the 1H zone, with the 4H
-trend, liquidity swept on the right side, 30% filled), with what to wait for. Nothing there can place, change or close a trade, or touch the broker or the rules.
-*Disconnect David* stops the key.
+Settings → **David** → *Connect David* makes a key (shown once; only its hash is stored). In David, open the tool
+armory → **Edge** and paste it. `api/mcp.js` is a small MCP server. David **reads** today, the journal, the rules, a
+live read of one market (Daily / 4H / 1H trend vs the 80 SMA, 15m / 5m Heikin Ashi, distance to your levels) and a scan
+of your markets. He **writes** only three things: journal entries and notes (`edge_journal_write`), what he learns
+about how you trade (`edge_style_write`, shown in the Journal) and your levels (`edge_levels_set`). Nothing there can
+place, change or close a trade, move a stop, or touch the broker or the risk rules.
+
+**Level watch** (`api/_levelwatch.js`, from the 1-minute tick, real work every 5 minutes, closed candles only): your
+saved levels, the S/R Watch rules — a 15m candle within 0.25 × 15m ATR = one "📍 at your level" alert, then quiet
+until price has moved 1.5 ATR away; within 12 five-minute candles of a touch, the 5m Heikin Ashi flips your way +
+closes back on the right side of the level + the 80 SMA agrees = a BUY / SELL setup alert. Alerts go to your phones
+(Notifications → "Price at one of your levels"), Telegram if set, and to David when he has linked himself
+(`edge_watch_link`, done automatically when you paste the key in David). Each alert to David is signed with the
+David key's hash. David then reads the chart and messages you on Telegram what's happening and what to wait for; when
+a trade closes he adds a note to it and asks you one question to learn from it. *Disconnect David* stops the key.
 
 ## The strategy, as rules
 

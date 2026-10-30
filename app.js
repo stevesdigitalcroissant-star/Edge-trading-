@@ -1416,7 +1416,7 @@
     const ok = (b) => (b ? `<span class="pill good">on</span>` : `<span class="pill warn">off</span>`);
     const hook = `${location.origin}/api/hook`;
     const ps = pushStatus();
-    const kinds = [["sr", "Price at your levels + entry setups (S/R Watch)"], ["closed", "Trade closed + result"], ["warn", "Stop moved or missing on an open trade"], ["news", "Big news coming"], ["info", "Other (David, journal)"]];
+    const kinds = [["level", "Price at one of your levels"], ["setup", "BUY / SELL setups at your levels"], ["closed", "Trade closed + result"], ["warn", "Stop moved or missing on an open trade"], ["news", "Big news coming"], ["info", "Other (David, journal)"]];
     const notifCard = `<section class="card"><h2>Notifications</h2>
         <div class="row between"><span class="pill ${ps.on ? "good" : "warn"}" style="white-space:normal;max-width:100%">${esc(ps.text)}</span>
           ${ps.on ? `<span class="row"><button class="btn small" data-testalert>Send a test</button><button class="btn small danger" data-pushoff>Turn off here</button></span>` : pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on for this device</button>` : ""}</div>

@@ -18,7 +18,7 @@ const none = { type: "object", properties: {} };
 const STR = { type: "string" }, NUM = { type: "number" }, MK = { type: "string", enum: ALL_MARKETS };
 const TOOLS = [
   { name: "edge_today", description: "Today in Edge: open trades, guardrails (trades left today, daily loss limit, cool-downs), big news coming up, last prices and the close-out time.", inputSchema: none },
-  { name: "edge_watch", description: "What is happening at his levels RIGHT NOW, straight from his TradingView S/R Watch: for each pair — price, nearest level (support or resistance), distance in 15m ATR, how close (AT the level / close / on its way / far), state (armed = waiting for a touch, touched = at the level and waiting for the 5m confirmation, entry = setup confirmed), Heikin Ashi, 80 SMA side, plus the Daily / 4H / 1H trend and a plain sentence to tell him; also the touches and entry setups of the last 24h. Call it FIRST whenever he asks what's going on, whether price reached his zone, or what to watch. If it says not live, fall back to edge_scan.", inputSchema: none },
+  { name: "edge_watch", description: "What is happening at his levels RIGHT NOW, straight from his TradingView S/R Watch: for each pair — price, nearest level (support or resistance), distance in 15m ATR, how close (AT the level / close / on its way / far), state (armed = waiting for a touch, touched = at the level and waiting for the 5m confirmation, entry = setup confirmed), Heikin Ashi, 80 SMA side, plus the Daily / 4H / 1H trend and a plain sentence to tell him; also the touches and entry setups of the last 24h (tradingView), and Edge's own check of the levels saved in Edge (edgeWatch). Call it FIRST whenever he asks what's going on, whether price reached his zone, or what to watch. If tradingView is not live, use edgeWatch and edge_scan.", inputSchema: none },
   { name: "edge_market", description: "One market the way Steve trades now (simple support & resistance): price; the trend on the Daily, 4H and 1H (price vs the 80 SMA and its slope); the 15m and 5m — 80 SMA side and the last Heikin Ashi candles (did one just flip?); his saved levels with the nearest support and resistance and how far away they are (in 15m ATR, 'at the level' when within 0.25); and the last 2 hours of 15m candles. Without a market: a quick board of all his markets. Yahoo futures candles, a few minutes behind.", inputSchema: { type: "object", properties: { market: MK } } },
   { name: "edge_scan", description: "Which of his markets is closest to one of HIS support / resistance levels right now, best first, with the Daily / 4H / 1H trend and the 80 SMA side — use it when he asks what to watch. Markets without saved levels are listed so you can ask him for them.", inputSchema: none },
   { name: "edge_levels", description: "Steve's support & resistance levels per market (the ones he drew). Read them before talking about levels.", inputSchema: none },
@@ -27,6 +27,7 @@ const TOOLS = [
   { name: "edge_journal_write", description: "Write in his journal what you saw him do. New trade: market, dir, entry, stop (target, exit, resultR if known), emotion, followedRules, notes, tags (e.g. 'waited for the HA flip', 'entered early', 'moved stop'). To add to a trade already there (Edge records broker fills itself), pass its id with your notes / result — notes are added, never replaced. Say back what you wrote.", inputSchema: { type: "object", properties: { id: STR, market: MK, dir: { type: "string", enum: ["long", "short"] }, entry: NUM, stop: NUM, target: NUM, exit: NUM, resultR: NUM, openedAt: STR, closedAt: STR, emotion: { type: "string", enum: ["calm", "fomo", "revenge", "bored", "scared", "confident"] }, followedRules: { type: "boolean" }, notes: STR, tags: { type: "array", items: STR, maxItems: 10 } } } },
   { name: "edge_style", description: "Your notes on how Steve trades — his strengths, habits, recurring mistakes and the rules he keeps — newest first. Read them at the start of a session so your feedback builds on what you already learned.", inputSchema: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 200 } } } },
   { name: "edge_style_write", description: "Save one thing you learned about how Steve trades (a strength, habit, mistake or rule he follows), in one or two plain sentences, with an example from today if you have one.", inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["strength", "habit", "mistake", "rule", "goal"] }, note: STR, market: MK }, required: ["kind", "note"] } },
+  { name: "edge_watch_link", description: "Link yourself so Edge tells you, as they happen, when price touches one of his levels, when a BUY / SELL setup forms there, and when a trade closes. Pass the address your instructions give you for Edge alerts. Send an empty url to unlink.", inputSchema: { type: "object", properties: { url: STR }, required: ["url"] } },
   { name: "edge_rules", description: "His strategy in steps (simple support & resistance, Heikin Ashi + regular candles, the 80 SMA) and his risk settings and limits.", inputSchema: none },
 ];
 
@@ -117,7 +118,11 @@ async function run(name, args, s, store) {
       return { trades: s.journal.slice(0, n), stats: s.stats };
     }
     case "edge_rules": return { strategy: require("../playbook.js").STEPS.map((x) => ({ step: x.title, what: x.text })), settings: pick(s.settings, ["riskUSD", "maxTradesPerDay", "dailyLossR", "minR", "maxR", "sessions"]), markets: s.markets };
-    case "edge_watch": return srRead(await store.get("sr:status"), await store.lrange("sr:events", 20));
+    case "edge_watch": {
+      const [st, ev, hook, lw, L] = await Promise.all([store.get("sr:status"), store.lrange("sr:events", 20), store.get("davidHook"), store.lrange("lw:events", 10), savedLevels(store)]);
+      return { tradingView: srRead(st, ev), edgeWatch: { linked: !!(hook && hook.url), marketsWatched: Object.keys(L).filter((m) => (L[m] || []).length), latest: lw, note: "Edge's own check of the levels saved in Edge (Yahoo, every 5 min) — it stays quiet while TradingView's S/R Watch is live." },
+        how: "Touch = a closed 15m candle within 0.25 × 15m ATR of his level (then quiet until price moves 1.5 ATR away). Setup = within 12 five-minute candles of a touch, the 5m Heikin Ashi flips his way, the 5m candle closes back on the right side of the level and the 80 SMA agrees." };
+    }
     case "edge_scan": return scan(store);
     case "edge_market": return market(store, args.market && ALL_MARKETS.includes(args.market) ? args.market : null);
     case "edge_levels": return { levels: await savedLevels(store), note: "Per market, the support / resistance prices Steve gave you." };
@@ -149,6 +154,14 @@ async function run(name, args, s, store) {
         grade: args.followedRules === false ? "unplanned" : "A+", ruleBreaks: args.followedRules === false ? ["didn't follow the rules"] : [], tags, note: line, maxR: null };
       await store.hset("journal", id, t);
       return { written: pick(t, ["id", "market", "dir", "entry", "initialSL", "tp", "exit", "resultR", "emotion", "followedRules", "tags", "note"]) };
+    }
+    case "edge_watch_link": {
+      const u = String(args.url || "").trim();
+      if (!u) { await store.set("davidHook", null); return { linked: false }; }
+      let ok = false; try { const x = new URL(u); ok = x.protocol === "https:" && !/^(\d+\.){3}\d+$|^\[|^localhost$/i.test(x.hostname); } catch {}
+      if (!ok || u.length > 500) throw new Error("That address must start with https://");
+      await store.set("davidHook", { url: u, at: now });
+      return { linked: true, note: "Edge will send level touches, setups and closed trades here." };
     }
     case "edge_style": return { notes: await store.lrange("david:style", Math.min(Math.max(Number(args.limit) || 60, 1), 200)) };
     case "edge_style_write": {
@@ -183,7 +196,7 @@ module.exports = async (req, res) => {
     if (method === "tools/list") return reply(res, id, { tools: TOOLS });
     if (method === "tools/call") {
       if (!TOOLS.some((t) => t.name === params.name)) return fail(res, id, -32602, "Unknown tool");
-      const light = ["edge_watch", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_style", "edge_style_write"].includes(params.name) || (params.name === "edge_journal_write");
+      const light = ["edge_watch", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_style", "edge_style_write", "edge_watch_link"].includes(params.name) || (params.name === "edge_journal_write");
       const s = light ? null : await state(store, await brokerFor(store));
       const text = JSON.stringify(await run(params.name, params.arguments || {}, s, store));
       return reply(res, id, { content: [{ type: "text", text: text.length > 60000 ? text.slice(0, 60000) + " …(cut)" : text }] });
@@ -195,3 +208,4 @@ module.exports = async (req, res) => {
 };
 
 module.exports.TOOLS = TOOLS;
+Object.assign(module.exports, { ALL_MARKETS, MY_MARKETS, agg, heikin, atrOf, sma, readOne });

@@ -5,7 +5,7 @@ const num = (v) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null 
 const clip = (v, n) => String(v ?? "").slice(0, n);
 
 async function srHook(store, msg, now = Date.now()) {
-  const { notify } = require("./_notify");
+  const { notify, toDavid } = require("./_notify");
   if (msg.event === "status") {
     const rows = (Array.isArray(msg.rows) ? msg.rows : []).slice(0, 20).map((r) => ({
       pair: clip(r.p, 24), price: num(r.px), level: num(r.lv), side: r.sd === "R" ? "resistance" : "support", distanceATR: num(r.d),
@@ -18,9 +18,11 @@ async function srHook(store, msg, now = Date.now()) {
     const e = { at: now, event: msg.event, pair: clip(msg.pair, 24), level: num(msg.level), side: clip(msg.side, 12), price: num(msg.price), text: clip(msg.text, 300) };
     await store.lpush("sr:events", e, 50);
     const sup = e.side === "support" || e.side === "buy";
-    await notify(store, e.event === "touch"
+    const text = e.event === "touch"
       ? `🔔 ${e.pair} is at your ${sup ? "support" : "resistance"} ${e.level}. Now wait for the 5m: Heikin Ashi turns ${sup ? "green" : "red"}, a candle closes back ${sup ? "above" : "below"} the level, price ${sup ? "above" : "below"} the 80 SMA.`
-      : `✅ ${e.pair} ${e.side === "buy" ? "BUY" : "SELL"} setup at ${e.level} — ${e.text.split(" · ").slice(2).join(" · ") || "your entry lined up"}.`, "sr");
+      : `✅ ${e.pair} ${e.side === "buy" ? "BUY" : "SELL"} setup at ${e.level} — ${e.text.split(" · ").slice(2).join(" · ") || "your entry lined up"}.`;
+    await notify(store, text, e.event === "touch" ? "level" : "setup");
+    await toDavid(store, { kind: e.event === "touch" ? "level" : "setup", source: "tradingview", market: e.pair, level: e.level, side: e.side, price: e.price, at: now, text }).catch(() => {});
     return { status: 200, json: { ok: true, event: e.event } };
   }
   return { status: 400, json: { error: "Unknown S/R Watch event" } };

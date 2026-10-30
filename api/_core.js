@@ -374,6 +374,7 @@ async function tick(store, broker, now = Date.now()) {
   await gamePlan(store, now).catch(() => {});
   await resultAsks(store, now).catch(() => {});
   await missedReview(store, now).catch(() => {});
+  await require("./_levelwatch").levelWatch(store, now).catch(() => {});
   return { ok: true, open: ctx.open.length, waiting: (ctx.waiting || []).length };
 }
 
@@ -744,6 +745,7 @@ async function recordClose(store, t, exit, closedAt, pnl, s, note = "") {
   const name = MARKETS[t.market] ? MARKETS[t.market].name : t.instrument;
   const mood = resultR == null ? "" : resultR > 0.1 ? "💰" : resultR < -0.1 ? "🩹 Loss taken cleanly — that's the job. Cool-down started." : "🛡️ Break-even — the rule protected you.";
   await notify(store, `${name} ${t.dir} closed: ${resultR == null ? "?" : (resultR > 0 ? "+" : "") + resultR + "R"} (${j.exitReason}). ${mood}`, "closed");
+  await require("./_notify").toDavid(store, { kind: "closed", market: t.market, dir: t.dir, id: j.id, resultR, exitReason: j.exitReason, text: `${name} ${t.dir} closed: ${resultR == null ? "?" : (resultR > 0 ? "+" : "") + resultR + "R"} (${j.exitReason}).` }).catch(() => {});
   // tell the phone when the day is over (trade count or daily loss limit)
   const ctx = await context(store, closedAt);
   const g = R.guardrails({ ...ctx, open: ctx.open.filter((x) => x.id !== t.id) });
