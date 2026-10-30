@@ -8,8 +8,8 @@
   let token = ""; try { token = localStorage.getItem("edge.token") || ""; } catch {}
   let S = null, tab = "now", busy = false, lastSig = "", renderedTab = "";
   try { tab = localStorage.getItem("edge.tab") || "now"; } catch {}
-  if (["coach", "learn", "watch"].includes(tab)) tab = "test"; // Coach was folded into Test (its playbook = "Your rules")
-  if (!["now", "test", "journal", "rules", "bias"].includes(tab)) tab = "now";
+  if (["coach", "learn", "watch", "test"].includes(tab)) tab = "now"; // the training screens are gone: David coaches you now
+  if (!["now", "journal", "rules", "bias"].includes(tab)) tab = "now";
 
   async function api(method, body) {
     const r = await fetch("/api/app", { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: body ? JSON.stringify(body) : undefined });
@@ -27,8 +27,8 @@
   window.Edge = { token: () => token, state: () => S, toast, api: (body) => api("POST", body), refresh: () => refresh(), go: (t) => { tab = t; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#" + tab); refresh(); scrollTo(0, 0); } };
 
   // ---------- notifications on this device (Web Push; iPhone/iPad need Edge on the Home Screen)
-  const TABS = ["now", "test", "journal", "rules", "bias"];
-  const ALIAS = { setups: "now", learn: "test", coach: "test", watch: "test" }; // old links still land somewhere sensible
+  const TABS = ["now", "journal", "rules", "bias"];
+  const ALIAS = { setups: "now", learn: "now", coach: "now", watch: "now", test: "now" }; // old links still land somewhere sensible
   // a link like …/#sim-gold opens the simulator straight away (bookmark it on the laptop / iPad)
   setTimeout(() => { const m = /^#(sim|lab)-(gold|crude|silver|natgas|nq|es|ym|copper)$/.exec(location.hash); if (m && window.EdgeSim) window.EdgeSim[m[1] === "sim" ? "open" : "openLab"](m[2]); }, 1500);
   const fromHash = () => { let h = location.hash.slice(1); h = ALIAS[h] || h; if (TABS.includes(h)) { tab = h; try { localStorage.setItem("edge.tab", tab); } catch {} } };
@@ -214,9 +214,7 @@
     const view = $("#view"), fresh = renderedTab !== tab;
     // keep what you had open (alerts, advanced settings, playbook steps) and where you were in the page
     const open = new Set([...view.querySelectorAll("details[open]")].map((d, i) => d.dataset.keep || `#${i}`)), y = scrollY;
-    view.innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias, test: () => `<div id="teachHost"></div><div id="drillHost"></div>${rulesCard()}` })[tab]();
-    if (tab === "test" && window.EdgeTeach) window.EdgeTeach.mount($("#teachHost")); // "Teach Edge" (teach.js): mark your own zones and trades
-    if (tab === "test" && window.EdgeDrill) window.EdgeDrill.mount($("#drillHost")); // the Test tab (drill.js) keeps its own state between redraws
+    view.innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias })[tab]();
     if (!fresh) { [...view.querySelectorAll("details")].forEach((d, i) => { if (open.has(d.dataset.keep || `#${i}`)) d.open = true; }); if (Math.abs(scrollY - y) > 1) scrollTo(0, y); }
     view.classList.toggle("enter", fresh); if (fresh) setTimeout(() => view.classList.remove("enter"), 700);
     renderedTab = tab;
@@ -1242,7 +1240,15 @@
         <div class="stat"><small>🛡️ Saved by break-even</small><b>${st.breakEvens}</b></div>
         <div class="stat"><small>⚠️ Rule breaks</small><b class="${st.ruleBreaks ? "neg" : ""}">${st.ruleBreaks}</b></div>
       </div><details class="jstats-more" data-keep="jmore"><summary>More</summary><div class="grid2" style="margin-top:10px">${grp(st.aPlus, "A+ trades")}${grp(st.other, "A / B")}${grp(st.unplanned, "Unplanned")}</div></details></section>
-      <section class="card" data-tour="journal"><div class="row between"><h2 style="margin:0">Journal</h2><button class="btn small" id="logTrade">＋ Log a trade I took</button></div>${rows || `<p class="muted">Closed trades appear here.</p>`}</section>${missed}`;
+      <section class="card" data-tour="journal"><div class="row between"><h2 style="margin:0">Journal</h2><button class="btn small" id="logTrade">＋ Log a trade I took</button></div>${rows || `<p class="muted">Closed trades appear here — and the ones David logs for you.</p>`}</section>${davidCard()}`;
+  }
+
+  // what David (the voice assistant) learned about how you trade — he writes these as he watches you
+  function davidCard() {
+    const N = S.davidStyle || [], ico = { strength: "💪", habit: "🔁", mistake: "⚠️", rule: "📏", goal: "🎯" };
+    return `<section class="card"><div class="card-head"><h2>🎧 What David learned about you</h2><span class="muted">${N.length ? `${N.length} notes` : ""}</span></div>
+      ${N.length ? N.slice(0, 15).map((n) => `<div class="mt-row"><span>${ico[n.kind] || "•"} ${esc(n.note)}</span><small class="muted">${day(Date.parse(n.at))}${n.market ? " · " + esc(mname(n.market)) : ""}</small></div>`).join("")
+        : `<p class="muted" style="margin:0">Trade with David on the line: he guides you, writes your trades in this journal and notes what he learns about how you trade — your strengths, habits and repeat mistakes.</p>`}</section>`;
   }
 
   function noteDialog(id) {
@@ -1357,7 +1363,7 @@
           ${n("sdRiskMin", "S&D scanner: risk at least ($)", "10")}${n("sdRiskTarget", "S&D scanner: aim for ($)", "10")}${n("sdRiskMax", "S&D scanner: risk at most ($)", "10")}
           ${n("maxTradesPerDay", "Max trades per day")}${n("maxDailyLossR", "Stop for the day after losing (R)", "0.5")}${n("cooldownMin", "Break after a loss (min)", "5")}</div>
         <div class="row" style="margin-top:12px"><button class="btn primary" data-saverules>Save</button></div></section>`;
-    return `${stratCard}${notifCard}<section class="card"><h2>Connections</h2>
+    return `${rulesCard()}${stratCard}${notifCard}<section class="card"><h2>Connections</h2>
         <div class="grid2">
           <div class="stat"><small>TradingView webhook</small><b style="font-size:15px">${ok(S.hookReady)}</b></div>
           <div class="stat"><small>Broker</small><b style="font-size:15px">${esc(S.broker.label)}</b>${S.broker.account && !S.broker.account.error ? `<small>${S.broker.account.name ? `${esc(S.broker.account.name)} · ` : ""}${S.broker.account.balance != null ? `${esc(S.broker.account.currency)} ${Number(S.broker.account.balance).toFixed(2)}` : ""}</small>` : S.broker.account && S.broker.account.error ? `<small class="err">${esc(S.broker.account.error)}</small>` : ""}</div>

@@ -27,13 +27,3 @@ test("Teach Edge: charts go up with the data key, your marked-up examples are sa
   assert.equal(all.out.count, 1); assert.equal(all.out.labels[0].zone.hi, 2);
   assert.equal((await call("GET", "/api/candles?teach=1&label=1", { key: "k-123" })).out.labels, undefined); // the app only asks for the count
 });
-
-test("Teach Edge: your trade plays out — limit fill, then target / stop / still open at the end of the data (no session cut while learning)", () => {
-  global.window = {}; require("../teach.js"); const { play } = global.window.EdgeTeach;
-  const m = (rows) => ({ m: rows.map((r, i) => [...r, 180 + i * 5]) });
-  const tr = { dir: 1, e: 10, sl: 9, tp: 13 };
-  assert.deepEqual(play(m([[11, 11, 11, 11], [11, 11.5, 9.8, 10.2], [10.2, 13.2, 10.1, 13]]), tr, 0), { k: 2, how: "target", x: 13, fill: 1 });
-  assert.equal(play(m([[11, 11, 11, 11], [11, 11, 8.5, 9]]), tr, 0).how, "stop"); // filled and stopped in one candle: the stop counts
-  assert.equal(play(m([[11, 11, 11, 11], [11, 12, 10.5, 11]]), tr, 0).how, "never filled");
-  assert.equal(play(m([[11, 11, 11, 11], [11, 11, 9.9, 10.5], [10.5, 11, 10.2, 10.8]]), tr, 0).how, "still open");
-});

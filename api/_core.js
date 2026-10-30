@@ -789,7 +789,7 @@ async function state(store, broker, now = Date.now()) {
   const open = ctx.open.map((t) => ({ ...t, plan: t.initialSL != null ? R.plan(t, ctx.settings) : null, xp: R.exits(t, ctx.settings) }));
   return {
     now, settings: ctx.settings, defaults: DEFAULT_SETTINGS, markets: Object.fromEntries(Object.entries(MARKETS).map(([k, v]) => [k, { name: v.name, unit: v.unit }])),
-    biasFactors: BIAS_FACTORS, bias: ctx.bias, setups, plans, strategies: STRATEGIES, open, journal: ctx.journal.slice(0, 200), stats: stats(ctx.journal),
+    biasFactors: BIAS_FACTORS, bias: ctx.bias, setups, plans, strategies: STRATEGIES, open, journal: ctx.journal.slice(0, 200), stats: stats(ctx.journal), davidStyle: await store.lrange("david:style", 30).catch(() => []),
     practice: ctx.practice.slice(0, 200), practiceStats: stats(ctx.practice), coach: { ready: !!process.env.ANTHROPIC_API_KEY, session: await store.get("coach") },
     share: R.aPlusShare([...ctx.journal, ...ctx.open]), guard: R.guardrails(ctx),
     news: { ok: ctx.newsOk, error: ctx.newsError, events: ctx.events.filter((e) => e.time > now - 2 * 3600e3) },

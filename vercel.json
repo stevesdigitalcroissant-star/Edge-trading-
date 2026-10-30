@@ -31,11 +31,5 @@
         }
       ]
     }
-  ],
-  "rewrites": [
-    {
-      "source": "/teach",
-      "destination": "/teach.html"
-    }
   ]
 }

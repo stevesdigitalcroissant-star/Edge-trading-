@@ -19,5 +19,14 @@ big-picture ①②③ rules unless he asks. Keep it simple, visual, and in plain
    call", once per bar close). Closed candles only — no repainting. A table shows each pair: price, nearest level,
    distance in ATR, above/below the 80 SMA, HA colour.
 
-Open questions to ask him when relevant: timeframe he trades, stop/target, whether Edge should also get the alerts
-(webhook → push), and whether to test these rules on the 2019–2026 data.
+**Timeframes (his words, 30 Oct):** watches levels on the **15m**, enters on the **5m**, and wants the **Daily / 4H /
+1H trend** always in the top-right corner (script: price vs the 80 SMA + its slope → up / down / mixed). Script goes on
+the 5m chart; touch zone + "must leave" distance use the 15m ATR. Up to 15 pairs (TradingView's 40-request limit).
+
+**No training in Edge any more (his call, 30 Oct).** Test tab, drills, Teach Edge, quizzes removed. **David** (his voice
+assistant, connected over Edge's MCP at /api/mcp with the key from Settings → David) guides him live, gives feedback, and
+writes: journal entries / notes (edge_journal_write), what he learns about Steve (edge_style_write → shown in the
+Journal as "What David learned about you"), and Steve's levels (edge_levels_set). Never trades.
+
+Open questions when relevant: stop/target rules, whether Edge should push the TradingView alerts too, and whether to
+test these rules on the 2019–2026 data.
