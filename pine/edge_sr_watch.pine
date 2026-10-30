@@ -16,6 +16,10 @@
 //     OANDA:EURUSD = 1.0850, 1.0790
 // Use the exact symbol TradingView shows (exchange:ticker). Up to 15 pairs, up to 8 levels each.
 // Signals are on CLOSED candles of the chart's timeframe — nothing repaints.
+// EDGE + DAVID: with "Send to Edge" on and the alert's Webhook URL set to your Edge address (…/api/hook), every touch and
+// entry goes to Edge, plus a short status of all your pairs on every candle close — so David can tell you at any moment
+// what's happening at your levels (and Edge sends you a clean phone notification). In the alert, untick TradingView's
+// own app notification so the status messages don't buzz you every 5 minutes.
 indicator("Edge · S/R Watch", overlay = true, max_lines_count = 200, max_labels_count = 200)
 
 // ---------------------------------------------------------------------------------------------------- inputs
@@ -29,6 +33,9 @@ useSma    = input.bool(true, "Entry needs the SMA to agree (buy above it, sell b
 useHa     = input.bool(true, "Entry needs the Heikin Ashi candle to flip your way", group = "Entry confirmation")
 useClose  = input.bool(true, "Entry needs the regular candle to close back on the right side of the level", group = "Entry confirmation")
 confBars  = input.int(12, "Entry must come within this many candles of the touch", minval = 1, group = "Entry confirmation")
+toEdge    = input.bool(true, "Send to Edge (webhook) — David sees your levels live", group = "Edge")
+secret    = input.string("change-me", "Edge secret (filled in when you copy the script from Edge)", group = "Edge")
+statusN   = input.int(1, "Send the status of all pairs every … candles", minval = 1, group = "Edge")
 alertTouch = input.bool(true, "Alert on touches", group = "Alerts")
 alertEntry = input.bool(true, "Alert on entry setups", group = "Alerts")
 showHa    = input.bool(false, "Draw Heikin Ashi candles on this chart", group = "This chart")
@@ -52,6 +59,11 @@ f_pack(int aLen, int sLen) =>
 f_trend(int sLen) =>
     m = ta.sma(close, sLen)
     close > m and m > m[5] ? 1 : close < m and m < m[5] ? -1 : 0
+
+f_q(string s) => "\"" + s + "\""
+f_n(float v) => na(v) ? "null" : str.tostring(v)
+f_msg(string event, string pair, float lv, string side, float price, string text) =>
+    toEdge ? "{\"secret\":" + f_q(secret) + ",\"type\":\"sr\",\"event\":" + f_q(event) + ",\"pair\":" + f_q(pair) + ",\"level\":" + f_n(lv) + ",\"side\":" + f_q(side) + ",\"price\":" + f_n(price) + ",\"text\":" + f_q(text) + "}" : text
 
 f_short(string s) =>
     parts = str.split(s, ":")
@@ -88,6 +100,8 @@ if barstate.isfirst
 // ---------------------------------------------------------------------------------------------------- watch every pair
 var table tb = table.new(position.bottom_right, 6, 22, bgcolor = color.new(#0b0c1a, 10), border_color = color.new(#5cc8ff, 70), border_width = 1)
 nSyms = array.size(syms)
+var array<string> rows = array.new<string>()
+array.clear(rows)
 if showTable and barstate.islast
     table.clear(tb, 0, 0, 5, 21)
     hdr = array.from("Pair", "Price", "Nearest level", "Distance", "80 SMA", "HA")
@@ -106,6 +120,7 @@ for si = 0 to math.max(nSyms - 1, 0)
     haFlipUp = hac > hao and hacP <= haoP
     haFlipDn = hac < hao and hacP >= haoP
     nearest = float(na)
+    nearK = -1
     for k = 0 to math.max(array.size(lvPx) - 1, 0) // (Pine loops also count down — guard the empty case)
         if array.size(lvPx) == 0
             break
@@ -116,6 +131,7 @@ for si = 0 to math.max(nSyms - 1, 0)
             continue
         if na(nearest) or math.abs(c - lv) < math.abs(c - nearest)
             nearest := lv
+            nearK := k
         if not barstate.isconfirmed
             continue
         tol = atr * tolMult
@@ -131,7 +147,7 @@ for si = 0 to math.max(nSyms - 1, 0)
             array.set(lvTouchBar, k, bar_index)
             array.set(lvEntryDone, k, false)
             if alertTouch
-                alert(name + (side == 1 ? " touched SUPPORT " : " touched RESISTANCE ") + str.tostring(lv) + " · price " + str.tostring(c) + " · " + (c > sma ? "above" : "below") + " the 80 SMA · HA " + (haGreen ? "green" : "red"), alert.freq_once_per_bar_close)
+                alert(f_msg("touch", name, lv, side == 1 ? "support" : "resistance", c, name + (side == 1 ? " touched SUPPORT " : " touched RESISTANCE ") + str.tostring(lv) + " · price " + str.tostring(c) + " · " + (c > sma ? "above" : "below") + " the 80 SMA · HA " + (haGreen ? "green" : "red")), alert.freq_once_per_bar_close)
         else if st == 1
             side = array.get(lvSide, k)
             // the entry: within confBars of the touch, once
@@ -141,10 +157,14 @@ for si = 0 to math.max(nSyms - 1, 0)
                 if buyOk or sellOk
                     array.set(lvEntryDone, k, true)
                     if alertEntry
-                        alert(name + (buyOk ? " BUY setup at support " : " SELL setup at resistance ") + str.tostring(lv) + " · price " + str.tostring(c) + " · HA turned " + (buyOk ? "green" : "red") + " · " + (c > sma ? "above" : "below") + " the 80 SMA", alert.freq_once_per_bar_close)
+                        alert(f_msg("entry", name, lv, buyOk ? "buy" : "sell", c, name + (buyOk ? " BUY setup at support " : " SELL setup at resistance ") + str.tostring(lv) + " · price " + str.tostring(c) + " · HA turned " + (buyOk ? "green" : "red") + " · " + (c > sma ? "above" : "below") + " the 80 SMA"), alert.freq_once_per_bar_close)
             // price has left the level (either way) → it counts again next time
             if math.abs(c - lv) > leave
                 array.set(lvState, k, 0)
+    // one status row for Edge / David: price, nearest level, side, distance (15m ATR), its state, SMA, Heikin Ashi
+    if not na(c) and nearK >= 0
+        st0 = array.get(lvState, nearK)
+        array.push(rows, "{\"p\":" + f_q(name) + ",\"px\":" + f_n(c) + ",\"lv\":" + f_n(nearest) + ",\"sd\":" + f_q(nearest < c ? "S" : "R") + ",\"d\":" + f_n(na(atr) or atr == 0 ? na : math.round(math.abs(c - nearest) / atr, 2)) + ",\"st\":" + f_q(st0 == 1 ? (array.get(lvEntryDone, nearK) ? "entry" : "touched") : "armed") + ",\"sma\":" + f_q(c > sma ? "above" : "below") + ",\"ha\":" + f_q(haFlipUp ? "turned green" : haFlipDn ? "turned red" : haGreen ? "green" : "red") + ",\"n\":" + str.tostring(array.size(lvPx)) + "}")
     if showTable and barstate.islast and si < 21
         dist = na(nearest) or na(atr) or atr == 0 ? na : (c - nearest) / atr
         table.cell(tb, 0, si + 1, name, text_color = color.white, text_size = size.small)
@@ -191,3 +211,7 @@ if showTrend and barstate.islast
     allAgree = trD == tr4 and tr4 == tr1 and trD != 0
     table.cell(tt, 0, 4, "All 3", text_color = color.white, text_size = size.small)
     table.cell(tt, 1, 4, allAgree ? (trD == 1 ? "agree → buys" : "agree → sells") : "don't agree", text_color = allAgree ? (trD == 1 ? #2ef2a6 : #ff4d7d) : #ffb020, text_size = size.small)
+
+// ---------------------------------------------------------------------------------------------------- status → Edge (for David)
+if toEdge and barstate.isconfirmed and bar_index % statusN == 0 and array.size(rows) > 0
+    alert("{\"secret\":" + f_q(secret) + ",\"type\":\"sr\",\"event\":\"status\",\"chart\":" + f_q(syminfo.ticker) + ",\"tf\":" + f_q(timeframe.period) + ",\"trend\":{\"d\":" + f_n(trD) + ",\"h4\":" + f_n(tr4) + ",\"h1\":" + f_n(tr1) + "},\"rows\":[" + array.join(rows, ",") + "]}", alert.freq_once_per_bar_close)

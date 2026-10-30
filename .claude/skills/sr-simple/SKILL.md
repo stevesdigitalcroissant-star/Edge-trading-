@@ -28,6 +28,11 @@ assistant, connected over Edge's MCP at /api/mcp with the key from Settings → 
 writes: journal entries / notes (edge_journal_write), what he learns about Steve (edge_style_write → shown in the
 Journal as "What David learned about you"), and Steve's levels (edge_levels_set). Never trades.
 
+**S/R Watch → Edge → David (30 Oct).** The Pine script's alert posts JSON to /api/hook (`type:"sr"`, secret filled in
+by Edge's Copy button): `touch` / `entry` events (Edge pushes the notification, kind `sr`) and a `status` of every pair on
+each bar close (price, nearest level, distance in 15m ATR, armed/touched/entry, HA, 80 SMA, D/4H/1H trend). api/_srwatch.js
+stores it; David reads it with **edge_watch** (call it first for "what's going on?"), and Today shows "📍 Your levels now".
+
 Open questions when relevant: stop/target rules, whether Edge should push the TradingView alerts too, and whether to
 test these rules on the 2019–2026 data.
 

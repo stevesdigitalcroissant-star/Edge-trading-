@@ -2,6 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const st = require("../api/_store");
+process.env.EDGE_HOOK_SECRET = "s3cret";
 const store = st.memory();
 st.useStore(store);
 const auth = require("../api/_auth");
@@ -33,7 +34,7 @@ test("handshake, tool list; David reads, and writes only the journal, his notes 
   assert.match(init.j.result.instructions, /support & resistance/);
   assert.equal((await call({ jsonrpc: "2.0", method: "notifications/initialized" }, key)).code, 202);
   const list = (await call({ jsonrpc: "2.0", id: 2, method: "tools/list" }, key)).j.result.tools.map((t) => t.name);
-  assert.deepEqual(list, ["edge_today", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_journal", "edge_journal_write", "edge_style", "edge_style_write", "edge_rules"]);
+  assert.deepEqual(list, ["edge_today", "edge_watch", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_journal", "edge_journal_write", "edge_style", "edge_style_write", "edge_rules"]);
   assert.ok(!list.some((n) => /order|trade_|close|place|stop_move/.test(n)), "no trading tools");
   for (const name of ["edge_today", "edge_journal", "edge_rules", "edge_levels", "edge_style"]) { const r = await tool(key, name); assert.ok(!r.err, name + ": " + r.err); }
   assert.match(JSON.stringify((await tool(key, "edge_rules")).out.strategy), /Heikin Ashi/);
@@ -78,4 +79,24 @@ test("edge_market / edge_scan read a market his way: trends, 80 SMA, Heikin Ashi
     assert.equal(scan.rows[0].market, "gold", "the market with levels saved comes first");
     assert.ok(scan.rows.every((x) => !x.error));
   } finally { candles.load = real; }
+});
+
+test("edge_watch: the S/R Watch status and touches from TradingView, in plain words for David", async () => {
+  const { handleHook } = require("../api/_core");
+  const { key } = await auth.newDavidKey(store);
+  assert.equal((await tool(key, "edge_watch")).out.live, false, "nothing reported yet");
+  const bad = await handleHook(store, null, { secret: "nope", type: "sr", event: "status", rows: [] });
+  assert.notEqual(bad.status, 200, "wrong secret is refused");
+  const ok = await handleHook(store, null, { secret: "s3cret", type: "sr", event: "status", chart: "6J1!", tf: "5", trend: { d: 1, h4: -1, h1: 0 },
+    rows: [{ p: "GOLD", px: 2410, lv: 2400, sd: "S", d: 4.2, st: "armed", sma: "above", ha: "green" }, { p: "6J", px: 0.0066, lv: 0.0066, sd: "R", d: 0.1, st: "touched", sma: "below", ha: "turned red" }] });
+  assert.equal(ok.status, 200);
+  await handleHook(store, null, JSON.stringify({ secret: "s3cret", type: "sr", event: "touch", pair: "6J", level: 0.0066, side: "resistance", price: 0.0066, text: "6J at R" }));
+  const w = (await tool(key, "edge_watch")).out;
+  assert.equal(w.live, true);
+  assert.deepEqual(w.trend, { daily: "up", h4: "down", h1: "mixed" });
+  assert.equal(w.pairs[0].pair, "6J", "the pair at its level comes first");
+  assert.match(w.pairs[0].say, /Touched your resistance[\s\S]*Heikin Ashi turning red/);
+  assert.equal(w.pairs[1].closeness, "far");
+  assert.match(w.pairs[1].say, /nothing to do yet/);
+  assert.equal(w.recent[0].event, "touch");
 });

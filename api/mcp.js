@@ -9,6 +9,7 @@ const { getStore } = require("./_store");
 const { brokerFor } = require("./_broker");
 const { state } = require("./_core");
 const auth = require("./_auth");
+const { srRead } = require("./_srwatch");
 
 const PROTOCOL = "2025-06-18";
 const MY_MARKETS = ["6j", "natgas", "6e", "nq", "ym", "silver", "copper", "6a", "gold"];
@@ -17,6 +18,7 @@ const none = { type: "object", properties: {} };
 const STR = { type: "string" }, NUM = { type: "number" }, MK = { type: "string", enum: ALL_MARKETS };
 const TOOLS = [
   { name: "edge_today", description: "Today in Edge: open trades, guardrails (trades left today, daily loss limit, cool-downs), big news coming up, last prices and the close-out time.", inputSchema: none },
+  { name: "edge_watch", description: "What is happening at his levels RIGHT NOW, straight from his TradingView S/R Watch: for each pair — price, nearest level (support or resistance), distance in 15m ATR, how close (AT the level / close / on its way / far), state (armed = waiting for a touch, touched = at the level and waiting for the 5m confirmation, entry = setup confirmed), Heikin Ashi, 80 SMA side, plus the Daily / 4H / 1H trend and a plain sentence to tell him; also the touches and entry setups of the last 24h. Call it FIRST whenever he asks what's going on, whether price reached his zone, or what to watch. If it says not live, fall back to edge_scan.", inputSchema: none },
   { name: "edge_market", description: "One market the way Steve trades now (simple support & resistance): price; the trend on the Daily, 4H and 1H (price vs the 80 SMA and its slope); the 15m and 5m — 80 SMA side and the last Heikin Ashi candles (did one just flip?); his saved levels with the nearest support and resistance and how far away they are (in 15m ATR, 'at the level' when within 0.25); and the last 2 hours of 15m candles. Without a market: a quick board of all his markets. Yahoo futures candles, a few minutes behind.", inputSchema: { type: "object", properties: { market: MK } } },
   { name: "edge_scan", description: "Which of his markets is closest to one of HIS support / resistance levels right now, best first, with the Daily / 4H / 1H trend and the 80 SMA side — use it when he asks what to watch. Markets without saved levels are listed so you can ask him for them.", inputSchema: none },
   { name: "edge_levels", description: "Steve's support & resistance levels per market (the ones he drew). Read them before talking about levels.", inputSchema: none },
@@ -115,6 +117,7 @@ async function run(name, args, s, store) {
       return { trades: s.journal.slice(0, n), stats: s.stats };
     }
     case "edge_rules": return { strategy: require("../playbook.js").STEPS.map((x) => ({ step: x.title, what: x.text })), settings: pick(s.settings, ["riskUSD", "maxTradesPerDay", "dailyLossR", "minR", "maxR", "sessions"]), markets: s.markets };
+    case "edge_watch": return srRead(await store.get("sr:status"), await store.lrange("sr:events", 20));
     case "edge_scan": return scan(store);
     case "edge_market": return market(store, args.market && ALL_MARKETS.includes(args.market) ? args.market : null);
     case "edge_levels": return { levels: await savedLevels(store), note: "Per market, the support / resistance prices Steve gave you." };
@@ -175,12 +178,12 @@ module.exports = async (req, res) => {
   const { id = null, method, params = {} } = msg;
   if (id === null || id === undefined) return res.status(202).end(); // notifications need no answer
   try {
-    if (method === "initialize") return reply(res, id, { protocolVersion: PROTOCOL, capabilities: { tools: {} }, serverInfo: { name: "edge", version: "1.0.0" }, instructions: "Edge is Steve's trading co-pilot. His strategy: simple support & resistance he draws himself — levels watched on the 15m, entry on the 5m when the Heikin Ashi candle flips his way and the candle closes back on the right side of the level, with the 80 SMA agreeing; Daily / 4H / 1H trend for context. Guide him by voice, give honest feedback, and write what you see in his journal (edge_journal_write) and what you learn about him (edge_style_write). You can never place, change or close a trade." });
+    if (method === "initialize") return reply(res, id, { protocolVersion: PROTOCOL, capabilities: { tools: {} }, serverInfo: { name: "edge", version: "1.0.0" }, instructions: "Edge is Steve's trading co-pilot. His strategy: simple support & resistance he draws himself — levels watched on the 15m, entry on the 5m when the Heikin Ashi candle flips his way and the candle closes back on the right side of the level, with the 80 SMA agreeing; Daily / 4H / 1H trend for context. His TradingView S/R Watch streams every pair's distance to his levels into Edge: call edge_watch first to tell him clearly whether price has reached his zone or is nowhere near it. Guide him by voice, give honest feedback, and write what you see in his journal (edge_journal_write) and what you learn about him (edge_style_write). You can never place, change or close a trade." });
     if (method === "ping") return reply(res, id, {});
     if (method === "tools/list") return reply(res, id, { tools: TOOLS });
     if (method === "tools/call") {
       if (!TOOLS.some((t) => t.name === params.name)) return fail(res, id, -32602, "Unknown tool");
-      const light = ["edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_style", "edge_style_write"].includes(params.name) || (params.name === "edge_journal_write");
+      const light = ["edge_watch", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_style", "edge_style_write"].includes(params.name) || (params.name === "edge_journal_write");
       const s = light ? null : await state(store, await brokerFor(store));
       const text = JSON.stringify(await run(params.name, params.arguments || {}, s, store));
       return reply(res, id, { content: [{ type: "text", text: text.length > 60000 ? text.slice(0, 60000) + " …(cut)" : text }] });

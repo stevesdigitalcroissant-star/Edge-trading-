@@ -662,6 +662,25 @@
   }
 
 
+  // Your levels right now, from the S/R Watch in TradingView — the same picture David reads (edge_watch)
+  function levelsCard() {
+    const w = S.sr;
+    if (!w || !w.live && !(w.pairs || []).length) return `<section class="card slim levelsnow" data-tour="levels"><div class="card-head"><h2>📍 Your levels now</h2></div>
+      <p class="muted">Not connected yet. In TradingView, give the S/R Watch alert Edge's webhook URL (Settings → TradingView) — then you and David see every pair's distance to your levels here.</p></section>`;
+    const tone = (p) => (p.state === "entry" ? "good" : p.state === "touched" || p.closeness === "AT the level" ? "hot" : p.closeness === "close" ? "warm" : "");
+    const label = (p) => (p.state === "entry" ? "✅ Entry" : p.state === "touched" ? "🔔 At level" : p.closeness === "close" ? "Close" : p.closeness === "on its way" ? "On its way" : "Far");
+    const tr = (k, v) => `<span class="tr ${v}">${k} ${v === "up" ? "▲" : v === "down" ? "▼" : "◆"}</span>`;
+    const t = w.trend || {};
+    const near = w.pairs.filter((p) => p.state !== "armed" || p.closeness !== "far").length;
+    return `<section class="card levelsnow" data-tour="levels"><div class="card-head"><h2>📍 Your levels now</h2>
+        <span class="muted">${w.live ? `${w.updatedMinAgo ? w.updatedMinAgo + " min ago" : "live"}` : "not live"} · ${tr("D", t.daily)}${tr("4H", t.h4)}${tr("1H", t.h1)}</span></div>
+      ${w.warning ? `<p class="muted">⏸ ${esc(w.warning)}</p>` : ""}
+      <p class="ln-sum">${near ? `${near} pair${near > 1 ? "s" : ""} near your levels — ask David “what's going on?”` : "Nothing near your levels — no need to watch the charts. 🌿"}</p>
+      <div class="ln-list">${w.pairs.map((p) => `<div class="ln-row ${tone(p)}"><div class="ln-top"><b>${esc(p.pair)}</b><span class="ln-chip">${label(p)}</span>
+        <span class="num muted">${esc(p.side === "support" ? "S" : "R")} ${esc(p.level)} · ${p.distanceATR ?? "?"}× ATR</span></div><small>${esc(p.say)}</small></div>`).join("")}</div>
+    </section>`;
+  }
+
   // a warm hello and one short mindset line a day (same line all day, a new one tomorrow)
   const hello = () => { const h = new Date().getHours(); return h < 5 ? "Late night 🌙" : h < 12 ? "Good morning ☀️" : h < 18 ? "Good afternoon 🌤️" : "Good evening 🌅"; };
   const MINDSET = ["Your edge is in waiting for your level — not in trading more.", "One clean trade beats five rushed ones.", "A loss taken at your stop is a trade done right.", "Patience at the level, then let the plan work.", "Same risk every time — let the numbers grow quietly.", "You don't need every move. You need yours.", "Protect your energy: no level, no trade.", "Small wins, kept rules, a growing line.", "Calm hands, clear levels, clean entries.", "Review, learn, come back sharper."];
@@ -705,7 +724,7 @@
       ${tile("shot", "Log a trade", "upload a screenshot", "data-shot")}
       ${setupShown || ps.on ? "" : tile("push", "Alerts on", pushOk ? "to this phone" : "how to turn on", pushOk ? "data-pushon" : `data-pushhelp="${esc(ps.text)}"`, "push")}
     </section>`;
-    return `${pend}${getSet}${hero}${openCard}${tiles}${stats}${news}`;
+    return `${pend}${getSet}${hero}${openCard}${levelsCard()}${tiles}${stats}${news}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -1397,7 +1416,7 @@
     const ok = (b) => (b ? `<span class="pill good">on</span>` : `<span class="pill warn">off</span>`);
     const hook = `${location.origin}/api/hook`;
     const ps = pushStatus();
-    const kinds = [["closed", "Trade closed + result"], ["warn", "Stop moved or missing on an open trade"], ["news", "Big news coming"], ["info", "Other (David, journal)"]];
+    const kinds = [["sr", "Price at your levels + entry setups (S/R Watch)"], ["closed", "Trade closed + result"], ["warn", "Stop moved or missing on an open trade"], ["news", "Big news coming"], ["info", "Other (David, journal)"]];
     const notifCard = `<section class="card"><h2>Notifications</h2>
         <div class="row between"><span class="pill ${ps.on ? "good" : "warn"}" style="white-space:normal;max-width:100%">${esc(ps.text)}</span>
           ${ps.on ? `<span class="row"><button class="btn small" data-testalert>Send a test</button><button class="btn small danger" data-pushoff>Turn off here</button></span>` : pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on for this device</button>` : ""}</div>

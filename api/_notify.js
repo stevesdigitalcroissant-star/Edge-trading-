@@ -21,6 +21,7 @@ const KINDS = {
   news: { title: "📰 News coming", sticky: false, url: "/#now" },
   locked: { title: "🔒 Done for today", sticky: false, url: "/#now" },
   skip: { title: "⛔ Not your setup", sticky: false, url: "/#setups" },
+  sr: { title: "📍 Your level", sticky: true, url: "/#now" },
   info: { title: "Edge", sticky: false, url: "/#now" },
 };
 
@@ -83,7 +84,7 @@ async function notify(store, text, kind = "info") {
   const k = KINDS[kind] || KINDS.info;
   const body = String(text).replace(/^\p{Extended_Pictographic}️?\s*/u, "");
   const [pushed, tg] = await Promise.all([
-    push(store, { title: k.title, body, url: k.url, sticky: k.sticky, tag: kind === "action" || kind === "setup" ? `${kind}-${entry.at}` : kind }).catch(() => 0),
+    push(store, { title: k.title, body, url: k.url, sticky: k.sticky, tag: kind === "action" || kind === "setup" || kind === "sr" ? `${kind}-${entry.at}` : kind }).catch(() => 0),
     telegram(text),
   ]);
   return pushed > 0 || tg;
