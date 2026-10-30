@@ -1161,18 +1161,39 @@ body { touch-action: manipulation; }
   body.home-on main { order: 1; padding-bottom: 4px; }
 }
 
-/* Teach Edge (teach.js): full-screen, one chart at a time */
+/* Teach Edge (teach.js): full-screen, one chart at a time — its own bright, night-mode look */
 body.teach-on { overflow: hidden; }
-.teach-ov { position: fixed; inset: 0; z-index: 90; background: var(--bg); display: flex; flex-direction: column; gap: 10px; padding: max(12px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom)); overflow-y: auto; }
+.teach-ov { position: fixed; inset: 0; z-index: 90; color: #f3f4ff; color-scheme: dark; display: flex; flex-direction: column; gap: 10px; padding: max(12px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom)); overflow-y: auto;
+  background: radial-gradient(900px 500px at 0% -10%, rgba(124, 92, 255, .35), transparent 60%), radial-gradient(800px 500px at 110% 10%, rgba(0, 212, 255, .22), transparent 60%), radial-gradient(700px 500px at 50% 120%, rgba(46, 242, 166, .16), transparent 60%), #0b0c1a; }
 .tc-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.tc-top small { color: var(--muted); font-weight: 500; }
-.tc-ask { margin: 0; font-size: 15px; line-height: 1.45; }
-.tc-ask small { color: var(--muted); }
-.tc-link { background: none; border: 0; color: var(--accent); font-weight: 700; text-decoration: underline; padding: 0; cursor: pointer; font-size: inherit; }
-.tc-cv { width: 100%; height: min(58vh, 520px); min-height: 300px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); touch-action: manipulation; cursor: crosshair; }
+.tc-mk b { font-family: var(--display); font-size: 20px; background: linear-gradient(90deg, #ffd36e, #ff7ab6 55%, #c77dff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.tc-top small { color: #a9b0dc; font-weight: 600; margin-left: 4px; }
+.tc-bar { height: 6px; border-radius: 99px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.tc-bar i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #2ef2a6, #5cc8ff, #c77dff, #ff7ab6); transition: width .4s; }
+.tc-steps { display: flex; gap: 6px; }
+.tc-steps span { flex: 1; text-align: center; font-size: 11.5px; font-weight: 800; letter-spacing: .02em; padding: 6px 4px; border-radius: 10px; color: #7d84b3; background: rgba(255, 255, 255, .04); border: 1px solid rgba(255, 255, 255, .06); }
+.tc-steps span.past { color: var(--c); border-color: color-mix(in srgb, var(--c) 35%, transparent); }
+.tc-steps span.now { color: #0b0c1a; background: var(--c); border-color: var(--c); box-shadow: 0 0 18px -2px var(--c); }
+.tc-ask { margin: 0; font-size: 15px; line-height: 1.45; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .08); }
+.tc-ask b { color: #fff; }
+.tc-ask small { color: #a9b0dc; }
+.tc-res.win { background: linear-gradient(135deg, rgba(46, 242, 166, .28), rgba(0, 212, 255, .14)); border-color: rgba(46, 242, 166, .6); box-shadow: 0 0 30px -10px #2ef2a6; }
+.tc-res.loss { background: linear-gradient(135deg, rgba(255, 77, 125, .28), rgba(199, 125, 255, .12)); border-color: rgba(255, 77, 125, .6); box-shadow: 0 0 30px -10px #ff4d7d; }
+.tc-link { background: none; border: 0; color: #ffd36e; font-weight: 800; text-decoration: underline; padding: 0; cursor: pointer; font-size: inherit; }
+.tc-cv { width: 100%; height: min(56vh, 520px); min-height: 300px; border-radius: 16px; touch-action: manipulation; cursor: crosshair;
+  background: linear-gradient(180deg, rgba(124, 92, 255, .10), rgba(0, 212, 255, .04) 60%, rgba(46, 242, 166, .06)), #10122a; border: 1px solid rgba(140, 150, 255, .22); box-shadow: 0 18px 40px -20px rgba(124, 92, 255, .6), inset 0 1px 0 rgba(255, 255, 255, .06); }
 .tc-tf, .tc-why { display: flex; flex-wrap: wrap; gap: 6px; }
-.tc-tf button, .tc-why button { border: 1px solid var(--line2); background: var(--panel2); color: var(--text); border-radius: 999px; padding: 6px 11px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-.tc-tf button.on, .tc-why button.on { background: color-mix(in srgb, var(--accent) 22%, var(--panel2)); border-color: var(--accent); color: var(--accent); }
+.tc-tf button, .tc-why button { border: 1px solid rgba(255, 255, 255, .12); background: rgba(255, 255, 255, .05); color: #dfe2ff; border-radius: 999px; padding: 7px 12px; font-size: 12.5px; font-weight: 700; cursor: pointer; transition: transform .08s, background .2s; }
+.tc-tf button:active, .tc-why button:active { transform: scale(.96); }
+.tc-tf button.on { background: linear-gradient(135deg, #7c5cff, #00d4ff); border-color: transparent; color: #fff; box-shadow: 0 6px 18px -8px #7c5cff; }
+.tc-why button { --c: #2ef2a6; border-color: color-mix(in srgb, var(--c) 45%, transparent); color: var(--c); }
+.tc-why button.on { background: var(--c); color: #0b0c1a; box-shadow: 0 0 16px -4px var(--c); }
 .tc-act { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-.tc-msg { padding: 30px 6px; color: var(--muted); }
+.teach-ov .btn { background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .14); color: #eef0ff; }
+.teach-ov .btn.primary { background: linear-gradient(135deg, #7c5cff, #00d4ff); color: #fff; border-color: transparent; box-shadow: 0 10px 24px -10px rgba(0, 212, 255, .8), inset 0 1px 0 rgba(255, 255, 255, .3); }
+.teach-ov .btn.tc-hot { background: linear-gradient(135deg, #ff7a18, #ffb020 50%, #ff4d7d); color: #1a0b00; border-color: transparent; font-weight: 800; box-shadow: 0 10px 26px -10px rgba(255, 122, 24, .9); }
+.teach-ov .btn.tc-soft { background: transparent; color: #a9b0dc; }
+.tc-msg { padding: 30px 6px; color: #a9b0dc; }
 .tc-cardrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.teach-card { background: linear-gradient(135deg, rgba(124, 92, 255, .16), rgba(0, 212, 255, .08) 60%, rgba(46, 242, 166, .10)), var(--panel); border-color: rgba(140, 150, 255, .3); }
+.teach-card .btn.primary { background: linear-gradient(135deg, #7c5cff, #00d4ff); color: #fff; }

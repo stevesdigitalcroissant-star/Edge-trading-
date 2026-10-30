@@ -2,6 +2,7 @@
 // day's 5m play from 03:00 New York and place YOUR trade (entry, stop, target) or pass. Every example is saved to your
 // Edge so the scanner can be rebuilt around how you draw. Charts come from your private Databento archive (?teach=1).
 (function () {
+  const CH = ["#2ef2a6", "#5cc8ff", "#c77dff", "#ffb020", "#ff7ab6", "#7cf06b", "#ff8a4c"];
   const GOAL = 30, WHY = ["Base before a big move", "Fresh / untouched", "Old zone", "With the 4H trend", "At a big level", "Clean pullback", "Liquidity taken"];
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -33,15 +34,16 @@
     let lo = Math.min(...vis.map((b) => b[2]), ...lv), hi = Math.max(...vis.map((b) => b[1]), ...lv); const pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;
     const y = (v) => 8 + (H - 16) * (1 - (v - lo) / (hi - lo)), step = (W - padR - 6) / n, x = (i) => 4 + step * (i + 0.5), bw = Math.max(1, step * 0.66);
     cv._map = { p: (py) => lo + (1 - (py - 8) / (H - 16)) * (hi - lo), y, dec: o.dec };
-    g.strokeStyle = "rgba(255,255,255,.05)"; g.lineWidth = 1; g.font = "600 10.5px system-ui, sans-serif"; g.fillStyle = css("--faint") || "#5c636d"; g.textAlign = "left";
+    g.strokeStyle = "rgba(160,170,255,.08)"; g.lineWidth = 1; g.font = "600 10.5px system-ui, sans-serif"; g.fillStyle = "#8f97c4"; g.textAlign = "left";
     for (let q = 0; q <= 4; q++) { const v = lo + ((hi - lo) * q) / 4, yy = y(v); g.beginPath(); g.moveTo(0, yy); g.lineTo(W - padR, yy); g.stroke(); g.fillText(v.toFixed(o.dec), W - padR + 4, yy + 3); }
-    const band = (a, b, col, lab) => { if (a == null || b == null) return; const t = y(Math.max(a, b)), u = y(Math.min(a, b)); g.fillStyle = col; g.fillRect(0, t, W - padR, Math.max(2, u - t)); if (lab) { g.fillStyle = css("--text") || "#fff"; g.font = "800 11px system-ui, sans-serif"; g.fillText(lab, 6, t - 4 < 12 ? u + 13 : t - 4); } };
-    (o.bands || []).forEach((z) => band(z.a, z.b, z.col, z.lab));
-    vis.forEach((b, i) => { const up = b[3] >= b[0], c = up ? "#26a69a" : "#ef5350"; g.strokeStyle = c; g.fillStyle = c; g.beginPath(); g.moveTo(x(i), y(b[1])); g.lineTo(x(i), y(b[2])); g.stroke(); const t = y(Math.max(b[0], b[3])); g.fillRect(x(i) - bw / 2, t, bw, Math.max(1, y(Math.min(b[0], b[3])) - t)); });
+    const band = (a, b, col, lab, edge) => { if (a == null || b == null) return; const t = y(Math.max(a, b)), u = y(Math.min(a, b)); g.fillStyle = col; g.fillRect(0, t, W - padR, Math.max(2, u - t));
+      if (edge) { g.save(); g.shadowColor = edge; g.shadowBlur = 10; g.strokeStyle = edge; g.lineWidth = 1.5; g.strokeRect(0.5, t, W - padR - 1, Math.max(2, u - t)); g.restore(); } if (lab) { g.fillStyle = edge || "#fff"; g.font = "800 11px system-ui, sans-serif"; g.fillText(lab, 6, t - 4 < 12 ? u + 13 : t - 4); } };
+    (o.bands || []).forEach((z) => band(z.a, z.b, z.col, z.lab, z.edge));
+    vis.forEach((b, i) => { const up = b[3] >= b[0], c = up ? "#2ef2a6" : "#ff4d7d"; g.strokeStyle = c; g.fillStyle = c; g.beginPath(); g.moveTo(x(i), y(b[1])); g.lineTo(x(i), y(b[2])); g.stroke(); const t = y(Math.max(b[0], b[3])); g.fillRect(x(i) - bw / 2, t, bw, Math.max(1, y(Math.min(b[0], b[3])) - t)); });
     (o.lines || []).forEach((l) => { if (l.v == null) return; const yy = y(l.v); g.strokeStyle = l.col; g.lineWidth = 2; g.setLineDash(l.dash ? [6, 5] : []); g.beginPath(); g.moveTo(l.from != null ? x(l.from - (bars.length - vis.length)) : 0, yy); g.lineTo(W - padR, yy); g.stroke(); g.setLineDash([]);
       g.fillStyle = l.col; g.fillRect(W - padR + 1, yy - 9, padR - 2, 18); g.fillStyle = "#0b0f15"; g.font = "800 10px system-ui, sans-serif"; g.fillText(l.lab, W - padR + 4, yy + 4); });
-    (o.marks || []).forEach((m) => { const i = m.i - (bars.length - vis.length); if (i < 0) return; g.fillStyle = m.col; g.beginPath(); g.arc(x(i), y(m.v), 6, 0, 7); g.fill(); });
-    if (o.now) { g.strokeStyle = "rgba(217,180,108,.6)"; g.setLineDash([3, 4]); g.beginPath(); g.moveTo(x(vis.length - 1) + step / 2, 0); g.lineTo(x(vis.length - 1) + step / 2, H); g.stroke(); g.setLineDash([]); }
+    (o.marks || []).forEach((m) => { const i = m.i - (bars.length - vis.length); if (i < 0) return; g.save(); g.shadowColor = m.col; g.shadowBlur = 14; g.fillStyle = m.col; g.beginPath(); g.arc(x(i), y(m.v), 7, 0, 7); g.fill(); g.restore(); g.strokeStyle = "#fff"; g.lineWidth = 2; g.beginPath(); g.arc(x(i), y(m.v), 7, 0, 7); g.stroke(); });
+    if (o.now) { g.strokeStyle = "rgba(255,196,77,.75)"; g.setLineDash([3, 4]); g.beginPath(); g.moveTo(x(vis.length - 1) + step / 2, 0); g.lineTo(x(vis.length - 1) + step / 2, H); g.stroke(); g.setLineDash([]); }
   }
 
   // ---------- what the trade did after you placed it (limit / stop entry at your price, then stop or target, else 16:00)
@@ -69,21 +71,24 @@
   function paint() {
     if (!ov) return; stopPlay();
     if (!X) { ov.innerHTML = `<div class="tc-top"><b>Teach Edge</b><button class="btn small" data-t="close">Close</button></div><div class="tc-msg">${err ? `<p>${esc(err)}</p>` : "<p>Loading a chart…</p>"}${err ? '<button class="btn small" data-t="retry">Try again</button>' : ""}</div>`; return; }
-    const z = zoneOf(), dirW = z ? (zoneDir(z) > 0 ? "demand" : zoneDir(z) < 0 ? "supply" : "zone") : "";
-    const top = `<div class="tc-top"><span><b>${esc(X.name)}</b> <small>· example ${done + (S.step === "done" ? 0 : 1)} of ${GOAL}${saved != null ? ` · ${saved} saved` : ""}</small></span><button class="btn small" data-t="close">Done for now</button></div>`;
+    const z = zoneOf(), dirW = z ? (zoneDir(z) > 0 ? "demand" : zoneDir(z) < 0 ? "supply" : "") : "";
+    const stepNo = { zone: 0, watch: 1, place: 2, done: 3 }[S.step], n = done + (S.step === "done" ? 0 : 1);
+    const top = `<div class="tc-top"><span class="tc-mk"><b>${esc(X.name)}</b> <small>example ${n} of ${GOAL}${saved != null ? ` · ${saved} saved` : ""}</small></span><button class="btn small tc-soft" data-t="close">Done for now</button></div>
+      <div class="tc-bar"><i style="width:${Math.min(100, (100 * (done + (S.step === "done" ? 0 : 0.5))) / GOAL)}%"></i></div>
+      <div class="tc-steps">${["Zone", "Watch", "Trade", "Result"].map((w, i) => `<span class="${i < stepNo ? "past" : i === stepNo ? "now" : ""}" style="--c:${["#2ef2a6", "#5cc8ff", "#ffb020", "#c77dff"][i]}">${i + 1} · ${w}</span>`).join("")}</div>`;
     let body = "";
-    if (S.step === "zone") body = `<p class="tc-ask">${S.taps.length < 2 ? `<b>Mark your zone.</b> Tap its ${S.taps.length ? "other edge" : "top or bottom"} on the chart — where would you look for a trade today?` : `<b>Your ${dirW} zone:</b> ${fx(z.lo)} – ${fx(z.hi)}. Why this one? (tap all that fit)`}</p>
+    if (S.step === "zone") body = `<p class="tc-ask">${S.taps.length < 2 ? `<b>Mark your zone.</b> Tap its ${S.taps.length ? "other edge" : "top or bottom"} on the chart — where would you look for a trade today?` : `<b>Your ${dirW ? dirW + " " : ""}zone:</b> ${fx(z.lo)} – ${fx(z.hi)}. Why this one? (tap all that fit)`}</p>
       <div class="tc-tf"><button class="${S.tf === "1h" ? "on" : ""}" data-t="tf1">1H · 15 days</button><button class="${S.tf === "4h" ? "on" : ""}" data-t="tf4">4H · 3 months</button><button class="${S.zoom ? "on" : ""}" data-t="zoom">${S.zoom ? "Zoom in" : "Zoom out"}</button></div>
       <canvas class="tc-cv" data-t="cv"></canvas>
-      ${z ? `<div class="tc-why">${WHY.map((w) => `<button class="${S.why.has(w) ? "on" : ""}" data-w="${esc(w)}">${esc(w)}</button>`).join("")}</div>` : ""}
-      <div class="tc-act"><button class="btn small" data-t="nozone">No zone I'd trade today</button>${S.taps.length ? '<button class="btn small" data-t="clear">Redraw</button>' : ""}<button class="btn small primary" data-t="watch" ${z ? "" : "disabled"}>Watch the day ▶</button></div>`;
+      ${z ? `<div class="tc-why">${WHY.map((w, i) => `<button class="${S.why.has(w) ? "on" : ""}" style="--c:${CH[i % CH.length]}" data-w="${esc(w)}">${esc(w)}</button>`).join("")}</div>` : ""}
+      <div class="tc-act"><button class="btn small tc-soft" data-t="nozone">No zone I'd trade today</button>${S.taps.length ? '<button class="btn small" data-t="clear">Redraw</button>' : ""}<button class="btn small primary" data-t="watch" ${z ? "" : "disabled"}>Watch the day ▶</button></div>`;
     else if (S.step === "watch" || S.step === "place") { const pl = S.place, need = ["ENTRY", "STOP", "TARGET"][pl.length];
       body = `<p class="tc-ask">${S.step === "watch" ? `<b>${ny(X.m[S.k][4])} New York.</b> Play the 5m. When you'd take a trade, pause and tap <b>Trade here</b>.` : pl.length < 3 ? `Tap your <b>${need}</b> on the chart.${pl.length === 2 ? ' Or <button class="tc-link" data-t="r3">use 1:3</button>' : ""}` : `<b>${pl[1] < pl[0] ? "BUY" : "SELL"}</b> · entry ${fx(pl[0])} · stop ${fx(pl[1])} · target ${fx(pl[2])} · 1:${(Math.abs(pl[2] - pl[0]) / Math.abs(pl[0] - pl[1])).toFixed(1)}`}</p>
         <canvas class="tc-cv" data-t="cv"></canvas>
-        <div class="tc-act">${S.step === "watch" ? `<button class="btn small" data-t="step">+1 candle</button><button class="btn small" data-t="playp">${S.playing ? "⏸ Pause" : "▶ Play"}</button><button class="btn small" data-t="speed">${S.speed}×</button><button class="btn small" data-t="pass">No trade today</button><button class="btn small primary" data-t="trade">📍 Trade here</button>`
+        <div class="tc-act">${S.step === "watch" ? `<button class="btn small" data-t="step">+1 candle</button><button class="btn small" data-t="playp">${S.playing ? "⏸ Pause" : "▶ Play"}</button><button class="btn small" data-t="speed">${S.speed}×</button><button class="btn small tc-soft" data-t="pass">No trade today</button><button class="btn small tc-hot" data-t="trade">📍 Trade here</button>`
           : `<button class="btn small" data-t="unplace">Back</button>${pl.length ? '<button class="btn small" data-t="undo">Undo tap</button>' : ""}<button class="btn small primary" data-t="confirm" ${pl.length === 3 && (pl[0] - pl[1]) * (pl[2] - pl[0]) > 0 ? "" : "disabled"}>Place it ✓</button>`}</div>`; }
     else { const R = S.R, tr = S.trade, r = S.res;
-      body = `<p class="tc-ask">${tr ? (r.how === "never filled" ? "<b>Your order never filled.</b>" : `<b>${r.how === "target" ? "🎯 Target hit" : r.how === "stop" ? "🛑 Stopped" : "Closed at 16:00"}: ${R >= 0 ? "+" : "−"}${Math.abs(R).toFixed(1)}R</b> (${R >= 0 ? "+" : "−"}$${Math.abs(Math.round(R * 150))} at $150 risk).`) : "<b>No trade.</b> Here's how the day played out."} <small>${esc(X.day)} · saved ✓</small></p>
+      body = `<p class="tc-ask tc-res ${tr && r.how !== "never filled" ? (S.R >= 0 ? "win" : "loss") : "flat"}">${tr ? (r.how === "never filled" ? "<b>Your order never filled.</b>" : `<b>${r.how === "target" ? "🎯 Target hit" : r.how === "stop" ? "🛑 Stopped" : "Closed at 16:00"}: ${R >= 0 ? "+" : "−"}${Math.abs(R).toFixed(1)}R</b> (${R >= 0 ? "+" : "−"}$${Math.abs(Math.round(R * 150))} at $150 risk).`) : "<b>No trade.</b> Here's how the day played out."} <small>${esc(X.day)} · saved ✓</small></p>
         <canvas class="tc-cv" data-t="cv"></canvas>
         <div class="tc-act"><button class="btn small primary" data-t="next">${done >= GOAL ? "That's 30 — keep going?" : "Next chart ▶"}</button></div>`; }
     ov.innerHTML = top + body;
@@ -91,15 +96,15 @@
     if (S.playing && S.step === "watch") startPlay();
   }
   function draw(cv) {
-    const z = zoneOf(), zc = z && zoneDir(z) < 0 ? "rgba(239,83,80,.22)" : "rgba(38,166,154,.22)";
+    const z = zoneOf(), sup = z && zoneDir(z) < 0, zc = sup ? "rgba(255,77,125,.20)" : "rgba(46,242,166,.18)", ze = sup ? "#ff4d7d" : "#2ef2a6";
     if (S.step === "zone") { const bars = S.tf === "4h" ? X.h4 : X.h, slots = S.zoom ? bars.length : S.tf === "4h" ? 180 : 120;
-      chart(cv, bars, { dec: X.dec, slots, bands: z ? [{ a: z.lo, b: z.hi, col: zc, lab: "your zone" }] : [], lines: S.taps.length === 1 ? [{ v: S.taps[0], col: "#d9b46c", lab: fx(S.taps[0]), dash: 1 }] : [], now: 1 }); return; }
+      chart(cv, bars, { dec: X.dec, slots, bands: z ? [{ a: z.lo, b: z.hi, col: zc, edge: ze, lab: "your zone" }] : [], lines: S.taps.length === 1 ? [{ v: S.taps[0], col: "#ffc44d", lab: fx(S.taps[0]), dash: 1 }] : [], now: 1 }); return; }
     const end = S.step === "done" ? X.m.length : S.k + 1, bars = X.m.slice(0, end), pl = S.place, tr = S.trade, lines = [];
-    const show = tr ? [tr.e, tr.sl, tr.tp] : pl; const labs = ["entry", "stop", "target"], cols = ["#6aa8ff", "#ef5350", "#26a69a"];
+    const show = tr ? [tr.e, tr.sl, tr.tp] : pl; const labs = ["entry", "stop", "target"], cols = ["#5cc8ff", "#ff4d7d", "#2ef2a6"];
     show.forEach((v, i) => lines.push({ v, col: cols[i], lab: `${labs[i]}`, from: tr ? tr.k : S.k }));
-    const marks = []; if (S.res && S.step === "done") { if (S.res.fill != null) marks.push({ i: S.res.fill, v: tr.e, col: "#6aa8ff" }); if (S.res.x != null) marks.push({ i: S.res.k, v: S.res.x, col: S.res.how === "target" ? "#26a69a" : S.res.how === "stop" ? "#ef5350" : "#d9b46c" }); }
+    const marks = []; if (S.res && S.step === "done") { if (S.res.fill != null) marks.push({ i: S.res.fill, v: tr.e, col: "#5cc8ff" }); if (S.res.x != null) marks.push({ i: S.res.k, v: S.res.x, col: S.res.how === "target" ? "#2ef2a6" : S.res.how === "stop" ? "#ff4d7d" : "#ffc44d" }); }
     const live = S.step !== "done"; // while you watch: the last ~2 hours, bigger candles; at the end: the whole day
-    chart(cv, bars, { dec: X.dec, slots: live ? 84 : X.m.length, ahead: live ? 18 : 0, bands: z ? [{ a: z.lo, b: z.hi, col: zc, lab: "your zone" }] : [], lines, marks, now: S.step !== "done", levels: z ? [z.lo, z.hi] : [] });
+    chart(cv, bars, { dec: X.dec, slots: live ? 84 : X.m.length, ahead: live ? 18 : 0, bands: z ? [{ a: z.lo, b: z.hi, col: zc, edge: ze, lab: "your zone" }] : [], lines, marks, now: S.step !== "done", levels: z ? [z.lo, z.hi] : [] });
   }
   function stopPlay() { if (timer) { clearInterval(timer); timer = null; } }
   function startPlay() { stopPlay(); timer = setInterval(() => { if (!S || S.step !== "watch" || S.k >= X.m.length - 1) { S.playing = false; stopPlay(); if (S && S.step === "watch" && S.k >= X.m.length - 1) { S.res = null; finish(); } else paint(); return; } S.k++; const cv = ov.querySelector("canvas"); if (cv) draw(cv); const t = ov.querySelector(".tc-ask b"); if (t) t.textContent = `${ny(X.m[S.k][4])} New York.`; }, 260 / S.speed); }
