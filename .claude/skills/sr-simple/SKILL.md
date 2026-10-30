@@ -30,3 +30,11 @@ Journal as "What David learned about you"), and Steve's levels (edge_levels_set)
 
 Open questions when relevant: stop/target rules, whether Edge should push the TradingView alerts too, and whether to
 test these rules on the 2019–2026 data.
+
+## What his 8 Teach Edge examples showed (pulled 30 Oct, edge-data labels/teach.json)
+- Draws zones mostly on the 4H (5/8), from structure: "creates a CHoCH on the 4H / 1H", "hesitation candle", "big
+  rejection candle", with the 4H trend. Says the best entry is the FIRST touch of a fresh zone, with a limit order.
+- 4 trades: copper short −1R, NQ short +0.53R, 6A long +2.19R (target at the next level — his best), 6J long +2.22R open.
+- Mistakes: stop INSIDE the zone in 3 of 4 (copper, NQ, 6J) — only 6A had it past the zone; copper entry was taken
+  below the supply zone (outside it, early) → stopped; NQ limit sat ~6 hours before filling.
+- Tension to resolve with him: first-touch limit entries vs the S/R Watch HA-flip confirmation entry.
