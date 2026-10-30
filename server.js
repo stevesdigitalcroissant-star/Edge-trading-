@@ -35,12 +35,12 @@ function wrap(res) {
 http.createServer((req, res) => {
   wrap(res);
   const url = new URL(req.url, "http://x");
-  if (["/api/hook", "/api/app", "/api/coach"].includes(url.pathname)) {
+  if (["/api/hook", "/api/app", "/api/coach", "/api/mcp"].includes(url.pathname)) {
     let raw = "";
     req.on("data", (c) => { raw += c; if (raw.length > 1e6) req.destroy(); });
     req.on("end", () => {
       try { req.body = raw ? JSON.parse(raw) : {}; } catch { req.body = raw; }
-      ({ "/api/hook": hook, "/api/app": app, "/api/coach": coachApi })[url.pathname](req, res);
+      ({ "/api/hook": hook, "/api/app": app, "/api/coach": coachApi, "/api/mcp": require("./api/mcp") })[url.pathname](req, res);
     });
     return;
   }

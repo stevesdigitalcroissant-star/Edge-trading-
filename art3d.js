@@ -2,8 +2,8 @@
 // Pure CSS 3D + SVG (no downloads, works offline). Motion stops for people who turn on "reduce motion".
 (function () {
   // a solid box standing on the floor of a scene: x, y on the floor, w × d footprint, h tall, lifted z
-  function box(x, y, w, d, h, color, extra = "", z = 0) {
-    return `<div class="b3 ${extra}" style="left:${x}px;top:${y}px;width:${w}px;height:${d}px;--h:${h}px;--z:${z}px;--c:${color}">
+  function box(x, y, w, d, h, color, extra = "", z = 0, delay = 0) {
+    return `<div class="b3 ${extra}" style="left:${x}px;top:${y}px;width:${w}px;height:${d}px;--h:${h}px;--z:${z}px;--c:${color}${delay ? `;animation-delay:${delay}ms` : ""}">
       <i class="t"></i><i class="n"></i><i class="s"></i><i class="e"></i><i class="w"></i></div>`;
   }
   // a candle: body box + a thin wick, green up / red down
@@ -48,6 +48,27 @@
     const out = v.map((r, i) => box(x0 + i * step, 62, step * 0.7, 26, Math.max(4, Math.min(70, Math.abs(r) * 16)), ghost ? "rgba(154,163,173,.35)" : r > 0 ? "#26a69a" : r < 0 ? "#ef5350" : "#9aa3ad", ghost ? "glass" : "")).join("");
     return `<div class="scene3" aria-hidden="true"><div class="w3">${floor}${out}</div></div>`;
   }
+  // Journal: your growth in 3D — your running total (R) week by week as a rising skyline, a gold ball climbing it,
+  // a flag on your best week. Built from your closed trades (oldest → newest).
+  let gid = 0;
+  function growth(trades) {
+    const T = trades.filter((t) => t.resultR != null && t.closedAt).sort((a, b) => a.closedAt - b.closedAt);
+    if (!T.length) return `<div class="scene3 grow3" aria-hidden="true"><div class="w3">${floor}${[1.2, 2, 1.6, 2.8, 3.4, 3, 4.2, 5].map((v, i) => box(16 + i * 34, 120, 22, 22, v * 16, "rgba(154,163,173,.3)", "glass")).join("")}</div></div>`;
+    const wk = (t) => { const d = new Date(t); d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.getTime(); };
+    const pts = []; let cum = 0, cur = null;
+    for (const t of T) { cum += t.resultR; const k = T.length > 16 ? wk(t.closedAt) : t.closedAt; if (cur && cur.k === k) cur.v = cum; else { cur = { k, v: cum }; pts.push(cur); } }
+    const P = pts.slice(-14), lo = Math.min(0, ...P.map((p) => p.v)), hi = Math.max(...P.map((p) => p.v), lo + 1), n = P.length;
+    const step = Math.min(34, 276 / n), w = Math.max(10, step * 0.66), x0 = (300 - step * n) / 2, H = (v) => 6 + ((v - lo) / (hi - lo)) * 84;
+    let best = 0; P.forEach((p, i) => { if (p.v >= P[best].v) best = i; });
+    const col = (p, i) => (p.v < 0 ? "#ff4d7d" : i === best ? "#ffd36e" : `hsl(${190 - (i / Math.max(1, n - 1)) * 40}, 85%, ${52 + (i / Math.max(1, n - 1)) * 8}%)`);
+    // bars stand along a gentle diagonal so the climb reads in 3D
+    const pos = P.map((p, i) => ({ x: x0 + i * step, y: 140 - i * (70 / Math.max(1, n)), h: H(p.v) }));
+    const bars = P.map((p, i) => box(pos[i].x, pos[i].y, w, w, pos[i].h, col(p, i), `gro${i === best ? " pulse" : ""}`, 0, i * 70 + 1)).join("");
+    const id = `climb${++gid}`, kf = pos.map((q, i) => `${Math.round((i / Math.max(1, n - 1)) * 100)}% { transform: translate3d(${(q.x + w / 2).toFixed(1)}px, ${(q.y + w / 2).toFixed(1)}px, ${(q.h + 2).toFixed(1)}px); }`).join(" ");
+    const flag = `<div class="flag3 gflag" style="transform: translate3d(${(pos[best].x + w / 2).toFixed(1)}px, ${(pos[best].y + w / 2).toFixed(1)}px, ${(pos[best].h).toFixed(1)}px)"><svg viewBox="0 0 40 50"><path d="M4 2v46" stroke="#cfd5dc" stroke-width="3"/><path d="M6 4h28l-7 9 7 9H6z" fill="#ffd36e"/></svg></div>`;
+    return `<style>@keyframes ${id} { ${kf} }</style><div class="scene3 grow3" aria-hidden="true"><div class="w3"><div class="floor3"></div>${bars}${flag}
+      <div class="climb3" style="animation: ${id} ${Math.max(4, n * 0.55)}s ease-in-out ${n * 70 + 300}ms infinite alternate"><div class="bb"></div></div></div></div>`;
+  }
   function scene(kind) { return `<div class="scene3" aria-hidden="true"><div class="w3">${(SCENES[kind] || SCENES.quiet)()}</div></div>`; }
 
   // glossy 3D icons (64×64 SVG) for the home tiles
@@ -80,5 +101,5 @@
   };
   const icon = (name) => `<span class="i3d" aria-hidden="true"><svg viewBox="0 0 64 64">${ICONS[name] || ""}</svg><i class="sh"></i></span>`;
 
-  window.EdgeArt = { scene, icon, bars };
+  window.EdgeArt = { scene, icon, bars, growth };
 })();

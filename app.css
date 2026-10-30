@@ -1201,3 +1201,22 @@ body.teach-on { overflow: hidden; }
 .tc-cardbtns a.btn { text-decoration: none; color: inherit; }
 .teach-card { background: linear-gradient(135deg, rgba(124, 92, 255, .16), rgba(0, 212, 255, .08) 60%, rgba(46, 242, 166, .10)), var(--panel); border-color: rgba(140, 150, 255, .3); }
 .teach-card .btn.primary { background: linear-gradient(135deg, #7c5cff, #00d4ff); color: #fff; }
+
+/* Journal growth scene (art3d.js growth): a bigger stage, bars rise in, a gold ball climbs your running total */
+.scene3.grow3 { width: 100%; max-width: 380px; height: 230px; padding-top: 70px; perspective: 900px; }
+.hero.with3d.grow-hero { grid-template-columns: minmax(0, 1fr); grid-template-areas: "art" "txt" "chips"; }
+.hero.with3d.grow-hero > div.growchips { grid-area: chips; }
+.grow3 .w3 { width: 300px; height: 200px; transform: rotateX(60deg) rotateZ(-34deg); animation: sway3g 12s ease-in-out infinite; }
+@keyframes sway3g { 0%, 100% { transform: rotateX(60deg) rotateZ(-40deg); } 50% { transform: rotateX(60deg) rotateZ(-26deg); } }
+.b3.gro { animation: rise3 .7s cubic-bezier(.2, .9, .3, 1.2) backwards; }
+@keyframes rise3 { from { opacity: 0; transform: translateZ(-60px); } to { opacity: 1; transform: translateZ(var(--z)); } }
+.climb3 { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-style: preserve-3d; }
+.climb3 .bb { position: absolute; left: -10px; bottom: 0; width: 20px; height: 20px; border-radius: 50%; transform-origin: 50% 100%; transform: rotateZ(34deg) rotateX(-60deg);
+  background: radial-gradient(circle at 35% 30%, #fff6dc, #ffd36e 45%, #b8862f); box-shadow: 0 0 18px rgba(255, 211, 110, .9); }
+.gflag { left: 0; top: 0; width: 0; height: 0; }
+.gflag svg { position: absolute; left: -2px; bottom: 0; width: 26px; height: 32px; transform-origin: 0 100%; transform: rotateZ(34deg) rotateX(-60deg); }
+.growchips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.growchips div { padding: 10px; border-radius: 14px; background: var(--panel2); border: 1px solid var(--line); text-align: center; }
+.growchips b { display: block; font-size: 18px; }
+.growchips small { color: var(--muted); font-size: 11.5px; line-height: 1.3; display: block; }
+.growchips .up { color: var(--good); } .growchips .down { color: var(--bad); }

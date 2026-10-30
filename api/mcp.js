@@ -138,9 +138,9 @@ async function run(name, args, s, store) {
       }
       if (!ALL_MARKETS.includes(args.market) || !["long", "short"].includes(args.dir) || num(args.entry) == null || num(args.stop) == null) throw new Error("A new trade needs market, dir, entry and stop.");
       const entry = num(args.entry), stop = num(args.stop), exit = num(args.exit), risk = Math.abs(entry - stop);
-      if (!risk) throw new Error("The stop can't be at the entry.");
+      if (!risk || (args.dir === "long" ? stop > entry : stop < entry)) throw new Error(args.dir === "long" ? "On a buy the stop goes below the entry." : "On a sell the stop goes above the entry.");
       const R = num(args.resultR) ?? (exit != null ? Math.round(((args.dir === "short" ? -1 : 1) * (exit - entry) / risk) * 100) / 100 : null);
-      const id = `david:${now.toString(36)}`;
+      const id = `david:${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       const t = { id, source: "david", byDavid: true, market: args.market, dir: args.dir, entry, initialSL: stop, currentSL: stop, tp: num(args.target), exit, resultR: R,
         openedAt: when(args.openedAt, now), closedAt: exit != null || R != null ? when(args.closedAt, now) : null, emotion: args.emotion || null, followedRules: args.followedRules ?? null,
         grade: args.followedRules === false ? "unplanned" : "A+", ruleBreaks: args.followedRules === false ? ["didn't follow the rules"] : [], tags, note: line, maxR: null };

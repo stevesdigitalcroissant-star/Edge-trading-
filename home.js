@@ -21,13 +21,11 @@
       <div class="hm-bar"><div class="hm-px" id="hmPx"></div><div class="seg hm-tf" id="hmTf">${TFS.map(([v, l]) => `<button type="button" data-tf="${v}">${l}</button>`).join("")}</div></div>
       <div class="hm-trend" id="hmTrend"></div>
       <div class="hm-chart" id="hmChart"><div class="hm-ov" id="hmOv"></div><div class="hm-msg" id="hmMsg">Loading prices…</div></div>
-      <div class="hm-foot"><span id="hmNote" class="muted"></span><span class="hm-act"><button type="button" class="link" id="hmPractice">Practise this market</button><a class="link" id="hmTv" target="_blank" rel="noopener">TradingView ↗</a></span></div>
-      <details class="hm-board" id="hmBoard"><summary>Trend board · every market</summary><div id="hmBoardBody" class="muted">Loading…</div></details>`;
+      <div class="hm-foot"><span id="hmNote" class="muted"></span><span class="hm-act"><a class="link" id="hmTv" target="_blank" rel="noopener">TradingView ↗</a></span></div>`;
     el.addEventListener("click", (e) => {
       const b = e.target.closest("[data-hm]"); if (b) { H.m = b.dataset.hm; save("m", H.m); H.fit = true; draw(); load(); return; }
       const t = e.target.closest("[data-tf]"); if (t) { H.tf = Number(t.dataset.tf); save("tf", H.tf); H.fit = true; draw(); return; }
     });
-    $("#hmPractice").addEventListener("click", () => window.EdgeSim && window.EdgeSim.open(H.m));
     return el;
   }
 
@@ -195,9 +193,9 @@
     const el = $("#home"); if (!el) return;
     el.hidden = !show;
     if (!show) return;
-    shell(); draw(); load(); board();
+    shell(); draw(); load();
   }
-  setInterval(() => { if (!document.hidden && H.S && $("#home") && !$("#home").hidden && !document.body.classList.contains("sim-on")) { load(); board(); } }, 60e3);
+  setInterval(() => { if (!document.hidden && H.S && $("#home") && !$("#home").hidden && !document.body.classList.contains("sim-on")) { load(); } }, 60e3);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && $("#home") && !$("#home").hidden) load(); });
   window.EdgeHome = { update, _h: H };
   if (window.Edge && window.Edge.state && window.Edge.state()) window.Edge.homeSync && window.Edge.homeSync();

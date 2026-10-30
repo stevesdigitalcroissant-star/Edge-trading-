@@ -656,18 +656,16 @@
 
   // the three steps to get Edge working for you — ticks itself off as each one is done
   function getSetCard() {
-    const prop = !!(S.prop && S.prop.cfg && S.prop.cfg.enabled);
-    const radar = Object.entries(S.prices || {}).filter(([, p]) => p && (p.swing15Low != null || p.trendD != null) && S.now - p.time < 3 * 864e5).map(([m]) => m);
     const push = !!pushSub || (S.push && S.push.devices.length > 0);
-    let hide = false; try { hide = localStorage.getItem("edge.setupDone") === "1"; } catch {}
-    if (hide || (radar.length >= 14 && push)) return "";
+    let hide = false, copied = false; try { hide = localStorage.getItem("edge.setupDone") === "1"; copied = localStorage.getItem("edge.srCopied") === "1"; } catch {}
+    if (hide || (copied && push)) return "";
     const row = (ok, n, title, text, btn, ic) => `<div class="su-row ${ok ? "ok" : ""}">${!ok && ic && window.EdgeArt ? window.EdgeArt.icon(ic) : `<i>${ok ? "✓" : n}</i>`}<div><b>${title}</b><p class="muted">${text}</p></div>${ok ? "" : btn}</div>`;
     return `<section class="card setup-steps" data-tour="getset"><div class="card-head"><h2>🚀 Get set up</h2><button type="button" class="link" data-suhide>Hide</button></div>
-      ${row(radar.length >= 14, 1, `S&D scanner in TradingView${radar.length ? ` · ${radar.length}/14 markets` : ""}`, radar.length ? `Watching: ${radar.map(mname).join(", ")}.` : "Copy it into TradingView on a computer.", `<button class="btn small" data-copypine="edge_sd_scanner">Copy script</button>`, "paste")}
-      ${row(push, 2, "Notifications on this phone", push ? "Setups, fills and your game plan reach you anywhere." : "Setups reach you anywhere.", pushCapable && Notification.permission !== "denied" ? `<button class="btn small" data-pushon>Turn on</button>` : "", "push")}
-      ${!radar.length ? `<details class="su-how"><summary>How to add the scanner alerts</summary><ol class="steps"><li>Tap <b>Copy script</b> (your secret is inside), open TradingView on a computer.</li><li>Pine Editor → select all, delete, paste → <b>Save</b> → <b>Add to chart</b> on a <b>5-minute</b> chart of <code>MGC1!</code>.</li><li>Alert (⏰) → Condition: <b>Edge S&amp;D</b> → <b>Any alert() function call</b> → Notifications → <b>Webhook URL</b>: <code>${esc(location.origin)}/api/hook</code> → Create.</li><li>Switch the chart to each of <code>${SD_TV.slice(1).join(" ")}</code> and create the same alert — 14 in all (crude is off).</li></ol></details>` : ""}
+      ${row(copied, 1, "S/R Watch in TradingView", "Your levels on every pair, watched for you. Copy it into TradingView on a computer (Settings has the steps).", `<button class="btn small" data-copypine="edge_sr_watch">Copy script</button>`, "paste")}
+      ${row(push, 2, "Notifications on this phone", push ? "Fills, results and David's notes reach you anywhere." : "Fills and results reach you anywhere.", pushCapable && Notification.permission !== "denied" ? `<button class="btn small" data-pushon>Turn on</button>` : "", "push")}
     </section>`;
   }
+
 
   function viewNow() {
     const g = S.guard, s = S.settings;
@@ -685,10 +683,6 @@
     const hero = `<section class="card hero ${art ? "with3d" : ""}" data-tour="hero" style="--state:${stateColor}">${art}
       <div><div class="state"><span class="dot ${g.ok ? "live" : ""}"></span>${stateTxt}</div>
         <div class="headline">${headline}</div><p class="sub">${sub}</p></div>
-      <div class="ring" data-tour="ring" title="Planned trades out of your last ${S.share.taken || 0}">
-        <svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="7"/>
-          <circle cx="46" cy="46" r="40" fill="none" stroke-width="7" stroke-linecap="round" stroke="url(#goldGrad)" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - share / 100)}"/></svg>
-        <div class="lbl"><b>${share}%</b><small>planned</small></div></div>
     </section>`;
     const stats = `<div class="kpis" data-tour="kpis">
       <div><small>Trades</small><b>${g.tradesToday}<small class="muted"> / ${s.maxTradesPerDay}</small></b><em>taken today</em></div>
@@ -1214,32 +1208,30 @@
   function viewJournal() {
     const st = S.stats;
     const grp = (x, l) => `<div class="stat"><small>${l} (${x.n})</small><b class="${cls(x.totalR)}">${rs(x.totalR)}</b><small>${x.winRate == null ? "" : `${x.winRate}% wins`}</small></div>`;
+    const kept = (t) => (t.followedRules != null ? t.followedRules : !(t.ruleBreaks || []).length);
     const jrow = (t) => `<div class="jrow" data-j="${esc(t.id)}">
-        <span><b>${esc(mname(t.market))} ${t.dir}</b> <span class="pill ${t.grade === "A+" ? "good" : "warn"}">${esc(t.grade)}</span>${t.emotion ? ` <small class="muted">${esc(t.emotion)}</small>` : ""}</span>
+        <span><b>${esc(mname(t.market))} ${t.dir}</b> <span class="pill ${kept(t) ? "good" : "warn"}">${kept(t) ? "✓ rules" : "✗ rules"}</span>${t.emotion ? ` <small class="muted">${esc(t.emotion)}</small>` : ""}${t.byDavid ? ` <small class="muted">🎧 David</small>` : ""}</span>
         <b class="r ${cls(t.resultR)}">${rs(t.resultR)}</b>
-        <small class="muted">${day(t.closedAt)} · ${esc(t.exitReason)}${(t.ruleBreaks || []).length ? " · ⚠ rule break" : ""}</small>
-        <small class="muted">${t.maxR != null ? `best ${rs(t.maxR)}` : ""}</small>
-        ${t.note ? `<small style="grid-column:1/-1">${esc(t.note)}</small>` : ""}
-        ${(() => { const sc = t.practice ? [] : liveScore(t); if (!sc.length) return ""; const ok = sc.filter((c) => c.ok).length;
-          return `<div class="sc-list" style="grid-column:1/-1;margin-top:4px"><span class="${ok === sc.length ? "ok" : ""}">${ok}/${sc.length} kept</span>${sc.filter((c) => !c.ok).map((c) => `<span class="no" title="${esc(c.text)}">! ${esc(c.title)}</span>`).join("")}${S.markets[t.market] ? `<button type="button" class="link" data-snap="${esc(t.id)}">View on chart ›</button>` : ""}</div>`; })()}</div>`;
+        <small class="muted">${day(t.closedAt || t.openedAt)}${t.exitReason && t.exitReason !== "unknown" ? " · " + esc(t.exitReason) : ""}</small>
+        <small class="muted">${(t.tags || []).slice(0, 2).map(esc).join(" · ")}</small>
+        ${t.note ? `<small style="grid-column:1/-1">${esc(t.note).replace(/\[David [^\]]*\] ?/g, "").replace(/\n/g, "<br>")}</small>` : ""}
+      </div>`;
     const rows = S.journal.map(jrow).join("");
     const lastR = S.journal.slice(0, 12).map((t) => t.resultR || 0).reverse();
-    const jhero = `<section class="card hero ${window.EdgeArt ? "with3d" : ""}" data-tour="results" style="--state:${st.totalR > 0 ? "var(--good)" : st.totalR < 0 ? "var(--bad)" : "var(--accent)"}">${window.EdgeArt ? window.EdgeArt.bars(lastR) : ""}
-      <div><div class="state">Journal</div><div class="headline">${st.n ? `<span class="${cls(st.totalR)}">${rs(st.totalR)}</span> · ${st.n} trade${st.n > 1 ? "s" : ""}` : "No trades yet."}</div><p class="sub">${st.n ? "Your last trades, as bars." : "Your trades will stack up here."}</p></div></section>`;
-    // missed-trade review: the setups you didn't take, checked 2 hours later
-    const ms = S.missed || { win: 0, winR: 0, loss: 0, nofill: 0 }, revd = (S.setups || []).filter((x) => x.review && ["win", "loss"].includes(x.review.res)).slice(0, 5);
-    const nRev = ms.win + ms.loss, verdict = nRev < 5 ? `Edge checks every setup you don't take, 2 hours later. ${nRev ? `${nRev} so far.` : ""}`
-      : ms.win / nRev > 0.4 ? "You're skipping too many winners — trust your TAKE setups." : ms.win / nRev < 0.2 ? "Your skips are good — the ones you leave mostly lose." : "Your skips are about right.";
-    const missed = `<section class="card" data-tour="missed"><div class="card-head"><h2>👀 Missed-trade review</h2><span class="muted">trades you didn't take</span></div>
-      <div class="grid3 mt-stats"><div class="stat"><small>💸 Missed wins</small><b class="${ms.win ? "pos" : ""}">${ms.win}</b><small>${ms.win ? `+${ms.winR.toFixed(1)}R` : "&nbsp;"}</small></div><div class="stat"><small>✅ Good skips</small><b>${ms.loss}</b><small>would have lost</small></div><div class="stat"><small>⏸ Never filled</small><b>${ms.nofill}</b><small>&nbsp;</small></div></div>
-      <p class="muted" style="margin:10px 0 0">${verdict}</p>
-      ${revd.map((x) => `<div class="mt-row"><span>${x.review.res === "win" ? "💸" : "✅"} <b>${esc(mname(x.market))} ${x.dir === "long" ? "buy" : "sell"}</b> <small class="muted">${day(x.at)}${x.go === true ? " · TAKE" : x.go === false ? " · SKIP" : ""}</small></span><b class="${x.review.res === "win" ? "pos" : "neg"}">${x.review.res === "win" ? `+${x.review.R}R missed` : "−1R avoided"}</b></div>`).join("")}</section>`;
+    const closed = S.journal.filter((t) => t.resultR != null).slice().reverse(), half = Math.floor(closed.length / 2), A = closed.slice(0, half), Bh = closed.slice(half);
+    const pct = (a) => (a.length ? Math.round((100 * a.filter(kept).length) / a.length) : null), avg = (a) => (a.length ? a.reduce((x, t) => x + t.resultR, 0) / a.length : null);
+    let streak = 0, bestStreak = 0; for (const t of closed) { streak = kept(t) ? streak + 1 : 0; bestStreak = Math.max(bestStreak, streak); }
+    const arrow = (a, b) => (a == null || b == null ? "" : b > a ? `<span class="up">▲</span>` : b < a ? `<span class="down">▼</span>` : "");
+    const chips = closed.length >= 4 ? `<div class="growchips">
+        <div><small>Rules kept</small><b>${pct(Bh)}% ${arrow(pct(A), pct(Bh))}</b><small>was ${pct(A)}%</small></div>
+        <div><small>Per trade</small><b class="${cls(avg(Bh))}">${rs(Math.round(avg(Bh) * 100) / 100)} ${arrow(avg(A), avg(Bh))}</b><small>was ${rs(Math.round(avg(A) * 100) / 100)}</small></div>
+        <div><small>Rules streak</small><b>${streak} 🔥</b><small>best ${bestStreak}</small></div></div>` : "";
+    const jhero = `<section class="card hero with3d grow-hero" data-tour="results" style="--state:${st.totalR > 0 ? "var(--good)" : st.totalR < 0 ? "var(--bad)" : "var(--accent)"}">${window.EdgeArt && window.EdgeArt.growth ? window.EdgeArt.growth(closed) : ""}
+      <div><div class="state">Your growth</div><div class="headline">${st.n ? `<span class="${cls(st.totalR)}">${rs(st.totalR)}</span> · ${st.n} trade${st.n > 1 ? "s" : ""}` : "No trades yet."}</div><p class="sub">${st.n ? "Your running total, week by week — the gold ball climbs it, the flag marks your best." : "Trade with David on the line — every trade he logs grows this."}</p></div>${chips}</section>`;
     return `${jhero}${S.journal.length >= 5 ? insightsCard() : ""}<section class="card"><div class="grid2">
         <div class="stat"><small>🎯 Win rate</small><b>${st.winRate == null ? "—" : st.winRate + "%"}</b><small>avg ${rs(st.avgR)}</small></div>
-        <div class="stat"><small>🏁 Hit the target</small><b>${st.targets}</b></div>
-        <div class="stat"><small>🛡️ Saved by break-even</small><b>${st.breakEvens}</b></div>
-        <div class="stat"><small>⚠️ Rule breaks</small><b class="${st.ruleBreaks ? "neg" : ""}">${st.ruleBreaks}</b></div>
-      </div><details class="jstats-more" data-keep="jmore"><summary>More</summary><div class="grid2" style="margin-top:10px">${grp(st.aPlus, "A+ trades")}${grp(st.other, "A / B")}${grp(st.unplanned, "Unplanned")}</div></details></section>
+        <div class="stat"><small>📏 Rules kept</small><b>${pct(closed) == null ? "—" : pct(closed) + "%"}</b><small>${closed.filter((t) => !kept(t)).length} broken</small></div>
+      </div></section>
       <section class="card" data-tour="journal"><div class="row between"><h2 style="margin:0">Journal</h2><button class="btn small" id="logTrade">＋ Log a trade I took</button></div>${rows || `<p class="muted">Closed trades appear here — and the ones David logs for you.</p>`}</section>${davidCard()}`;
   }
 
@@ -1341,26 +1333,22 @@
         <p class="muted">Devices receiving alerts: ${S.push.devices.length ? S.push.devices.map((d) => esc(d.label || "device")).join(", ") : "none yet"}. Turn it on on each phone, iPad or computer you want alerts on.</p>
         <div class="grid2">${kinds.map(([k, l]) => `<label class="f" style="flex-direction:row;display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" data-notify="${k}" style="width:auto" ${s.notify[k] ? "checked" : ""}> ${l}</label>`).join("")}</div>
       </section>`;
-    const tvCard = `<section class="card"><h2>TradingView setup</h2>
-        <p class="muted" style="margin-top:0">One script, your strategy. TradingView doesn't let apps install it, so it's one copy-paste — your secret is already inside.</p>
-        <div class="stat radar-pine"><small>⭐ Supply &amp; demand scanner — 1H zones, 5m confirmation, 14 markets (crude is off)</small><b style="font-size:14px">5-minute chart, one per market: ${SD_TV.map((t) => `<code>${t}</code>`).join(" · ")}</b>
-          <p class="muted" style="margin:6px 0">Draws the live 1H demand / supply zone, waits for price to come back into it and the 5m to close past its last swing, then sends Edge the limit (fair value gap or breaker), stop 2 ticks past the low / high and the nearest 5m swing target (1.5R–6R). Orders only 03:00–11:00 New York = 00:00–08:00 Vancouver (London open → New York morning, the busy hours). Needs a paid TradingView plan: one alert per market, 14 in all.</p>
-          <button class="btn small primary" data-copypine="edge_sd_scanner">Copy S&amp;D scanner</button></div>
+    const tvCard = `<section class="card"><h2>TradingView: S/R Watch</h2>
+        <p class="muted" style="margin-top:0">Your levels on up to 15 pairs, watched for you: one alert when price comes to a level (then it has to leave first), one when the entry lines up — Heikin Ashi turns your way, the candle closes back, the 80 SMA agrees. Daily / 4H / 1H trend in the top-right corner.</p>
+        <div class="row"><button class="btn small primary" data-copypine="edge_sr_watch">Copy S/R Watch</button></div>
         <ol class="steps">
-          <li>Tap <b>Copy S&amp;D scanner</b>, then on a computer open TradingView on a <b>5-minute</b> chart.</li>
-          <li>Bottom panel → <b>Pine Editor</b> → <b>delete everything already there</b> (Ctrl+A / ⌘A, then Delete), paste → <b>Save</b> → <b>Add to chart</b>.</li>
-          <li><b>Alert</b> (clock icon) → Condition: the Edge script → <b>Any alert() function call</b> (or "alert() function calls only") → Notifications → tick <b>Webhook URL</b> and paste the address below → Create.</li>
-          <li>Change the symbol and create the same alert again — one alert per market.</li>
+          <li>Tap <b>Copy S/R Watch</b>, then on a computer open TradingView on a <b>5-minute</b> chart.</li>
+          <li>Bottom panel → <b>Pine Editor</b> → delete everything there (Ctrl+A / ⌘A, Delete), paste → <b>Save</b> → <b>Add to chart</b>.</li>
+          <li>The script's settings → type your levels, one pair per line: <code>OANDA:XAUUSD = 2405.5, 2380</code>.</li>
+          <li><b>Alert</b> (clock icon) → Condition: <b>Edge · S/R Watch</b> → <b>Any alert() function call</b> → <b>Once per bar close</b> → turn on app notifications → Create. One alert covers every pair.</li>
         </ol>
-        <div class="row" style="margin-top:12px"><button class="btn small" id="copyHook">Copy webhook URL</button></div>
-        <p class="muted" style="margin:8px 0 0;font-size:12.5px">Webhook URL: <code>${esc(location.origin)}/api/hook</code>${S.hookReady ? "" : ` · <span class="err">EDGE_HOOK_SECRET isn't set in Vercel yet</span>`}</p>
       </section>`;
     const stratCard = `<section class="card"><h2>📘 Your strategy</h2>
-        <p class="muted" style="margin-top:0">The numbers Edge holds you to when you plan a trade on Today — and scores your practice against.</p>
+        <p class="muted" style="margin-top:0">The numbers Edge holds you to on every trade.</p>
         <div class="grid2">${n("minR", "Never take less than (R)", "0.5")}${n("maxR", "Target at most (R)", "0.5")}
           ${n("lockAtR", "Lock in profit when the trade reaches (R)", "0.5")}${n("lockToR", "…by moving the stop to (R)", "0.5")}
           <label class="f">Risk per trade ($)<input id="riskUsd" type="number" step="10" value="${riskNow()}"></label>
-          ${n("sdRiskMin", "S&D scanner: risk at least ($)", "10")}${n("sdRiskTarget", "S&D scanner: aim for ($)", "10")}${n("sdRiskMax", "S&D scanner: risk at most ($)", "10")}
+
           ${n("maxTradesPerDay", "Max trades per day")}${n("maxDailyLossR", "Stop for the day after losing (R)", "0.5")}${n("cooldownMin", "Break after a loss (min)", "5")}</div>
         <div class="row" style="margin-top:12px"><button class="btn primary" data-saverules>Save</button></div></section>`;
     return `${rulesCard()}${stratCard}${notifCard}<section class="card"><h2>Connections</h2>
@@ -1421,7 +1409,7 @@
         </details>
         <div class="row" style="margin-top:12px"><button class="btn small" id="newCode">New recovery code</button><button class="btn small danger" id="signOut">Sign out</button></div>
         <h3 style="margin-top:18px">David (your voice assistant)</h3>
-        <p class="muted">Lets David read Edge: today's plan, setups, journal, coach and rules. Read-only: he can't place, change or close trades.</p>
+        <p class="muted">David guides your trades by voice: he reads the market your way, writes your journal, notes how you trade and saves your levels. He can't place, change or close trades.</p>
         <div class="row" style="margin-top:8px"><button class="btn small" id="davidKey">Connect David</button><button class="btn small danger" id="davidRevoke">Disconnect David</button></div>
       </section>
       <details class="card slim" data-keep="alerts"><summary><b>Alerts log</b> <span class="muted">${S.log.length ? `· last ${time(S.log[0].at)}` : ""}</span></summary><div class="log" style="margin-top:8px">${S.log.slice(0, 30).map((l) => `<div><time>${day(l.at)} ${time(l.at)}</time>${esc(l.text)}</div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></details>`;
@@ -1507,7 +1495,7 @@
       try {
         const [{ secret }, src] = await Promise.all([api("POST", { action: "tvSetup" }), fetch(`/pine/${cpn.dataset.copypine}.pine`, { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("Couldn't load the script"); return r.text(); })]);
         const code = secret ? src.replace('input.string("change-me"', `input.string(${JSON.stringify(secret)}`) : src;
-        await navigator.clipboard.writeText(code);
+        await navigator.clipboard.writeText(code); if (cpn.dataset.copypine === "edge_sr_watch") { try { localStorage.setItem("edge.srCopied", "1"); } catch {} }
         toast(secret ? "Script copied — with your secret inside. In TradingView's Pine Editor press Ctrl+A (⌘A on Mac), Delete, then paste." : "Script copied. Set EDGE_HOOK_SECRET in Vercel, then put it in the script's settings.", 6000);
       } catch (e) { toast(e.message || "Couldn't copy — open it on a computer and try again.", 6000); }
     }));
