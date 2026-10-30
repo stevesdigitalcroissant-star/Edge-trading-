@@ -90,6 +90,9 @@ module.exports = async (req, res) => {
         const body = await readBody();
         const i = Number(body.i), n = Number(body.n);
         if (!Number.isInteger(i) || !Number.isInteger(n) || i < 0 || i >= n || n > 60 || !Array.isArray(body.items)) return res.status(400).json({ error: "Send {i, n, items}." });
+        if (i === 0) { // first batch: drop batches left over from a bigger earlier upload BEFORE writing (the database stays small)
+          const old = (await store.get(`${ns}:meta`)) || {}; for (let j = n; j < Math.min(Number(old.n) || 0, 60); j++) await store.del(`${ns}:${j}`);
+          if (old.n) await store.set(`${ns}:meta`, { ...old, n: Math.min(n, Number(old.n)) }); }
         await store.set(`${ns}:${i}`, body.items);
         if (i === n - 1) await store.set(`${ns}:meta`, { n, at: Date.now(), count: body.count || null });
         return res.status(200).json({ ok: true, i, n });

@@ -13,6 +13,9 @@ test("Teach Edge: charts go up with the data key, your marked-up examples are sa
   useStore(memory()); process.env.EDGE_DATA_TOKEN = "k-123";
   assert.equal((await call("PUT", "/api/candles?teach=1", { key: "nope", body: { i: 0, n: 1, items: [] } })).code, 401);
   assert.equal((await call("PUT", "/api/candles?teach=1", { key: "k-123", body: { i: 0, n: 1, items: [{ mk: "gold", day: "2024-03-04" }] } })).code, 200);
+  for (const i of [0, 1, 2]) await call("PUT", "/api/candles?teach=1", { key: "k-123", body: { i, n: 3, items: [{ mk: "gold", day: "x" }] } });
+  assert.equal((await call("PUT", "/api/candles?teach=1", { key: "k-123", body: { i: 0, n: 1, items: [{ mk: "gold", day: "2024-03-04" }] } })).code, 200); // a smaller upload…
+  assert.equal(await require("../api/_store").getStore().get("teach:2"), null); // …drops the old leftover batches first
   const g = await call("GET", "/api/candles?teach=1", { key: "k-123" });
   assert.equal(g.out.items[0].mk, "gold");
   assert.equal((await call("GET", "/api/candles?drill=1", { key: "k-123" })).code, 404); // the Test-tab setups are kept apart
@@ -25,12 +28,12 @@ test("Teach Edge: charts go up with the data key, your marked-up examples are sa
   assert.equal((await call("GET", "/api/candles?teach=1&label=1", { key: "k-123" })).out.labels, undefined); // the app only asks for the count
 });
 
-test("Teach Edge: your trade plays out — limit fill, then target / stop / 16:00", () => {
+test("Teach Edge: your trade plays out — limit fill, then target / stop / still open at the end of the data (no session cut while learning)", () => {
   global.window = {}; require("../teach.js"); const { play } = global.window.EdgeTeach;
   const m = (rows) => ({ m: rows.map((r, i) => [...r, 180 + i * 5]) });
   const tr = { dir: 1, e: 10, sl: 9, tp: 13 };
   assert.deepEqual(play(m([[11, 11, 11, 11], [11, 11.5, 9.8, 10.2], [10.2, 13.2, 10.1, 13]]), tr, 0), { k: 2, how: "target", x: 13, fill: 1 });
   assert.equal(play(m([[11, 11, 11, 11], [11, 11, 8.5, 9]]), tr, 0).how, "stop"); // filled and stopped in one candle: the stop counts
   assert.equal(play(m([[11, 11, 11, 11], [11, 12, 10.5, 11]]), tr, 0).how, "never filled");
-  assert.equal(play(m([[11, 11, 11, 11], [11, 11, 9.9, 10.5], [10.5, 11, 10.2, 10.8]]), tr, 0).how, "16:00 close");
+  assert.equal(play(m([[11, 11, 11, 11], [11, 11, 9.9, 10.5], [10.5, 11, 10.2, 10.8]]), tr, 0).how, "still open");
 });
