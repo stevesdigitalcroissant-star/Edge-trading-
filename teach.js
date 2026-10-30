@@ -21,7 +21,7 @@
   async function nextChart() {
     if (pool.length < 3) { try { const j = await api(""); pool = pool.concat((j.items || []).sort(() => Math.random() - 0.5)); err = ""; } catch (e) { err = e.message; } }
     X = pool.shift() || null;
-    S = X && { step: "zone", tf: "1h", zoom: false, taps: [], why: new Set(), k: X.at, playing: false, speed: 1, place: [], trade: null, res: null, noZone: false, wtf: "5m", t0: Date.now(), log: [] };
+    S = X && { step: "zone", tf: "1h", zoom: false, taps: [], why: new Set(), k: X.at, playing: false, speed: 1, place: [], trade: null, res: null, noZone: false, zones: [], wtf: "5m", t0: Date.now(), log: [] };
     paint();
   }
 
@@ -64,14 +64,16 @@
     return { bars, map };
   }
   const zoneOf = () => (S.taps.length === 2 ? { lo: Math.min(...S.taps), hi: Math.max(...S.taps) } : null);
+  const allZones = () => [...S.zones, zoneOf()].filter(Boolean); // you can mark more than one (a big zone and a tighter one inside, or two zones)
+  const bandsOf = () => { const Z = allZones(); return Z.map((z, i) => { const sup = zoneDir(z) < 0; return { a: z.lo, b: z.hi, col: sup ? "rgba(255,77,125,.17)" : "rgba(46,242,166,.15)", edge: [sup ? "#ff4d7d" : "#2ef2a6", "#5cc8ff", "#ffb020", "#c77dff"][i % 4], lab: Z.length > 1 ? `zone ${i + 1}` : "your zone" }; }); };
   const zoneDir = (z) => (z.hi < X.h[X.h.length - 1][3] ? 1 : z.lo > X.h[X.h.length - 1][3] ? -1 : 0);
   const fx = (v) => (v == null ? "–" : v.toFixed(X.dec));
 
   function finish() {
-    const z = zoneOf(), tr = S.trade, r = S.res;
+    const Z = allZones(), z = Z[0] || null, tr = S.trade, r = S.res;
     const R = tr && r && r.x != null ? (tr.dir * (r.x - tr.e)) / Math.abs(tr.e - tr.sl) : null;
     S.step = "done"; S.k = X.m.length - 1; S.R = R; done++;
-    S.id = `${X.mk}|${X.day}|${Date.now()}`; S.label = { id: S.id, mk: X.mk, day: X.day, v: 2, secs: Math.round((Date.now() - S.t0) / 1000), log: S.log, noteZone: S.noteZ || "", tfDrawn: S.tf, noZone: S.noZone, zone: z && { ...z, dir: zoneDir(z), why: [...S.why] },
+    S.id = `${X.mk}|${X.day}|${Date.now()}`; S.label = { id: S.id, mk: X.mk, day: X.day, v: 2, secs: Math.round((Date.now() - S.t0) / 1000), log: S.log, noteZone: S.noteZ || "", tfDrawn: S.tf, noZone: S.noZone, zone: z && { ...z, dir: zoneDir(z), why: [...S.why] }, zones: Z.map((q) => ({ ...q, dir: zoneDir(q) })),
       trade: tr && { ...tr, placedMin: X.m[tr.k][4], fillMin: r && r.fill != null ? X.m[r.fill][4] : null }, outcome: r && { how: r.how, R: R == null ? null : +R.toFixed(2), exitMin: X.m[r.k][4] }, noTrade: !tr, at: Date.now() }; saveLabel(S.label);
     paint();
   }
@@ -86,12 +88,13 @@
       <div class="tc-bar"><i style="width:${Math.min(100, (100 * (done + (S.step === "done" ? 0 : 0.5))) / GOAL)}%"></i></div>
       <div class="tc-steps">${["Zone", "Watch", "Trade", "Result"].map((w, i) => `<span class="${i < stepNo ? "past" : i === stepNo ? "now" : ""}" style="--c:${["#2ef2a6", "#5cc8ff", "#ffb020", "#c77dff"][i]}">${i + 1} · ${w}</span>`).join("")}</div>`;
     let body = "";
-    if (S.step === "zone") body = `<p class="tc-ask">${S.taps.length < 2 ? `<b>Mark your zone.</b> Tap its ${S.taps.length ? "other edge" : "top or bottom"} on the chart — where would you look for a trade today?` : `<b>Your ${dirW ? dirW + " " : ""}zone:</b> ${fx(z.lo)} – ${fx(z.hi)}. Why this one? (tap all that fit)`}</p>
+    const nz = S.zones.length;
+    if (S.step === "zone") body = `<p class="tc-ask">${S.taps.length < 2 ? (nz ? `<b>Zone ${nz + 1}.</b> Tap its ${S.taps.length ? "other edge" : "top or bottom"} — or go on with ${nz === 1 ? "your zone" : `your ${nz} zones`}.` : `<b>Mark your zone.</b> Tap its ${S.taps.length ? "other edge" : "top or bottom"} on the chart — where would you look for a trade today? More than one? Mark the first, then <b>+ Another zone</b>.`) : `<b>${nz ? `Zone ${nz + 1}` : `Your ${dirW ? dirW + " " : ""}zone`}:</b> ${fx(z.lo)} – ${fx(z.hi)}. Why? (tap all that fit — and say in the note which zone you'd trade from)`}</p>
       <div class="tc-tf"><button class="${S.tf === "1h" ? "on" : ""}" data-t="tf1">1H · 15 days</button><button class="${S.tf === "4h" ? "on" : ""}" data-t="tf4">4H · 3 months</button><button class="${S.zoom ? "on" : ""}" data-t="zoom">${S.zoom ? "Zoom in" : "Zoom out"}</button></div>
       <canvas class="tc-cv" data-t="cv"></canvas>
-      ${z ? `<textarea class="tc-note" data-n="z" rows="2" placeholder="Tell Claude why, in your words (optional) — e.g. what makes this zone good, what you'll wait for">${esc(S.noteZ || "")}</textarea>` : ""}
-      ${z ? `<div class="tc-why">${WHY.map((w, i) => `<button class="${S.why.has(w) ? "on" : ""}" style="--c:${CH[i % CH.length]}" data-w="${esc(w)}">${esc(w)}</button>`).join("")}</div>` : ""}
-      <div class="tc-act"><button class="btn small tc-soft" data-t="nozone">No zone I'd trade today</button>${S.taps.length ? '<button class="btn small" data-t="clear">Redraw</button>' : ""}<button class="btn small primary" data-t="watch" ${z ? "" : "disabled"}>Watch the day ▶</button></div>`;
+      ${z || nz ? `<textarea class="tc-note" data-n="z" rows="2" placeholder="Tell Claude why, in your words (optional) — e.g. what makes this zone good, what you'll wait for">${esc(S.noteZ || "")}</textarea>` : ""}
+      ${z || nz ? `<div class="tc-why">${WHY.map((w, i) => `<button class="${S.why.has(w) ? "on" : ""}" style="--c:${CH[i % CH.length]}" data-w="${esc(w)}">${esc(w)}</button>`).join("")}</div>` : ""}
+      <div class="tc-act"><button class="btn small tc-soft" data-t="nozone">No zone I'd trade today</button>${S.taps.length || nz ? '<button class="btn small" data-t="clear">Redraw</button>' : ""}${z && nz < 3 ? '<button class="btn small" data-t="addz">+ Another zone</button>' : ""}<button class="btn small primary" data-t="watch" ${z || nz ? "" : "disabled"}>Watch the day ▶</button></div>`;
     else if (S.step === "watch" || S.step === "place") { const pl = S.place, need = ["ENTRY", "STOP", "TARGET"][pl.length];
       body = `<p class="tc-ask">${S.step === "watch" ? `<b>${ny(X.m[S.k][4])} New York.</b> Play the day (5m, 15m or 1H). When you'd take a trade, pause and tap <b>Trade here</b>.` : pl.length < 3 ? `Tap your <b>${need}</b> on the chart.${pl.length === 2 ? ' Or <button class="tc-link" data-t="r3">use 1:3</button>' : ""}` : `<b>${pl[1] < pl[0] ? "BUY" : "SELL"}</b> · entry ${fx(pl[0])} · stop ${fx(pl[1])} · target ${fx(pl[2])} · 1:${(Math.abs(pl[2] - pl[0]) / Math.abs(pl[0] - pl[1])).toFixed(1)}`}</p>
         <div class="tc-tf"><button class="${S.wtf === "5m" ? "on" : ""}" data-t="w5">5m</button><button class="${S.wtf === "15m" ? "on" : ""}" data-t="w15">15m</button><button class="${S.wtf === "1h" ? "on" : ""}" data-t="w60">1H</button>${S.step === "watch" && (X.m[S.k][4] >= 1080 || X.m[S.k][4] < 180) ? '<button data-t="london">⏩ Skip to 03:00</button>' : ""}</div>
@@ -110,14 +113,14 @@
   function draw(cv) {
     const z = zoneOf(), sup = z && zoneDir(z) < 0, zc = sup ? "rgba(255,77,125,.20)" : "rgba(46,242,166,.18)", ze = sup ? "#ff4d7d" : "#2ef2a6";
     if (S.step === "zone") { const bars = S.tf === "4h" ? X.h4 : X.h, slots = S.zoom ? bars.length : S.tf === "4h" ? 180 : 120;
-      chart(cv, bars, { dec: X.dec, slots, bands: z ? [{ a: z.lo, b: z.hi, col: zc, edge: ze, lab: "your zone" }] : [], lines: S.taps.length === 1 ? [{ v: S.taps[0], col: "#ffc44d", lab: fx(S.taps[0]), dash: 1 }] : [], now: 1 }); return; }
+      chart(cv, bars, { dec: X.dec, slots, bands: bandsOf(), lines: S.taps.length === 1 ? [{ v: S.taps[0], col: "#ffc44d", lab: fx(S.taps[0]), dash: 1 }] : [], now: 1 }); return; }
     const end = S.step === "done" ? X.m.length : S.k + 1, V = view(X.m.slice(0, end), S.wtf), bars = V.bars, at = (k) => V.map[Math.min(k, V.map.length - 1)], pl = S.place, tr = S.trade, lines = [];
     const show = tr ? [tr.e, tr.sl, tr.tp] : pl; const labs = ["entry", "stop", "target"], cols = ["#5cc8ff", "#ff4d7d", "#2ef2a6"];
     show.forEach((v, i) => lines.push({ v, col: cols[i], lab: `${labs[i]}`, from: at(tr ? tr.k : S.k) }));
     const marks = []; if (S.res && S.step === "done") { if (S.res.fill != null) marks.push({ i: at(S.res.fill), v: tr.e, col: "#5cc8ff" }); if (S.res.x != null) marks.push({ i: at(S.res.k), v: S.res.x, col: S.res.how === "target" ? "#2ef2a6" : S.res.how === "stop" ? "#ff4d7d" : "#ffc44d" }); }
     const live = S.step !== "done"; // while you watch: the last ~2 hours, bigger candles; at the end: the whole day
     const sl = { "5m": [84, 18], "15m": [60, 10], "1h": [48, 6] }[S.wtf];
-    chart(cv, bars, { dec: X.dec, slots: live ? sl[0] : bars.length, ahead: live ? sl[1] : 0, bands: z ? [{ a: z.lo, b: z.hi, col: zc, edge: ze, lab: "your zone" }] : [], lines, marks, now: S.step !== "done", levels: z ? [z.lo, z.hi] : [] });
+    chart(cv, bars, { dec: X.dec, slots: live ? sl[0] : bars.length, ahead: live ? sl[1] : 0, bands: bandsOf(), lines, marks, now: S.step !== "done", levels: allZones().flatMap((q) => [q.lo, q.hi]) });
   }
   function stopPlay() { if (timer) { clearInterval(timer); timer = null; } }
   function startPlay() { stopPlay(); timer = setInterval(() => { if (!S || S.step !== "watch" || S.k >= X.m.length - 1) { S.playing = false; stopPlay(); if (S && S.step === "watch" && S.k >= X.m.length - 1) { S.res = null; finish(); } else paint(); return; } S.k++; const cv = ov.querySelector("canvas"); if (cv) draw(cv); const t = ov.querySelector(".tc-ask b"); if (t) t.textContent = `${ny(X.m[S.k][4])} New York.`; }, 260 / S.speed); }
@@ -137,8 +140,9 @@
     if (!S) return;
     if (a === "tf1" || a === "tf4") { S.tf = a === "tf1" ? "1h" : "4h"; return paint(); }
     if (a === "zoom") { S.zoom = !S.zoom; return paint(); }
-    if (a === "clear") { S.taps = []; S.why.clear(); return paint(); }
-    if (a === "nozone") { S.noZone = true; S.taps = []; S.step = "watch"; return paint(); }
+    if (a === "clear") { S.taps = []; S.zones = []; S.why.clear(); return paint(); }
+    if (a === "addz") { const q = zoneOf(); if (q) { S.zones.push(q); S.taps = []; } return paint(); }
+    if (a === "nozone") { S.noZone = true; S.taps = []; S.zones = []; S.step = "watch"; return paint(); }
     if (a === "watch") { S.step = "watch"; return paint(); }
     if (a === "step") { // close the candle that's forming, or show the whole next one
       const M = X.m, L = M.length - 1, bk = (i) => bucket(M[i][4], S.wtf); if (S.k >= L) return paint();
