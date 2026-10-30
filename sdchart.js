@@ -1,4 +1,4 @@
-// The supply & demand picture for the home chart — the same rules as pine/edge_sd_scanner.pine:
+// The supply & demand picture for the home chart — the same rules as the retired S&D scanner script:
 // 1H breaks of structure (BOS = same way as the last one, MSS = the first one the other way), the 1H trend
 // (the last two breaks the same way), the 1H zone of the latest break (the last 1–3 opposite candles at the
 // origin of the move, tight on the base, at most 3× ATR tall, dead on a close through it), the zone before it

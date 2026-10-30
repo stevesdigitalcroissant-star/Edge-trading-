@@ -98,7 +98,7 @@ function gradeSetup(setup, ctx) {
 
 // A tested strategy: every check must pass (only gold's trend check can miss → A). Your weekly bias is shown, not graded
 // — the tests didn't use it.
-// A setup from the radar (pine/edge_playbook_radar.pine): your playbook, step by step
+// A setup from the radar (retired radar script): your playbook, step by step
 function gradePlaybook(setup, ctx) {
   const s = ctx.settings, rr = Number(setup.rr), nyMin = require("./_time").minutesOfDay(setup.at || ctx.now, "America/New_York");
   const checks = [
@@ -115,7 +115,7 @@ function gradePlaybook(setup, ctx) {
   return { grade, checks, blocks: hardBlocks(setup, ctx), info: setup.near ? `Big picture: ${setup.near}` : "" };
 }
 
-// A setup from the supply & demand scanner (pine/edge_sd_scanner.pine). No grades: the rules either fit or not.
+// A setup from the supply & demand scanner (retired S&D scanner script). No grades: the rules either fit or not.
 function gradeSD(setup, ctx) {
   const rr = Number(setup.rr), nyMin = require("./_time").minutesOfDay(setup.at || ctx.now, "America/New_York");
   const checks = [

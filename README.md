@@ -45,9 +45,7 @@ How it works for you:
 3. Edge watches the price (TradingView heartbeat) and tells you when to move the stop to break-even. It also tells you when
    the target is hit and when the close-out is coming.
 
-Scripts: `pine/edge_london_breakout.pine` (5-minute charts: MGC1!, MCL1!, SIL1!) and `pine/edge_natgas_zones.pine`
-(1-hour chart, normal candles: QG1! / MNG1!). Rules → TradingView setup has a copy button for each. Each script is also a
-TradingView strategy, so the Strategy Tester shows the same rules on your chart.
+(Those scripts are retired — the only TradingView script now is `pine/edge_sr_watch.pine`.)
 
 ## Databento — years of real CME candles (optional)
 
@@ -289,18 +287,15 @@ a trade closes he adds a note to it and asks you one question to learn from it. 
 
 ## The strategy, as rules
 
-All of it is in `pine/edge_supply_demand.pine` (TradingView, Pine Script v6). You use it on a **5-minute chart**:
+One TradingView script: `pine/edge_sr_watch.pine` (**Edge · S/R Watch**, Pine Script v6). No Fib, no supply & demand,
+no breaker blocks, no checklist — those strategies are retired and their scripts deleted.
 
-1. **4H trend.** The trend is set by a break of structure (a candle closing beyond the last swing). The candle where the move started becomes the **demand zone** (uptrend) or **supply zone** (downtrend).
-2. **Zone touch.** Price comes back into the zone. The first touch counts as fresh.
-3. **15m confirmation.** A break of structure in the trend's direction, on a closed candle.
-4. **5m entry.** On the close of the next 5m break of structure. You can switch this to "the first 5m close after the 15m break".
-5. **Stop.** Beyond the lowest low (for a long) or highest high (for a short) since the zone touch, plus a small buffer.
-6. **Exits.** Break-even at +2R, target at +3.2R.
+1. **Your levels.** You draw your own support & resistance and type them into the script (`GC1! = 2400, 2380` — one pair per line, up to 15 pairs). Watched on the 15m.
+2. **Touch.** Price comes to one of your levels (within 0.25 × 15m ATR) → one alert. That level stays quiet until price has **left** (1.5 × ATR away), then it can alert again.
+3. **Entry on the 5m.** Heikin Ashi turns your way + a regular candle closes back on the right side of the level + price is on the right side of the **80 SMA** → "BUY / SELL setup" alert. Edge never trades: you decide.
+4. **Trend panel** (top right): Daily · 4H · 1H, price vs the 80 SMA and its slope.
 
-The script is a *strategy*, so **TradingView's Strategy Tester shows how these exact rules
-did on past data**, with the same break-even and target. Backtest each market before
-putting money behind it.
+Every alert also goes to Edge (webhook), so the Today screen and David know which pair is at your level and which is nowhere near.
 
 ## How it fits together
 
@@ -340,11 +335,10 @@ You open Edge → say how you feel → Confirm
 4. Redeploy. Open the app on your phone → Share → **Add to Home Screen**.
 
 ### 2. TradingView
-1. Open a 5m chart of `OANDA:XAUUSD`, `OANDA:WTICOUSD` or `OANDA:NATGASUSD` (other symbols for gold, oil and gas work too).
-2. Go to **Pine Editor**, delete the starter code that is already there (Ctrl+A, Delete), then paste in `pine/edge_supply_demand.pine` → **Add to chart**.
-3. In the script's settings: under **Webhook secret**, enter the same word as `EDGE_HOOK_SECRET`. Set the session to `0300-1200` for gold and `0800-1430` for oil and gas.
-4. Create an **alert**. Condition: *Edge S&D* → **"alert() function calls only"**. Under Notifications, tick **Webhook URL** and enter `https://<your-app>/api/hook`.
-5. Repeat for each market (one chart and one alert each).
+1. In Edge: **Settings → TradingView → Copy S/R Watch** (it fills in your webhook secret).
+2. TradingView on a computer → **Pine Editor** → select all, delete → paste → **Add to chart**. Use a 5m chart. Remove any old Edge scripts from the chart (Fib OTE, S&D Scanner, Playbook radar, Trend…).
+3. In the script's settings, type your levels (one pair per line).
+4. Create **one alert**: Condition *Edge · S/R Watch* → **"Any alert() function call"**. Notifications: tick **Webhook URL** → `https://<your-app>/api/hook`, untick TradingView's app notification (Edge pushes instead).
 
 > Webhooks need a paid TradingView plan (Essential or higher).
 
@@ -374,9 +368,7 @@ The tests cover grading, guardrails, news blackout, break-even at 2R, the 3.2R t
 ## Files
 | File | What it is |
 |---|---|
-| `pine/edge_supply_demand.pine` | TradingView strategy: 4H trend + zones, 15m confirmation, 5m entry. Includes the backtest and the alerts |
-| `pine/edge_london_breakout.pine` | TradingView strategy: London breakout of the Asian range (gold, crude, silver) — plan + entry alerts |
-| `pine/edge_natgas_zones.pine` | TradingView strategy: natural gas Heikin Ashi zones (old zones, 1st/2nd touch, fixed 3R) |
+| `pine/edge_sr_watch.pine` | TradingView: S/R Watch — your levels on up to 15 pairs, touch + entry alerts, trend panel, status to Edge |
 | `api/hook.js` | Receives TradingView alerts |
 | `api/app.js` | The dashboard's API (password-protected) |
 | `api/_rules.js` | The rules: grade, guardrails, trade management. Pure functions, all tested |

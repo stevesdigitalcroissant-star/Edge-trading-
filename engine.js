@@ -1,4 +1,4 @@
-// The Edge S&D strategy, candle by candle — the same rules as pine/edge_supply_demand.pine,
+// The Edge S&D strategy, candle by candle — the same rules as the retired S&D script,
 // so Edge can find A+ setups on its own (replay practice) without TradingView.
 // Input: 5-minute bars [{t (open time, ms), o, h, l, c}]. 15m and 4H bars are built from them
 // (4H aligned to the CME day: 18:00, 22:00, 02:00… New York). Higher timeframes only use
