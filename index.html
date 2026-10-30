@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#08090b">
+<meta name="theme-color" content="#fff7ef">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Edge</title>
@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap">
 <link rel="stylesheet" href="app.css">
-<script>try { var t = localStorage.getItem("edge.theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<script>try { var t = localStorage.getItem("edge.theme"); if (t === "dark") document.documentElement.dataset.theme = t; else if (t) localStorage.removeItem("edge.theme"); } catch (e) {}</script>
 </head>
 <body>
 <div id="login" class="login" hidden>
