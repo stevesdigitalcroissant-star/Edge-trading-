@@ -19,7 +19,7 @@ const STR = { type: "string" }, NUM = { type: "number" }, MK = { type: "string",
 const TOOLS = [
   { name: "edge_today", description: "Today in Edge: open trades, guardrails (trades left today, daily loss limit, cool-downs), big news coming up, last prices and the close-out time.", inputSchema: none },
   { name: "edge_watch", description: "What is happening at his levels RIGHT NOW, straight from his TradingView S/R Watch: for each pair — price, nearest level (support or resistance), distance in 15m ATR, how close (AT the level / close / on its way / far), state (armed = waiting for a touch, touched = at the level and waiting for the 5m confirmation, entry = setup confirmed), Heikin Ashi, 80 SMA side, plus the Daily / 4H / 1H trend and a plain sentence to tell him; also the touches and entry setups of the last 24h (tradingView), and Edge's own check of the levels saved in Edge (edgeWatch). Call it FIRST whenever he asks what's going on, whether price reached his zone, or what to watch. If tradingView is not live, use edgeWatch and edge_scan.", inputSchema: none },
-  { name: "edge_market", description: "One market the way Steve trades now (simple support & resistance): price; the trend on the Daily, 4H and 1H (price vs the 80 SMA and its slope); the 15m and 5m — 80 SMA side and the last Heikin Ashi candles (did one just flip?); his saved levels with the nearest support and resistance and how far away they are (in 15m ATR, 'at the level' when within 0.25); and the last 2 hours of 15m candles. Without a market: a quick board of all his markets. Yahoo futures candles, a few minutes behind.", inputSchema: { type: "object", properties: { market: MK } } },
+  { name: "edge_market", description: "One market the way Steve trades now (simple support & resistance): price; the trend on the Weekly, Daily, 4H and 1H (price vs the 80 SMA and its slope; weekly needs about 80 weeks of history, else it says so); the 15m and 5m — 80 SMA side and the last Heikin Ashi candles (did one just flip?); his saved levels with the nearest support and resistance and how far away they are (in 15m ATR, 'at the level' when within 0.25); and the last 2 hours of 15m candles. Without a market: a quick board of all his markets. Yahoo futures candles, a few minutes behind.", inputSchema: { type: "object", properties: { market: MK } } },
   { name: "edge_scan", description: "Which of his markets is closest to one of HIS support / resistance levels right now, best first, with the Daily / 4H / 1H trend and the 80 SMA side — use it when he asks what to watch. Markets without saved levels are listed so you can ask him for them.", inputSchema: none },
   { name: "edge_levels", description: "Steve's support & resistance levels per market (the ones he drew). Read them before talking about levels.", inputSchema: none },
   { name: "edge_levels_set", description: "Save Steve's levels for one market when he tells you them (replaces that market's list; send [] to clear). Repeat them back to him first.", inputSchema: { type: "object", properties: { market: MK, levels: { type: "array", items: NUM, maxItems: 12 } }, required: ["market", "levels"] } },
@@ -59,7 +59,7 @@ function heikin(bars) { const out = []; let o = null; for (const b of bars) { co
 function atrOf(bars, n = 14) { let a = null; for (let i = 1; i < bars.length; i++) { const b = bars[i], tr = Math.max(b.h - b.l, Math.abs(b.h - bars[i - 1].c), Math.abs(b.l - bars[i - 1].c)); a = a == null ? tr : (a * (n - 1) + tr) / n; } return a; }
 async function readOne(m, levels) {
   const { load } = require("./candles");
-  const [raw, daily] = await Promise.all([load(m, 59, "5m"), load(m, 400, "1d").catch(() => [])]);
+  const [raw, daily] = await Promise.all([load(m, 59, "5m"), load(m, 800, "1d").catch(() => [])]);
   if (!raw.length) throw new Error("No candles for " + m);
   const bar = ([t, o, h, l, c]) => ({ t, o, h, l, c }), m5 = raw.map(bar), m15 = agg(raw, 15), h1 = agg(raw, 60), h4 = agg(raw, 240), d1 = daily.map(bar);
   const price = m5[m5.length - 1].c, atr15 = atrOf(m15.slice(-120)), ha15 = heikin(m15.slice(-60)), ha5 = heikin(m5.slice(-60));
@@ -67,7 +67,10 @@ async function readOne(m, levels) {
   const lv = (levels || []).map(Number).filter(Number.isFinite), sup = lv.filter((v) => v <= price).sort((a, b) => b - a)[0], res = lv.filter((v) => v > price).sort((a, b) => a - b)[0];
   const dist = (v) => (v == null || !atr15 ? null : Math.round((Math.abs(price - v) / atr15) * 100) / 100);
   const flip = (ha) => { const a = ha[ha.length - 2], b = ha[ha.length - 1]; return a && b && a.green !== b.green ? (b.green ? "just turned green" : "just turned red") : b && (b.green ? "green" : "red"); };
-  const trends = { daily: tf(d1).dir || "no data", h4: tf(h4).dir, h1: tf(h1).dir };
+  // weekly candles from the daily ones (Monday-based weeks): the top of the top-down read
+  const w1 = []; for (const b of d1) { const d = new Date(b.t), k = b.t - ((d.getUTCDay() + 6) % 7) * 864e5; const l = w1[w1.length - 1];
+    if (l && l.k === Math.floor(k / 864e5)) { l.h = Math.max(l.h, b.h); l.l = Math.min(l.l, b.l); l.c = b.c; } else w1.push({ k: Math.floor(k / 864e5), t: b.t, o: b.o, h: b.h, l: b.l, c: b.c }); }
+  const trends = { weekly: tf(w1).dir || "no data", daily: tf(d1).dir || "no data", h4: tf(h4).dir, h1: tf(h1).dir };
   const agree = ["up", "down"].find((d) => trends.daily === d && trends.h4 === d && trends.h1 === d) || "mixed";
   return { m, price, m5, m15, atr15, trends, agree, sma15: side(m15), sma5: side(m5), ha15: flip(ha15), ha5: flip(ha5), levels: lv, sup, res, dSup: dist(sup), dRes: dist(res) };
 }
