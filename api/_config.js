@@ -196,13 +196,16 @@ const DEFAULT_SETTINGS = {
   notify: { level: true, setup: true, action: true, warn: true, closed: true, news: true, locked: true, skip: false, info: true },
 };
 
+// His markets, in his order (the Bias tab, David's edge_bias, the S/R alerts' bias line).
+const BIAS_MARKETS = ["gold", "silver", "copper", "natgas", "nq", "ym", "6e", "6a", "6j"];
+
 // Weekly fundamentals: each factor is answered +1 (bullish), -1 (bearish) or 0 (neutral/unclear).
 // Score ≥ +2 → bullish bias, ≤ -2 → bearish, otherwise neutral.
 const BIAS_FACTORS = {
   gold: [
     { id: "dxy", label: "US dollar (DXY)", hint: "Dollar falling → bullish gold. Rising → bearish." },
     { id: "yields", label: "US real yields / 10-year yield", hint: "Falling yields → bullish. Rising → bearish." },
-    { id: "fed", label: "Fed tone & rate expectations", hint: "Cuts / dovish → bullish. Hikes / hawkish → bearish." },
+    { id: "fed", label: "Fed tone & rate expectations (US 2-year yield)", hint: "Cuts / dovish, 2-year falling → bullish. Hikes / hawkish, 2-year rising → bearish." },
     { id: "cot", label: "COT: managed money (big speculators)", hint: "Net longs growing → bullish. Shrinking → bearish." },
     { id: "risk", label: "Fear / geopolitics / central-bank buying", hint: "More fear or buying → bullish. Calm, risk-on → bearish." },
   ],
@@ -235,21 +238,46 @@ const BIAS_FACTORS = {
     { id: "risk", label: "Risk mood (VIX)", hint: "VIX falling → bullish. Spiking → bearish." },
   ],
   nq: [
-    { id: "fed", label: "Fed tone & rate expectations", hint: "Cuts / dovish → bullish. Hikes / hawkish → bearish." },
+    { id: "fed", label: "Fed tone & rate expectations (US 2-year yield)", hint: "Cuts / dovish, 2-year falling → bullish. Hikes / hawkish, 2-year rising → bearish." },
     { id: "yields", label: "10-year yield", hint: "Falling → bullish for tech. Rising fast → bearish." },
     { id: "earnings", label: "Big tech earnings", hint: "Beats → bullish. Misses → bearish." },
     { id: "risk", label: "Risk mood (VIX)", hint: "VIX falling → bullish. Spiking → bearish." },
+    { id: "cot", label: "COT: big speculators (leveraged funds)", hint: "Net longs growing → bullish. Shrinking → bearish." },
   ],
   ym: [
-    { id: "fed", label: "Fed tone & rate expectations", hint: "Cuts / dovish → bullish. Hikes / hawkish → bearish." },
+    { id: "fed", label: "Fed tone & rate expectations (US 2-year yield)", hint: "Cuts / dovish, 2-year falling → bullish. Hikes / hawkish, 2-year rising → bearish." },
     { id: "yields", label: "10-year yield", hint: "Falling → bullish. Rising fast → bearish." },
     { id: "earnings", label: "Earnings season", hint: "Beats → bullish. Misses → bearish." },
     { id: "risk", label: "Risk mood (VIX)", hint: "VIX falling → bullish. Spiking → bearish." },
+    { id: "cot", label: "COT: big speculators (leveraged funds)", hint: "Net longs growing → bullish. Shrinking → bearish." },
   ],
   copper: [
     { id: "china", label: "China demand (PMI, stimulus)", hint: "Stronger → bullish. Weaker → bearish." },
     { id: "dxy", label: "US dollar", hint: "Weaker dollar → bullish. Stronger → bearish." },
     { id: "stocks", label: "Exchange inventories (LME / COMEX)", hint: "Falling → bullish. Rising → bearish." },
+    { id: "risk", label: "Risk mood (VIX)", hint: "VIX falling, growth optimism → bullish. Spiking → bearish." },
+    { id: "cot", label: "COT: managed money", hint: "Net longs growing → bullish. Shrinking → bearish." },
+  ],
+  "6e": [
+    { id: "dxy", label: "US dollar (DXY)", hint: "Dollar falling → bullish euro. Rising → bearish." },
+    { id: "fed", label: "Fed tone & rate expectations (US 2-year yield)", hint: "Cuts / dovish, 2-year falling → bullish euro (dollar weakens). Hikes / hawkish, 2-year rising → bearish." },
+    { id: "ecb", label: "ECB tone", hint: "ECB hawkish / holding rates → bullish euro. Cutting / dovish → bearish." },
+    { id: "data", label: "Eurozone vs US data (PMIs, inflation)", hint: "Europe surprising better than the US → bullish. Worse → bearish." },
+    { id: "cot", label: "COT: big speculators (leveraged funds)", hint: "Net longs growing → bullish. Shrinking → bearish." },
+  ],
+  "6a": [
+    { id: "dxy", label: "US dollar (DXY)", hint: "Dollar falling → bullish Aussie. Rising → bearish." },
+    { id: "risk", label: "Risk mood (VIX)", hint: "VIX falling, risk-on → bullish Aussie. Fear → bearish." },
+    { id: "china", label: "China demand / iron ore / copper", hint: "Stronger → bullish. Weaker → bearish." },
+    { id: "rba", label: "RBA tone", hint: "RBA hawkish → bullish. Cutting / dovish → bearish." },
+    { id: "cot", label: "COT: big speculators (leveraged funds)", hint: "Net longs growing → bullish. Shrinking → bearish." },
+  ],
+  "6j": [
+    { id: "yields", label: "US 10-year yield (US–Japan rate gap)", hint: "US yields falling → bullish yen. Rising → bearish yen." },
+    { id: "risk", label: "Risk mood (VIX)", hint: "Fear, VIX spiking → bullish yen (safe haven). Calm → bearish." },
+    { id: "boj", label: "Bank of Japan tone / intervention", hint: "BoJ hiking or Japan intervening → bullish yen. Staying easy → bearish." },
+    { id: "dxy", label: "US dollar (DXY)", hint: "Dollar falling → bullish yen. Rising → bearish." },
+    { id: "cot", label: "COT: big speculators (leveraged funds)", hint: "Net longs growing → bullish. Shrinking → bearish." },
   ],
 };
 
@@ -279,4 +307,4 @@ const groupOf = (m) => Object.keys(GROUPS).find((g) => GROUPS[g].includes(m)) ||
 // US holidays / half days (New York dates): futures close early (13:00 New York or earlier) and the prop firm does NOT
 // auto-close on half days — Edge is out by 12:45 on these days.
 const EARLY_CLOSE = new Set(["2026-11-26", "2026-11-27", "2026-12-24", "2026-12-25", "2026-12-31", "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-11-26", "2027-12-24", "2027-12-31"]);
-module.exports = { EARLY_CLOSE, GROUPS, GROUP_NAMES, groupOf, MARKETS, FUTURES, futuresSpec, marketOf, STRATEGIES, strategyPlan, DEFAULT_SETTINGS, BIAS_FACTORS, BIAS_MAX_AGE_DAYS, biasFromFactors, mergeSettings };
+module.exports = { EARLY_CLOSE, GROUPS, GROUP_NAMES, groupOf, MARKETS, FUTURES, futuresSpec, marketOf, STRATEGIES, strategyPlan, DEFAULT_SETTINGS, BIAS_FACTORS, BIAS_MARKETS, BIAS_MAX_AGE_DAYS, biasFromFactors, mergeSettings };

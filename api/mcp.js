@@ -28,6 +28,8 @@ const TOOLS = [
   { name: "edge_style", description: "Your notes on how Steve trades — his strengths, habits, recurring mistakes and the rules he keeps — newest first. Read them at the start of a session so your feedback builds on what you already learned.", inputSchema: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 200 } } } },
   { name: "edge_style_write", description: "Save one thing you learned about how Steve trades (a strength, habit, mistake or rule he follows), in one or two plain sentences, with an example from today if you have one.", inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["strength", "habit", "mistake", "rule", "goal"] }, note: STR, market: MK }, required: ["kind", "note"] } },
   { name: "edge_watch_link", description: "Link yourself so Edge tells you, as they happen, when price touches one of his levels, when a BUY / SELL setup forms there, and when a trade closes. Pass the address your instructions give you for Edge alerts. Send an empty url to unlink.", inputSchema: { type: "object", properties: { url: STR }, required: ["url"] } },
+  { name: "edge_bias", description: "His weekly fundamental bias per market (gold, silver, copper, natural gas, Nasdaq, Dow, euro, Aussie, yen): bullish / bearish / neutral, whether HE set it this week or it's only what the data says (not checked yet), each factor with Edge's reading of the free data (dollar, US 2-year = Fed expectations, 10-year, real yields, VIX, COT, EIA gas storage) and his saved answers. Use it for 'what's my bias?', on Sundays to go through the week with him, and before he takes a trade (with the bias = normal, against = smaller or skip).", inputSchema: { type: "object", properties: { market: { type: "string", enum: require("./_config").BIAS_MARKETS } } } },
+  { name: "edge_bias_set", description: "Save his weekly bias for one market after you went through the factors with him: answers per factor id (+1 bullish, 0 neutral, −1 bearish — take the data's suggestion unless he disagrees), and a short note. Score ≥ +2 = bullish, ≤ −2 = bearish. Read the result back to him.", inputSchema: { type: "object", properties: { market: { type: "string", enum: require("./_config").BIAS_MARKETS }, answers: { type: "object", additionalProperties: { type: "integer", minimum: -1, maximum: 1 } }, note: STR }, required: ["market", "answers"] } },
   { name: "edge_rules", description: "His strategy in steps (simple support & resistance, Heikin Ashi + regular candles, the 80 SMA) and his risk settings and limits.", inputSchema: none },
 ];
 
@@ -121,9 +123,26 @@ async function run(name, args, s, store) {
       return { trades: s.journal.slice(0, n), stats: s.stats };
     }
     case "edge_rules": return { strategy: require("../playbook.js").STEPS.map((x) => ({ step: x.title, what: x.text })), settings: pick(s.settings, ["riskUSD", "maxTradesPerDay", "dailyLossR", "minR", "maxR", "sessions"]), markets: s.markets };
+    case "edge_bias": {
+      const { BIAS_FACTORS, BIAS_MARKETS } = require("./_config"), F = require("./_fundamentals");
+      const fund = await F.load(store).catch(() => null), saved = (await store.get("bias")) || {}, all = await F.biasAll(store, now);
+      const one = (m) => ({ ...all[m], bias: F.biasWord(all[m].dir), factors: BIAS_FACTORS[m].map((f) => ({ id: f.id, factor: f.label, how: f.hint, data: (fund && fund.suggestions[m] && fund.suggestions[m][f.id]) || null, hisAnswer: saved[m] && saved[m].answers ? saved[m].answers[f.id] : null })) });
+      return { rule: "Bias is a filter, not a trigger: trade his levels; with the bias = normal size, against it = smaller or skip, neutral = no help either way.", dataRead: fund ? iso(fund.at) : null, missingData: fund ? fund.errors : ["not read yet"], markets: (args.market ? [args.market] : BIAS_MARKETS).map(one) };
+    }
+    case "edge_bias_set": {
+      const { BIAS_FACTORS, biasFromFactors } = require("./_config");
+      const fs = BIAS_FACTORS[args.market];
+      if (!fs) throw new Error("Which market?");
+      const answers = {}, evidence = {}, fund = await store.get("fundamentals");
+      for (const f of fs) { answers[f.id] = Math.max(-1, Math.min(1, Math.round(Number((args.answers || {})[f.id]) || 0))); const d = fund && fund.suggestions && fund.suggestions[args.market] && fund.suggestions[args.market][f.id]; if (d) evidence[f.id] = String(d.text).slice(0, 200); }
+      const b = (await store.get("bias")) || {};
+      b[args.market] = { ...biasFromFactors(answers), answers, evidence, note: clip(args.note, 500), updated: now, by: "David" };
+      await store.set("bias", b);
+      return { saved: { market: args.market, bias: require("./_fundamentals").biasWord(b[args.market].dir), score: b[args.market].score, answers } };
+    }
     case "edge_watch": {
       const [st, ev, hook, lw, L] = await Promise.all([store.get("sr:status"), store.lrange("sr:events", 20), store.get("davidHook"), store.lrange("lw:events", 10), savedLevels(store)]);
-      return { tradingView: srRead(st, ev), edgeWatch: { linked: !!(hook && hook.url), marketsWatched: Object.keys(L).filter((m) => (L[m] || []).length), latest: lw, note: "Edge's own check of the levels saved in Edge (Yahoo, every 5 min) — it stays quiet while TradingView's S/R Watch is live." },
+      return { tradingView: srRead(st, ev, now, await require("./_fundamentals").biasAll(store, now)), edgeWatch: { linked: !!(hook && hook.url), marketsWatched: Object.keys(L).filter((m) => (L[m] || []).length), latest: lw, note: "Edge's own check of the levels saved in Edge (Yahoo, every 5 min) — it stays quiet while TradingView's S/R Watch is live." },
         how: "Touch = a closed 15m candle within 0.25 × 15m ATR of his level (then quiet until price moves 1.5 ATR away). Setup = within 12 five-minute candles of a touch, the 5m Heikin Ashi flips his way, the 5m candle closes back on the right side of the level and the 80 SMA agrees." };
     }
     case "edge_scan": return scan(store);
@@ -194,12 +213,12 @@ module.exports = async (req, res) => {
   const { id = null, method, params = {} } = msg;
   if (id === null || id === undefined) return res.status(202).end(); // notifications need no answer
   try {
-    if (method === "initialize") return reply(res, id, { protocolVersion: PROTOCOL, capabilities: { tools: {} }, serverInfo: { name: "edge", version: "1.0.0" }, instructions: "Edge is Steve's trading co-pilot. His strategy: simple support & resistance he draws himself — levels watched on the 15m, entry on the 5m when the Heikin Ashi candle flips his way and the candle closes back on the right side of the level, with the 80 SMA agreeing; Daily / 4H / 1H trend for context. His TradingView S/R Watch streams every pair's distance to his levels into Edge: call edge_watch first to tell him clearly whether price has reached his zone or is nowhere near it. Guide him by voice, give honest feedback, and write what you see in his journal (edge_journal_write) and what you learn about him (edge_style_write). You can never place, change or close a trade." });
+    if (method === "initialize") return reply(res, id, { protocolVersion: PROTOCOL, capabilities: { tools: {} }, serverInfo: { name: "edge", version: "1.0.0" }, instructions: "Edge is Steve's trading co-pilot. His strategy: simple support & resistance he draws himself — levels watched on the 15m, entry on the 5m when the Heikin Ashi candle flips his way and the candle closes back on the right side of the level, with the 80 SMA agreeing; Daily / 4H / 1H trend for context. His TradingView S/R Watch streams every pair's distance to his levels into Edge: call edge_watch first to tell him clearly whether price has reached his zone or is nowhere near it. He uses fundamentals for a weekly BIAS only (edge_bias): with the bias = normal, against = smaller or skip; on Sundays go through edge_bias with him and save it (edge_bias_set). Guide him by voice, give honest feedback, and write what you see in his journal (edge_journal_write) and what you learn about him (edge_style_write). You can never place, change or close a trade." });
     if (method === "ping") return reply(res, id, {});
     if (method === "tools/list") return reply(res, id, { tools: TOOLS });
     if (method === "tools/call") {
       if (!TOOLS.some((t) => t.name === params.name)) return fail(res, id, -32602, "Unknown tool");
-      const light = ["edge_watch", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_style", "edge_style_write", "edge_watch_link"].includes(params.name) || (params.name === "edge_journal_write");
+      const light = ["edge_bias", "edge_bias_set", "edge_watch", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_style", "edge_style_write", "edge_watch_link"].includes(params.name) || (params.name === "edge_journal_write");
       const s = light ? null : await state(store, await brokerFor(store));
       const text = JSON.stringify(await run(params.name, params.arguments || {}, s, store));
       return reply(res, id, { content: [{ type: "text", text: text.length > 60000 ? text.slice(0, 60000) + " …(cut)" : text }] });

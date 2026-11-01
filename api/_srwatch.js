@@ -18,9 +18,12 @@ async function srHook(store, msg, now = Date.now()) {
     const e = { at: now, event: msg.event, pair: clip(msg.pair, 24), level: num(msg.level), side: clip(msg.side, 12), price: num(msg.price), text: clip(msg.text, 300) };
     await store.lpush("sr:events", e, 50);
     const sup = e.side === "support" || e.side === "buy";
-    const text = e.event === "touch"
+    const { marketOf } = require("./_config"), F = require("./_fundamentals");
+    const m = marketOf(e.pair), bias = m ? (await F.biasAll(store, now))[m] : null;
+    const bl = bias ? " " + F.biasLine(bias, sup) : "";
+    const text = (e.event === "touch"
       ? `🔔 ${e.pair} is at your ${sup ? "support" : "resistance"} ${e.level}. Now wait for the 5m: Heikin Ashi turns ${sup ? "green" : "red"}, a candle closes back ${sup ? "above" : "below"} the level, price ${sup ? "above" : "below"} the 80 SMA.`
-      : `✅ ${e.pair} ${e.side === "buy" ? "BUY" : "SELL"} setup at ${e.level} — ${e.text.split(" · ").slice(2).join(" · ") || "your entry lined up"}.`;
+      : `✅ ${e.pair} ${e.side === "buy" ? "BUY" : "SELL"} setup at ${e.level} — ${e.text.split(" · ").slice(2).join(" · ") || "your entry lined up"}.`) + bl;
     await notify(store, text, e.event === "touch" ? "level" : "setup");
     await toDavid(store, { kind: e.event === "touch" ? "level" : "setup", source: "tradingview", market: e.pair, level: e.level, side: e.side, price: e.price, at: now, text }).catch(() => {});
     return { status: 200, json: { ok: true, event: e.event } };
@@ -29,7 +32,7 @@ async function srHook(store, msg, now = Date.now()) {
 }
 
 // In plain words, for David and the Today card: how close each pair is, and what you're waiting for.
-function srRead(status, events, now = Date.now()) {
+function srRead(status, events, now = Date.now(), bias = null) {
   if (!status) return { live: false, note: "S/R Watch hasn't reported yet — in TradingView, the alert needs Edge's webhook URL (Settings → S/R Watch)." };
   const ageMin = Math.round((now - status.at) / 60e3);
   const word = (d) => (d == null ? "unknown" : d <= 0.25 ? "AT the level" : d <= 1 ? "close" : d <= 3 ? "on its way" : "far");
@@ -40,7 +43,9 @@ function srRead(status, events, now = Date.now()) {
       : r.state === "touched" ? `Touched your ${r.side} ${r.level} — waiting for ${wait}. Right now: Heikin Ashi ${r.heikinAshi}, ${r.sma80} the 80 SMA${smaOk && haOk ? " — nearly there" : ""}.`
       : r.distanceATR != null && r.distanceATR <= 1 ? `${r.distanceATR} × ATR from your ${r.side} ${r.level} — close, get ready.`
       : `${r.distanceATR ?? "?"} × ATR from your nearest level (${r.side} ${r.level}) — ${word(r.distanceATR)}, nothing to do yet.`;
-    return { ...r, closeness: word(r.distanceATR), say };
+    const m = bias ? require("./_config").marketOf(r.pair) : null, b = m && bias[m];
+    const withBias = !b || !b.dir || b.dir === "neutral" ? null : (b.dir === "long") === sup;
+    return { ...r, closeness: word(r.distanceATR), say: say + (b ? " " + require("./_fundamentals").biasLine(b, sup) : ""), bias: b ? require("./_fundamentals").biasWord(b.dir) : "not set", biasSource: b ? b.source : "none", withBias };
   }).sort((a, b) => (a.state !== "armed" ? -1 : 0) - (b.state !== "armed" ? -1 : 0) || (a.distanceATR ?? 99) - (b.distanceATR ?? 99));
   return { live: ageMin <= 20, updatedMinAgo: ageMin, chart: status.chart, timeframe: status.tf, trend: status.trend,
     ...(ageMin > 20 ? { warning: `Last report ${ageMin} min ago — TradingView may be closed for the weekend, or the alert is off.` } : {}),

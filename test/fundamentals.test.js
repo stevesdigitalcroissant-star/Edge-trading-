@@ -52,5 +52,30 @@ test("suggestions only include what was measured", () => {
   const sug = F.suggest({ dollar: { value: 1, text: "d" }, yields: null, cot: { gold: null, crude: { value: -1, text: "c" }, natgas: null }, crude: null, gas: null });
   assert.deepEqual(Object.keys(sug.gold), ["dxy"]);
   assert.deepEqual(sug.crude, { cot: { value: -1, text: "c", auto: true }, dxy: { value: 1, text: "d", auto: true } });
+  assert.deepEqual(Object.keys(sug["6e"]), ["dxy"], "a weaker dollar helps the euro");
   assert.deepEqual(sug.natgas, {});
+});
+
+test("Fed (2-year), VIX, hedge-fund COT, and the yen as a safe haven", () => {
+  assert.equal(F.fed2y(daily(4.0, 3.7)).value, 1, "2-year −30 bp → dovish → bullish");
+  assert.match(F.fed2y(daily(4.0, 4.3)).text, /hawkish/);
+  assert.equal(F.vix(daily(14, 28)).value, -1, "fear");
+  assert.equal(F.vix(daily(20, 15)).value, 1, "calming down");
+  const rows = [50, 40, 30, 20, 10, 5].map((l, i) => ({ lev_money_positions_long: String(l * 1000 + 100000), lev_money_positions_short: "100000", open_interest_all: "500000", report_date_as_yyyy_mm_dd: `2026-10-${27 - i * 4}T00:00:00.000` }));
+  assert.equal(F.cotFin(rows).value, 1);
+  const sug = F.suggest({ vix: { value: -1, text: "fear" }, cot: {} });
+  assert.equal(sug["6j"].risk.value, 1, "fear is bullish for the yen");
+  assert.equal(sug.nq.risk.value, -1, "and bearish for the Nasdaq");
+});
+
+test("the bias used: yours this week, else the data's (not checked), and the alert line", () => {
+  const now = Date.parse("2026-11-01T12:00:00Z");
+  const fund = { suggestions: { gold: { dxy: { value: 1 }, fed: { value: 1 } }, nq: { risk: { value: -1 } } } };
+  const saved = { gold: { dir: "short", score: -2, updated: now - 3 * 864e5 }, nq: { dir: "long", score: 3, updated: now - 9 * 864e5 } };
+  assert.deepEqual(F.biasNow("gold", saved, fund, now), { market: "gold", dir: "short", score: -2, source: "you", ageDays: 3, note: "" });
+  const nq = F.biasNow("nq", saved, fund, now);
+  assert.equal(nq.source, "data"); assert.equal(nq.dir, "neutral"); assert.equal(nq.savedDaysAgo, 9);
+  assert.equal(F.biasNow("6j", saved, fund, now).source, "none");
+  assert.match(F.biasLine({ dir: "short", source: "you" }, true), /Against your weekly bias \(bearish\)/);
+  assert.match(F.biasLine({ dir: "long", source: "data" }, true), /With your weekly bias \(bullish, from the data/);
 });

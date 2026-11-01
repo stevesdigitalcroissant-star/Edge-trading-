@@ -75,9 +75,11 @@ async function tell(store, e, mcp) {
     ctx = ` Trend: Daily ${word(r.trends.daily)} · 4H ${word(r.trends.h4)} · 1H ${word(r.trends.h1)}. 15m ${r.sma15 || "?"} the 80 SMA, 5m Heikin Ashi ${r.ha5 || "?"}.`;
     e.trend = r.trends; e.sma15 = r.sma15; e.ha5 = r.ha5;
   } catch {}
-  const text = e.kind === "setup"
+  let bl = "";
+  try { const F = require("./_fundamentals"); bl = " " + F.biasLine((await F.biasAll(store))[e.market], e.side === "support"); } catch {}
+  const text = (e.kind === "setup"
     ? `${e.dir === "long" ? "🟢" : "🔴"} ${name} ${e.dir === "long" ? "BUY" : "SELL"} setup at your ${e.side} ${fx(e.level)}: the 5m Heikin Ashi flipped your way, closed back ${e.dir === "long" ? "above" : "below"} the level and ${e.dir === "long" ? "above" : "below"} the 80 SMA (${fx(e.price)}).${ctx} Your call — check it on the chart.`
-    : `📍 ${name} is at your ${e.side} ${fx(e.level)} (${fx(e.price)}).${ctx} Wait for the 5m Heikin Ashi to turn ${e.side === "support" ? "green and a close back above" : "red and a close back below"} it.`;
+    : `📍 ${name} is at your ${e.side} ${fx(e.level)} (${fx(e.price)}).${ctx} Wait for the 5m Heikin Ashi to turn ${e.side === "support" ? "green and a close back above" : "red and a close back below"} it.`) + bl;
   await notify(store, text, e.kind === "setup" ? "setup" : "level");
   await toDavid(store, { ...e, text });
 }

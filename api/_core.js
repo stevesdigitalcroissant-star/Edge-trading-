@@ -364,6 +364,19 @@ async function newsFlatCheck(store, broker, ctx) {
 }
 
 // Edge's own clock (every minute, /api/tick): the safety rules run even when no alert comes in and the app is closed
+// Sunday from 12:00 New York: read the free data fresh and send him the week's bias per market, to check with David.
+async function weeklyBias(store, now = Date.now()) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(now)).map((x) => [x.type, x.value]));
+  if (p.weekday !== "Sun" || Number(p.hour) < 12) return;
+  const day = `${p.year}-${p.month}-${p.day}`;
+  if ((await store.get("bias:sunday")) === day) return;
+  await store.set("bias:sunday", day);
+  await fundamentals.load(store, { force: true, now });
+  const all = await fundamentals.biasAll(store, now), { BIAS_MARKETS } = require("./_config");
+  const line = BIAS_MARKETS.map((m) => `${MARKETS[m] ? MARKETS[m].name : m} ${all[m].dir === "long" ? "▲" : all[m].dir === "short" ? "▼" : "◆"}`).join(" · ");
+  await notify(store, `🧭 This week's bias from the data: ${line}. Check it with David ("let's do my bias") or in the Bias tab — it only counts once you've checked it.`, "info");
+}
+
 async function tick(store, broker, now = Date.now()) {
   const fed = await feedPrices(store, now).catch(() => 0);
   if (ROUTED(broker) || fed) await syncTrades(store, broker, { now, force: true }).catch(() => {});
@@ -375,6 +388,7 @@ async function tick(store, broker, now = Date.now()) {
   await resultAsks(store, now).catch(() => {});
   await missedReview(store, now).catch(() => {});
   await require("./_levelwatch").levelWatch(store, now).catch(() => {});
+  await weeklyBias(store, now).catch(() => {});
   return { ok: true, open: ctx.open.length, waiting: (ctx.waiting || []).length };
 }
 
@@ -790,9 +804,11 @@ async function state(store, broker, now = Date.now()) {
   let account = null;
   if (broker.kind === "oanda" || broker.kind === "tradovate") account = await broker.account().catch((e) => ({ error: e.message }));
   const open = ctx.open.map((t) => ({ ...t, plan: t.initialSL != null ? R.plan(t, ctx.settings) : null, xp: R.exits(t, ctx.settings) }));
+  const biasNowAll = await fundamentals.biasAll(store, now).catch(() => ({}));
   return {
     now, settings: ctx.settings, defaults: DEFAULT_SETTINGS, markets: Object.fromEntries(Object.entries(MARKETS).map(([k, v]) => [k, { name: v.name, unit: v.unit }])),
-    biasFactors: BIAS_FACTORS, bias: ctx.bias, setups, plans, strategies: STRATEGIES, open, journal: ctx.journal.slice(0, 200), stats: stats(ctx.journal), davidStyle: await store.lrange("david:style", 30).catch(() => []), sr: require("./_srwatch").srRead(await store.get("sr:status").catch(() => null), await store.lrange("sr:events", 20).catch(() => []), ctx.now),
+    biasFactors: BIAS_FACTORS, bias: ctx.bias, setups, plans, strategies: STRATEGIES, open, journal: ctx.journal.slice(0, 200), stats: stats(ctx.journal), davidStyle: await store.lrange("david:style", 30).catch(() => []), biasNow: biasNowAll, biasMarkets: require("./_config").BIAS_MARKETS,
+    sr: require("./_srwatch").srRead(await store.get("sr:status").catch(() => null), await store.lrange("sr:events", 20).catch(() => []), ctx.now, biasNowAll),
     practice: ctx.practice.slice(0, 200), practiceStats: stats(ctx.practice), coach: { ready: !!process.env.ANTHROPIC_API_KEY, session: await store.get("coach") },
     share: R.aPlusShare([...ctx.journal, ...ctx.open]), guard: R.guardrails(ctx),
     news: { ok: ctx.newsOk, error: ctx.newsError, events: ctx.events.filter((e) => e.time > now - 2 * 3600e3) },

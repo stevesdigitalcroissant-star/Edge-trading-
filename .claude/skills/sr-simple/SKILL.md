@@ -43,3 +43,11 @@ test these rules on the 2019–2026 data.
 - Mistakes: stop INSIDE the zone in 3 of 4 (copper, NQ, 6J) — only 6A had it past the zone; copper entry was taken
   below the supply zone (outside it, early) → stopped; NQ limit sat ~6 hours before filling.
 - Tension to resolve with him: first-touch limit entries vs the S/R Watch HA-flip confirmation entry.
+
+**Fundamentals = weekly BIAS only (1 Nov 2026, his call).** Never a trigger. Bias tab (back in the bottom menu) for his 9
+markets; Edge auto-reads FRED (dollar DTWEXBGS, 2-year DGS2 = Fed expectations, 10-year DGS10, real yields DFII10, VIX
+VIXCLS), CFTC COT (disaggregated for metals/gas, financial-futures leveraged funds for 6E/6J/6A/NQ/YM) and EIA gas storage.
+Bias used = his saved one if ≤7 days old, else the data's score marked "not checked yet". Score ≥ +2 bullish, ≤ −2 bearish.
+With the bias = normal size, against = smaller or skip, neutral = no help. Every touch/setup alert and the Today
+"levels now" rows say with/against; Sunday from 12:00 NY Edge pushes the data's view. David: edge_bias / edge_bias_set.
+The yen is a safe haven (VIX up = bullish 6J). Not backtested.

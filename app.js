@@ -167,6 +167,7 @@
   });
   $("#setBtn").addEventListener("click", () => { tab = tab === "rules" ? "now" : "rules"; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#" + tab); render(); scrollTo(0, 0); });
   $("#helpBtn").addEventListener("click", () => { if (tab === "watch") return toast("The live chart coach watches your chart and talks you through it — press Start to begin."); startTour(true); });
+  document.addEventListener("click", (e) => { const g = e.target.closest("[data-gotab]"); if (!g) return; tab = g.dataset.gotab; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#" + tab); render(); scrollTo(0, 0); });
   $("#tabs").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-tab]"); if (!b) return;
     tab = b.dataset.tab; try { localStorage.setItem("edge.tab", tab); } catch {}
@@ -199,7 +200,7 @@
   function render() {
     document.body.dataset.tab = tab; // wide screens lay each screen out differently
     for (const b of document.querySelectorAll("#tabs button")) b.classList.toggle("on", b.dataset.tab === tab || (tab === "watch" && b.dataset.tab === "now") || false);
-    $("#setBtn").classList.toggle("on", tab === "rules" || tab === "bias");
+    $("#setBtn").classList.toggle("on", tab === "rules");
     const live = S.setups.filter((x) => x.status === "open" && x.g.take.ok && !(x.expires && S.now > x.expires)).length;
     $("#setupBadge").hidden = !live; $("#setupBadge").textContent = live;
     const g = S.guard;
@@ -677,8 +678,18 @@
       ${w.warning ? `<p class="muted">⏸ ${esc(w.warning)}</p>` : ""}
       <p class="ln-sum">${near ? `${near} pair${near > 1 ? "s" : ""} near your levels — ask David “what's going on?”` : "Nothing near your levels — no need to watch the charts. 🌿"}</p>
       <div class="ln-list">${w.pairs.map((p) => `<div class="ln-row ${tone(p)}"><div class="ln-top"><b>${esc(p.pair)}</b><span class="ln-chip">${label(p)}</span>
-        <span class="num muted">${esc(p.side === "support" ? "S" : "R")} ${esc(p.level)} · ${p.distanceATR ?? "?"}× ATR</span></div><small>${esc(p.say)}</small></div>`).join("")}</div>
+        ${p.withBias === true ? `<span class="ln-bias ok">with bias</span>` : p.withBias === false ? `<span class="ln-bias no">against bias</span>` : ""}<span class="num muted">${esc(p.side === "support" ? "S" : "R")} ${esc(p.level)} · ${p.distanceATR ?? "?"}× ATR</span></div><small>${esc(p.say)}</small></div>`).join("")}</div>
     </section>`;
+  }
+
+  // This week's bias, one chip per market (yours if you checked it this week, else the data's, marked "data")
+  function biasStrip() {
+    const ms = (S.biasMarkets || []).filter((m) => S.biasNow && S.biasNow[m]);
+    if (!ms.length) return "";
+    const any = ms.some((m) => S.biasNow[m].source === "you");
+    return `<section class="card slim biasstrip" data-tour="biasstrip"><div class="card-head"><h2>🧭 This week's bias</h2><button type="button" class="link" data-gotab="bias">${any ? "Open" : "Check it"}</button></div>
+      <div class="bs-chips">${ms.map((m) => { const b = S.biasNow[m], d = b.dir; return `<span class="bs ${d === "long" ? "up" : d === "short" ? "down" : ""} ${b.source !== "you" ? "data" : ""}" title="${b.source === "you" ? "you set it" : b.source === "data" ? "from the data, not checked yet" : "not set"}"><b>${esc(mname(m))}</b> ${d === "long" ? "▲ bullish" : d === "short" ? "▼ bearish" : d === "neutral" ? "◆ neutral" : "— not set"}</span>`; }).join("")}</div>
+      ${any ? "" : `<p class="muted" style="margin:8px 0 0">Faded = from the data, not checked yet. Ask David “let's do my bias”.</p>`}</section>`;
   }
 
   // a warm hello and one short mindset line a day (same line all day, a new one tomorrow)
@@ -724,7 +735,7 @@
       ${tile("shot", "Log a trade", "upload a screenshot", "data-shot")}
       ${setupShown || ps.on ? "" : tile("push", "Alerts on", pushOk ? "to this phone" : "how to turn on", pushOk ? "data-pushon" : `data-pushhelp="${esc(ps.text)}"`, "push")}
     </section>`;
-    return `${pend}${getSet}${hero}${openCard}${levelsCard()}${tiles}${stats}${news}`;
+    return `${pend}${getSet}${hero}${openCard}${levelsCard()}${biasStrip()}${tiles}${stats}${news}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -1174,17 +1185,18 @@
     const fd = S.fundamentals, sug = (fd && fd.suggestions) || {};
     const head = `<section class="card" data-tour="bias"><div class="row between"><h2 style="margin:0">Weekly fundamentals</h2>
         <button class="btn small primary" id="fillBias">↻ Fill from free data</button></div>
-        <p class="muted" style="margin:8px 0 0">Edge reads the COT report (CFTC), the dollar and real yields (FRED) and oil & gas inventories (EIA), and suggests an answer for each line it can measure, with the numbers. You check the rest and save.${fd ? ` Last read ${day(fd.at)} ${time(fd.at)}.` : ""}</p>
+        <p class="muted" style="margin:8px 0 0">Your bias for the week — a filter, not a signal. Trade your levels; <b>with</b> the bias = normal size, <b>against</b> it = smaller or skip. Edge reads the dollar, the US 2-year (what the market expects from the Fed), the 10-year, real yields and the VIX (FRED), the COT report (CFTC) and gas storage (EIA), and suggests an answer for each line it can measure. You (or David with you) check the rest and save. Every Sunday Edge sends you the data's view.${fd ? ` Last read ${day(fd.at)} ${time(fd.at)}.` : ""}</p>
         ${fd && fd.errors && fd.errors.length ? `<p class="err" style="margin:6px 0 0">Not available: ${fd.errors.map(esc).join(" · ")}</p>` : ""}</section>`;
-    return head + Object.keys(S.markets).map((m) => {
-      const b = S.bias[m], f = S.biasFactors[m], ms = sug[m] || {};
+    return head + (S.biasMarkets || []).filter((m) => S.biasFactors[m] && S.markets[m]).map((m) => {
+      const b = S.bias[m], f = S.biasFactors[m], ms = sug[m] || {}, bn = (S.biasNow || {})[m];
       const age = b ? Math.floor((S.now - b.updated) / 864e5) : null;
       const stale = !b || age > 7;
       const label = b ? (b.dir === "long" ? "Bullish" : b.dir === "short" ? "Bearish" : "Neutral") : "Not set";
       return `<section class="card" data-biascard="${m}">
         <div class="row between"><h3>${esc(S.markets[m].name)}</h3>
           <span class="pill ${stale ? "warn" : b.dir === "long" ? "good" : b.dir === "short" ? "bad" : ""}">${label}${b ? ` · score ${b.score > 0 ? "+" : ""}${b.score}` : ""}${b ? ` · ${age === 0 ? "today" : `${age}d ago`}` : ""}</span></div>
-        <p class="muted">Every Sunday (or after a big report): answer each line. Score ≥ +2 = bullish, ≤ −2 = bearish. Trades against your bias lose their A+.</p>
+        ${stale && bn && bn.source === "data" ? `<p class="muted" style="margin:4px 0">📊 The data alone says <b>${bn.dir === "long" ? "bullish" : bn.dir === "short" ? "bearish" : "neutral"}</b> (score ${bn.score > 0 ? "+" : ""}${bn.score}) — check the lines and save to make it yours.</p>` : ""}
+        <p class="muted">Every Sunday (or after a big report): answer each line. Score ≥ +2 = bullish, ≤ −2 = bearish.</p>
         ${f.map((x) => {
           const auto = ms[x.id];
           const v = fillApplied && auto ? auto.value : b && b.answers ? b.answers[x.id] || 0 : 0;
