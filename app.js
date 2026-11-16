@@ -735,7 +735,7 @@
     if (!r) { o.innerHTML = `<span class="err">Couldn't get today's rate for ${esc(mname(m))} — check your connection and try again.</span>`; return; }
     const buy = Number(st) < Number(e), dist = Math.abs(Number(e) - Number(st)), tp = Number(e) + (buy ? 1 : -1) * rr * dist, acct = acctSize();
     if (r.tooWide) { o.innerHTML = `<b class="bad">Stop too wide for $${esc(rk)}</b><div class="muted">Even the smallest size (0.01 lots) would risk $${(r.perLot / 100).toFixed(2)} on this stop.</div>`; return; }
-    o.innerHTML = `<div class="row between"><div class="lc-big">${r.lots.toFixed(2)} <small>lots</small></div><span class="pill ${buy ? "good" : "bad"}">${buy ? "BUY" : "SELL"}</span></div>
+    o.innerHTML = `<small class="muted">LOT SIZE TO ENTER IN MT5</small><div class="row between"><div class="lc-big">${r.lots.toFixed(2)} <small>lots</small></div><span class="pill ${buy ? "good" : "bad"}">${buy ? "BUY" : "SELL"}</span></div>
       <div class="lp-rows"><span>Stop</span><b>${r.pips} pips</b>
         <span>$ per pip (1 lot)</span><b>$${r.pipUsdPerLot.toFixed(2)}</b>
         <span>Real risk at ${r.lots.toFixed(2)} lots</span><b>$${r.riskAtLots.toFixed(2)} · ${((r.riskAtLots / acct) * 100).toFixed(2)}% of $${Math.round(acct).toLocaleString()}</b>
@@ -764,13 +764,17 @@
         <label class="f">Stop loss<input id="tSL" inputmode="decimal" value="${pref.sl ?? ""}"></label>
         <label class="f">Take profit<input id="tTP" inputmode="decimal" value="${pref.tp ?? ""}"></label>
         <label class="f">Risk ($)<input id="tRisk" type="number" step="5" value="${riskNow()}"></label></div>
-      <p class="muted" id="tCalc"></p>
+      <div class="lp-res" id="tCalc" style="margin-top:10px"></div>
       <details class="checkwrap" open><summary><b>Your checklist</b> <span class="muted">— tick what's true</span></summary>${FXCHECKS.map(([k, l]) => `<label class="f" style="flex-direction:row;display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" data-fxchk="${k}" style="width:auto"> ${l}</label>`).join("")}</details>
       <div class="row" style="margin-top:10px"><button class="btn primary" type="button" id="tSend">Send to MT5</button><button class="btn" value="cancel">Cancel</button></div>`;
     const calc = async () => { const m = $("#tPair").value, e = Number($("#tEntry").value), sl = Number($("#tSL").value), tp = Number($("#tTP").value), risk = Number($("#tRisk").value);
-      if (!(e && sl && risk)) { $("#tCalc").textContent = "Fill in entry, stop and risk — you'll see the exact lot size."; return; }
+      if (!(e && sl && risk)) { $("#tCalc").innerHTML = `<span class="muted">Fill in entry, stop and risk — the lot size shows here.</span>`; return; }
       const r = window.EdgeLots.lots({ market: m, entry: e, stop: sl, risk, usdxxx: await usdRate(m) }), rr = tp ? Math.abs(tp - e) / Math.abs(e - sl) : null;
-      $("#tCalc").innerHTML = !r ? "Couldn't get today's rate for this pair — the EA still sizes it exactly." : `Stop ${r.pips} pips · <b>${r.tooWide ? "stop too wide for this risk" : r.lots.toFixed(2) + " lots"}</b> = $${r.riskAtLots} at risk${rr ? ` · reward 1:${rr.toFixed(1)}${rr < 3 ? " — under your 1:3" : ""}` : ""} <small>(the EA re-checks it with your broker's exact values)</small>`; };
+      $("#tCalc").innerHTML = !r ? `<span class="err">Couldn't get today's rate for this pair — the EA still sizes it exactly from MT5.</span>`
+        : r.tooWide ? `<b class="bad">Stop too wide for $${risk}</b><div class="muted">Even 0.01 lots would risk $${(r.perLot / 100).toFixed(2)}.</div>`
+        : `<small class="muted">LOT SIZE</small><div class="lc-big">${r.lots.toFixed(2)} <small>lots</small></div>
+          <div class="muted">${r.pips} pips stop · $${r.riskAtLots.toFixed(2)} at risk${rr ? ` · reward 1:${rr.toFixed(1)}${rr < 2.95 ? " — under your 1:3" : ""}` : ""}</div>
+          <div class="muted" style="font-size:12.5px;margin-top:4px">Entering by hand? Type ${r.lots.toFixed(2)} in MT5's Volume. Sending from here, the EA places this size (re-checked with your broker's exact values).</div>`; };
     body.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", calc)); calc();
     $("#tSend").addEventListener("click", async () => {
       const ticks = [...body.querySelectorAll("[data-fxchk]")].filter((x) => x.checked).map((x) => x.dataset.fxchk);
