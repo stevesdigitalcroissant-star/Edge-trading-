@@ -19,7 +19,7 @@
     { id: "choch", icon: "🔀", title: "15m change of character", short: "Closes through the last swing", req: true,
       text: "After the sweep, a 15m candle closes above the last lower high (for a buy) — or below the last higher low (for a sell). Even better if it also breaks the liquidity inflection level (the level price kept reacting to)." },
     { id: "entry", icon: "📐", title: "Limit at the 15m gap midpoint", short: "50–61.8% of the move", req: true,
-      text: "Draw the Fibonacci over the move that broke structure. Your limit goes at the midpoint of the fair value gap it left — usually between 50% and 61.8%. The FX Playbook script draws it; Edge sends it to MT5." },
+      text: "Draw the Fibonacci from the sweep low to the top of the move that broke structure (bottom to top for a buy). Your limit goes at the midpoint of the big displacement gap it left — around 50%, inside 38.2–78.6%. The FX Playbook script draws it; Edge sends it to MT5." },
     { id: "stop", icon: "🛡️", title: "Stop past the move · target 1:3+", short: "Next gap or PDH / PDL", req: true,
       text: "Stop just past the low (buy) / high (sell) of the move — below the order block. Target the next fair value gap or the previous day high / low, at least 1:3. Same $ risk every trade; Edge checks the prop firm's daily and max loss before it sends." },
     { id: "journal", icon: "📓", title: "Journal it while you trade", short: "Tick the checklist, then walk away", req: true,

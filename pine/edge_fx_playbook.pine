@@ -9,7 +9,8 @@
 // The entry (15m), same steps as the playbook:
 //   1. price reacts at a point of interest: touches a 1H fair value gap, or sweeps the PDL / PDH
 //   2. change of character: a 15m candle closes through the last swing high (buys) / low (sells)
-//   3. limit at the MIDPOINT of the 15m fair value gap that move left behind (0.618 of the move if there is none)
+//   3. limit at the MIDPOINT of the displacement gap: the biggest 15m fair value gap in the 38.2–78.6% zone of the move
+//      (0.618 of the move if there is none)
 //   4. stop just past the low / high of that move · target: the bigger of 1:RR and the previous day high / low
 //   5. once price breaks the high / low of the move, stop to break-even (your call — Edge reminds you)
 //
@@ -144,11 +145,20 @@ if barstate.isconfirmed and not na(lastPH) and not phUsed and close > lastPH
     for i = 0 to n
         legLo := math.min(legLo, low[i])
     legHi = high
+    for i = 0 to n
+        legHi := math.max(legHi, high[i])
+    // the displacement gap: the biggest 15m fair value gap inside the 38.2–78.6% zone of the move (like his charts)
+    zTopB = legHi - 0.382 * (legHi - legLo)
+    zBotB = legHi - 0.786 * (legHi - legLo)
     mid = float(na)
+    best = 0.0
     if n >= 2
         for i = 0 to n - 2
-            if na(mid) and low[i] > high[i + 2]
-                mid := (low[i] + high[i + 2]) / 2
+            gT = low[i]
+            gB = high[i + 2]
+            if gT > gB and gT >= zBotB and gB <= zTopB and gT - gB > best
+                best := gT - gB
+                mid := math.min((gT + gB) / 2, zTopB)
     e = na(mid) ? legHi - 0.618 * (legHi - legLo) : mid
     s = legLo - 0.1 * atr
     r = e - s
@@ -170,11 +180,19 @@ if barstate.isconfirmed and not na(lastPL) and not plUsed and close < lastPL
     for i = 0 to n
         legHi := math.max(legHi, high[i])
     legLo = low
+    for i = 0 to n
+        legLo := math.min(legLo, low[i])
+    zBotS = legLo + 0.382 * (legHi - legLo)
+    zTopS = legLo + 0.786 * (legHi - legLo)
     mid = float(na)
+    best = 0.0
     if n >= 2
         for i = 0 to n - 2
-            if na(mid) and high[i] < low[i + 2]
-                mid := (high[i] + low[i + 2]) / 2
+            gB = high[i]
+            gT = low[i + 2]
+            if gT > gB and gB <= zTopS and gT >= zBotS and gT - gB > best
+                best := gT - gB
+                mid := math.max((gT + gB) / 2, zBotS)
     e = na(mid) ? legLo + 0.618 * (legHi - legLo) : mid
     s = legHi + 0.1 * atr
     r = s - e
