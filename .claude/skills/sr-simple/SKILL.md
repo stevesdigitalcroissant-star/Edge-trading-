@@ -1,6 +1,6 @@
 ---
 name: sr-simple
-description: Steve's ONLY strategy from 30 Oct 2026 (he started over) — simple support & resistance he draws himself, Heikin Ashi + regular candles for the entry, 80 SMA for confirmation, alerts so he doesn't watch charts all day. Use for anything about his strategy, Edge rules, TradingView scripts (pine/edge_sr_watch.pine), alerts, backtests, videos. Supersedes supply-demand, fib-strategy, draw-zones (all retired).
+description: RETIRED 16 Nov 2026 — Steve moved to forex on MT5 with the playbook model (see fx-playbook). Old S/R notes kept only as history; never use them to build, explain or alert.
 ---
 
 # Simple support & resistance — Steve's rules (30 Oct 2026, starting over)

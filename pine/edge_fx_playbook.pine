@@ -1,0 +1,204 @@
+//@version=6
+// Edge · FX Playbook — the INEVITRADE model one step up (Steve, Nov 2026): put it on a 15-MINUTE chart of each pair.
+//
+// What it draws (your points of interest, marked before the session):
+//   · previous day high / low (PDH / PDL) and the New York open (9:30) line
+//   · fair value gaps on the zone timeframe (1H by default) until price closes through them
+//   · the Daily / 4H / 1H trend (EMA 9 > 21 > 50 lineup) in the top-right panel
+//
+// The entry (15m), same steps as the playbook:
+//   1. price reacts at a point of interest: touches a 1H fair value gap, or sweeps the PDL / PDH
+//   2. change of character: a 15m candle closes through the last swing high (buys) / low (sells)
+//   3. limit at the MIDPOINT of the 15m fair value gap that move left behind (0.618 of the move if there is none)
+//   4. stop just past the low / high of that move · target: the bigger of 1:RR and the previous day high / low
+//   5. once price breaks the high / low of the move, stop to break-even (your call — Edge reminds you)
+//
+// Alerts: one alert per chart → Condition "Edge · FX Playbook" → "Any alert() function call". Webhook URL = your Edge
+// address + /api/hook, so the setup lands in Edge with a "Send to MT5" button. Untick TradingView's own app notification.
+indicator("Edge · FX Playbook", overlay = true, max_boxes_count = 200, max_lines_count = 300, max_labels_count = 200)
+
+zoneTf    = input.timeframe("60", "Zone timeframe (fair value gaps you trade from)", group = "Map")
+showPd    = input.bool(true, "Previous day high / low", group = "Map")
+showNy    = input.bool(true, "New York open line (9:30)", group = "Map")
+showFvg   = input.bool(true, "Zone fair value gaps (until filled)", group = "Map")
+maxFvg    = input.int(8, "How many gaps to keep", minval = 1, maxval = 30, group = "Map")
+pivLen    = input.int(2, "Swing size (candles each side)", minval = 1, maxval = 5, group = "Entry")
+rr        = input.float(3.0, "Minimum reward : risk", minval = 1.0, step = 0.5, group = "Entry")
+usePd     = input.bool(true, "Target the previous day high / low when it is further", group = "Entry")
+needTrend = input.bool(true, "Only with the 4H + 1H trend", group = "Entry")
+poiBars   = input.int(16, "The point of interest must be hit within the last … candles", minval = 1, maxval = 100, group = "Entry")
+nyOnly    = input.bool(false, "Only 8:00–11:30 New York time", group = "Entry")
+toEdge    = input.bool(true, "Send setups to Edge (webhook)", group = "Edge")
+secret    = input.string("change-me", "Edge secret (filled in when you copy the script from Edge)", group = "Edge")
+showPanel = input.bool(true, "Trend panel (top right)", group = "Panel")
+
+// ---------------------------------------------------------------------------------------------------- higher timeframes (no repainting: last closed candle)
+f_lineup() =>
+    e9 = ta.ema(close, 9)
+    e21 = ta.ema(close, 21)
+    e50 = ta.ema(close, 50)
+    e9 > e21 and e21 > e50 ? 1 : e9 < e21 and e21 < e50 ? -1 : 0
+trD = request.security(syminfo.tickerid, "D", f_lineup()[1], lookahead = barmerge.lookahead_on)
+tr4 = request.security(syminfo.tickerid, "240", f_lineup()[1], lookahead = barmerge.lookahead_on)
+tr1 = request.security(syminfo.tickerid, "60", f_lineup()[1], lookahead = barmerge.lookahead_on)
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1], lookahead = barmerge.lookahead_on)
+[zH3, zL1, zL3, zH1, zT1] = request.security(syminfo.tickerid, zoneTf, [high[3], low[1], low[3], high[1], time[1]], lookahead = barmerge.lookahead_on)
+
+atr = ta.atr(14)
+nyH = hour(time, "America/New_York")
+nyM = minute(time, "America/New_York")
+inNy = not nyOnly or (nyH * 60 + nyM >= 480 and nyH * 60 + nyM < 690)
+
+// ---------------------------------------------------------------------------------------------------- the map
+if showNy and nyH == 9 and nyM == 30 and barstate.isconfirmed
+    line.new(bar_index, low - atr * 3, bar_index, high + atr * 3, extend = extend.both, color = color.new(color.gray, 55), style = line.style_dotted)
+plot(showPd ? pdh : na, "Previous day high", color = color.new(color.teal, 0), style = plot.style_stepline, linewidth = 1)
+plot(showPd ? pdl : na, "Previous day low", color = color.new(color.orange, 0), style = plot.style_stepline, linewidth = 1)
+
+var array<float> zTop = array.new<float>()
+var array<float> zBot = array.new<float>()
+var array<int>   zDir = array.new<int>()
+var array<box>   zBox = array.new<box>()
+newZ = ta.change(zT1) != 0
+if newZ and barstate.isconfirmed
+    if zL1 > zH3      // bullish gap on the zone timeframe
+        array.push(zTop, zL1)
+        array.push(zBot, zH3)
+        array.push(zDir, 1)
+        array.push(zBox, showFvg ? box.new(bar_index, zL1, bar_index + 5, zH3, border_color = color.new(color.green, 70), bgcolor = color.new(color.green, 88), extend = extend.right) : na)
+    if zH1 < zL3      // bearish gap
+        array.push(zTop, zL3)
+        array.push(zBot, zH1)
+        array.push(zDir, -1)
+        array.push(zBox, showFvg ? box.new(bar_index, zL3, bar_index + 5, zH1, border_color = color.new(color.red, 70), bgcolor = color.new(color.red, 88), extend = extend.right) : na)
+    while array.size(zTop) > maxFvg
+        b0 = array.shift(zBox)
+        if not na(b0)
+            box.delete(b0)
+        array.shift(zTop)
+        array.shift(zBot)
+        array.shift(zDir)
+
+// touches of a point of interest, and gaps filled (closed through) are removed
+var int lastBullPoi = na
+var int lastBearPoi = na
+if barstate.isconfirmed
+    if low < pdl
+        lastBullPoi := bar_index
+    if high > pdh
+        lastBearPoi := bar_index
+    n = array.size(zTop)
+    if n > 0
+        for k = n - 1 to 0
+            t = array.get(zTop, k)
+            b = array.get(zBot, k)
+            d = array.get(zDir, k)
+            if d == 1 and low <= t and high >= b
+                lastBullPoi := bar_index
+            if d == -1 and high >= b and low <= t
+                lastBearPoi := bar_index
+            if (d == 1 and close < b) or (d == -1 and close > t)
+                bx = array.get(zBox, k)
+                if not na(bx)
+                    box.delete(bx)
+                array.remove(zBox, k)
+                array.remove(zTop, k)
+                array.remove(zBot, k)
+                array.remove(zDir, k)
+
+// ---------------------------------------------------------------------------------------------------- 15m structure and the entry
+ph = ta.pivothigh(high, pivLen, pivLen)
+pl = ta.pivotlow(low, pivLen, pivLen)
+var float lastPH = na
+var int   lastPHi = na
+var bool  phUsed = true
+var float lastPL = na
+var int   lastPLi = na
+var bool  plUsed = true
+if not na(ph)
+    lastPH := ph
+    lastPHi := bar_index - pivLen
+    phUsed := false
+if not na(pl)
+    lastPL := pl
+    lastPLi := bar_index - pivLen
+    plUsed := false
+
+f_q(string s) => "\"" + s + "\""
+f_p(float v) => str.tostring(v, format.mintick)
+f_msg(string side, float e, float s, float t, string why) =>
+    "{\"secret\":" + f_q(secret) + ",\"type\":\"fx\",\"pair\":" + f_q(syminfo.ticker) + ",\"tv\":" + f_q(syminfo.tickerid) + ",\"side\":" + f_q(side) + ",\"entry\":" + f_p(e) + ",\"sl\":" + f_p(s) + ",\"tp\":" + f_p(t) + ",\"tf\":" + f_q(timeframe.period) + ",\"trend\":{\"d\":" + str.tostring(trD) + ",\"h4\":" + str.tostring(tr4) + ",\"h1\":" + str.tostring(tr1) + "},\"why\":" + f_q(why) + "}"
+
+f_draw(int dir, float e, float s, float t) =>
+    c = dir > 0 ? color.green : color.red
+    line.new(bar_index, e, bar_index + 20, e, color = color.new(color.blue, 0), width = 2)
+    line.new(bar_index, s, bar_index + 20, s, color = color.new(color.red, 0), style = line.style_dashed)
+    line.new(bar_index, t, bar_index + 20, t, color = color.new(color.green, 0), style = line.style_dashed)
+    label.new(bar_index, s, (dir > 0 ? "BUY" : "SELL") + " limit " + f_p(e) + "\nstop " + f_p(s) + " · target " + f_p(t) + "\n1:" + str.tostring(math.abs(t - e) / math.abs(e - s), "#.0"), style = dir > 0 ? label.style_label_up : label.style_label_down, color = color.new(c, 15), textcolor = color.white, size = size.small)
+
+if barstate.isconfirmed and not na(lastPH) and not phUsed and close > lastPH
+    phUsed := true
+    n = math.min(bar_index - lastPHi, 150)
+    legLo = low
+    for i = 0 to n
+        legLo := math.min(legLo, low[i])
+    legHi = high
+    mid = float(na)
+    if n >= 2
+        for i = 0 to n - 2
+            if na(mid) and low[i] > high[i + 2]
+                mid := (low[i] + high[i + 2]) / 2
+    e = na(mid) ? legHi - 0.618 * (legHi - legLo) : mid
+    s = legLo - 0.1 * atr
+    r = e - s
+    okPoi = not na(lastBullPoi) and bar_index - lastBullPoi <= poiBars
+    okTr = not needTrend or (tr4 == 1 and tr1 == 1)
+    if r > 0 and close > e and okPoi and okTr and inNy
+        t = e + rr * r
+        t := usePd and pdh > t ? pdh : t
+        f_draw(1, e, s, t)
+        if toEdge
+            alert(f_msg("buy", e, s, t, "15m change of character after a point of interest; limit at the 15m gap midpoint"), alert.freq_once_per_bar_close)
+        else
+            alert(syminfo.ticker + " BUY setup: limit " + f_p(e) + " · stop " + f_p(s) + " · target " + f_p(t), alert.freq_once_per_bar_close)
+
+if barstate.isconfirmed and not na(lastPL) and not plUsed and close < lastPL
+    plUsed := true
+    n = math.min(bar_index - lastPLi, 150)
+    legHi = high
+    for i = 0 to n
+        legHi := math.max(legHi, high[i])
+    legLo = low
+    mid = float(na)
+    if n >= 2
+        for i = 0 to n - 2
+            if na(mid) and high[i] < low[i + 2]
+                mid := (high[i] + low[i + 2]) / 2
+    e = na(mid) ? legLo + 0.618 * (legHi - legLo) : mid
+    s = legHi + 0.1 * atr
+    r = s - e
+    okPoi = not na(lastBearPoi) and bar_index - lastBearPoi <= poiBars
+    okTr = not needTrend or (tr4 == -1 and tr1 == -1)
+    if r > 0 and close < e and okPoi and okTr and inNy
+        t = e - rr * r
+        t := usePd and pdl < t ? pdl : t
+        f_draw(-1, e, s, t)
+        if toEdge
+            alert(f_msg("sell", e, s, t, "15m change of character after a point of interest; limit at the 15m gap midpoint"), alert.freq_once_per_bar_close)
+        else
+            alert(syminfo.ticker + " SELL setup: limit " + f_p(e) + " · stop " + f_p(s) + " · target " + f_p(t), alert.freq_once_per_bar_close)
+
+// ---------------------------------------------------------------------------------------------------- trend panel
+f_word(int v) => v == 1 ? "▲ up" : v == -1 ? "▼ down" : "◆ mixed"
+f_col(int v) => v == 1 ? color.new(color.green, 20) : v == -1 ? color.new(color.red, 20) : color.new(color.gray, 30)
+var table pnl = table.new(position.top_right, 2, 4, border_width = 1)
+if showPanel and barstate.islast
+    table.cell(pnl, 0, 0, syminfo.ticker, text_color = color.white, bgcolor = color.new(color.black, 20))
+    table.cell(pnl, 1, 0, "trend", text_color = color.white, bgcolor = color.new(color.black, 20))
+    table.cell(pnl, 0, 1, "Daily", text_color = color.white, bgcolor = color.new(color.black, 40))
+    table.cell(pnl, 1, 1, f_word(trD), text_color = color.white, bgcolor = f_col(trD))
+    table.cell(pnl, 0, 2, "4H", text_color = color.white, bgcolor = color.new(color.black, 40))
+    table.cell(pnl, 1, 2, f_word(tr4), text_color = color.white, bgcolor = f_col(tr4))
+    table.cell(pnl, 0, 3, "1H", text_color = color.white, bgcolor = color.new(color.black, 40))
+    table.cell(pnl, 1, 3, f_word(tr1), text_color = color.white, bgcolor = f_col(tr1))

@@ -77,7 +77,8 @@ async function handleHook(store, broker, body, now = Date.now()) {
   const secret = process.env.EDGE_HOOK_SECRET;
   if (!secret || msg.secret !== secret) return { status: 401, json: { error: "Wrong webhook secret" } };
 
-  if (msg.type === "sr") return require("./_srwatch").srHook(store, msg, now); // your levels (S/R Watch): touches, entries, status
+  if (msg.type === "sr") return require("./_srwatch").srHook(store, msg, now);
+  if (msg.type === "fx") return require("./_fxsetup").fxHook(store, msg, now); // a 15m playbook setup from TradingView // your levels (S/R Watch): touches, entries, status
   const market = marketOf(msg.symbol || msg.tv);
   if (!market) return { status: 200, json: { ignored: `Not a market Edge trades: ${msg.symbol}` } };
 
@@ -807,7 +808,7 @@ async function state(store, broker, now = Date.now()) {
   const biasNowAll = await fundamentals.biasAll(store, now).catch(() => ({}));
   return {
     now, settings: ctx.settings, defaults: DEFAULT_SETTINGS, markets: Object.fromEntries(Object.entries(MARKETS).map(([k, v]) => [k, { name: v.name, unit: v.unit }])),
-    biasFactors: BIAS_FACTORS, bias: ctx.bias, setups, plans, strategies: STRATEGIES, open, journal: ctx.journal.slice(0, 200), stats: stats(ctx.journal), davidStyle: await store.lrange("david:style", 30).catch(() => []), biasNow: biasNowAll, biasMarkets: require("./_config").BIAS_MARKETS,
+    biasFactors: BIAS_FACTORS, bias: ctx.bias, setups, plans, strategies: STRATEGIES, open, journal: ctx.journal.slice(0, 200), stats: stats(ctx.journal), davidStyle: await store.lrange("david:style", 30).catch(() => []), mt5: await require("./_mt5").read(store, now).catch(() => null), fxSetups: await require("./_fxsetup").fxRead(store, now).catch(() => []), fx: require("./_config").FX, biasNow: biasNowAll, biasMarkets: require("./_config").BIAS_MARKETS,
     sr: require("./_srwatch").srRead(await store.get("sr:status").catch(() => null), await store.lrange("sr:events", 20).catch(() => []), ctx.now, biasNowAll),
     practice: ctx.practice.slice(0, 200), practiceStats: stats(ctx.practice), coach: { ready: !!process.env.ANTHROPIC_API_KEY, session: await store.get("coach") },
     share: R.aPlusShare([...ctx.journal, ...ctx.open]), guard: R.guardrails(ctx),

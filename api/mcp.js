@@ -12,8 +12,8 @@ const auth = require("./_auth");
 const { srRead } = require("./_srwatch");
 
 const PROTOCOL = "2025-06-18";
-const MY_MARKETS = ["6j", "natgas", "6e", "nq", "ym", "silver", "copper", "6a", "gold"];
-const ALL_MARKETS = [...MY_MARKETS, "es", "rty", "6b", "crude", "zn", "zb"];
+const MY_MARKETS = ["eurusd", "gbpusd", "usdjpy", "audusd", "usdcad", "usdchf", "nzdusd", "gbpjpy", "eurjpy"]; // forex on MT5 since 16 Nov 2026
+const ALL_MARKETS = [...MY_MARKETS, "gold", "silver", "copper", "natgas", "nq", "ym", "es", "rty", "6e", "6b", "6j", "6a", "crude", "zn", "zb"];
 const none = { type: "object", properties: {} };
 const STR = { type: "string" }, NUM = { type: "number" }, MK = { type: "string", enum: ALL_MARKETS };
 const TOOLS = [
@@ -30,6 +30,7 @@ const TOOLS = [
   { name: "edge_watch_link", description: "Link yourself so Edge tells you, as they happen, when price touches one of his levels, when a BUY / SELL setup forms there, and when a trade closes. Pass the address your instructions give you for Edge alerts. Send an empty url to unlink.", inputSchema: { type: "object", properties: { url: STR }, required: ["url"] } },
   { name: "edge_bias", description: "His weekly fundamental bias per market (gold, silver, copper, natural gas, Nasdaq, Dow, euro, Aussie, yen): bullish / bearish / neutral, whether HE set it this week or it's only what the data says (not checked yet), each factor with Edge's reading of the free data (dollar, US 2-year = Fed expectations, 10-year, real yields, VIX, COT, EIA gas storage) and his saved answers. Use it for 'what's my bias?', on Sundays to go through the week with him, and before he takes a trade (with the bias = normal, against = smaller or skip).", inputSchema: { type: "object", properties: { market: { type: "string", enum: require("./_config").BIAS_MARKETS } } } },
   { name: "edge_bias_set", description: "Save his weekly bias for one market after you went through the factors with him: answers per factor id (+1 bullish, 0 neutral, −1 bearish — take the data's suggestion unless he disagrees), and a short note. Score ≥ +2 = bullish, ≤ −2 = bearish. Read the result back to him.", inputSchema: { type: "object", properties: { market: { type: "string", enum: require("./_config").BIAS_MARKETS }, answers: { type: "object", additionalProperties: { type: "integer", minimum: -1, maximum: 1 } }, note: STR }, required: ["market", "answers"] } },
+  { name: "edge_mt5", description: "His MetaTrader 5 account through the EdgeBridge EA: connected or not, balance, equity, today's P/L, the prop-firm room left (to the daily loss limit, to the max-loss floor, trades left today), open trades and pending orders, the last orders sent from Edge (and any MT5 refused), plus the latest 15m setups from his TradingView FX Playbook. Read-only.", inputSchema: none },
   { name: "edge_rules", description: "His strategy in steps (simple support & resistance, Heikin Ashi + regular candles, the 80 SMA) and his risk settings and limits.", inputSchema: none },
 ];
 
@@ -123,6 +124,10 @@ async function run(name, args, s, store) {
       return { trades: s.journal.slice(0, n), stats: s.stats };
     }
     case "edge_rules": return { strategy: require("../playbook.js").STEPS.map((x) => ({ step: x.title, what: x.text })), settings: pick(s.settings, ["riskUSD", "maxTradesPerDay", "dailyLossR", "minR", "maxR", "sessions"]), markets: s.markets };
+    case "edge_mt5": {
+      const m = await require("./_mt5").read(store, now);
+      return { ...m, setups: await require("./_fxsetup").fxRead(store, now), note: m.connected ? "Live from MT5 (a few seconds old)." : "MT5 isn't connected right now — he needs MT5 open with the EdgeBridge EA on a chart." };
+    }
     case "edge_bias": {
       const { BIAS_FACTORS, BIAS_MARKETS } = require("./_config"), F = require("./_fundamentals");
       const fund = await F.load(store).catch(() => null), saved = (await store.get("bias")) || {}, all = await F.biasAll(store, now);
@@ -213,12 +218,12 @@ module.exports = async (req, res) => {
   const { id = null, method, params = {} } = msg;
   if (id === null || id === undefined) return res.status(202).end(); // notifications need no answer
   try {
-    if (method === "initialize") return reply(res, id, { protocolVersion: PROTOCOL, capabilities: { tools: {} }, serverInfo: { name: "edge", version: "1.0.0" }, instructions: "Edge is Steve's trading co-pilot. His strategy: simple support & resistance he draws himself — levels watched on the 15m, entry on the 5m when the Heikin Ashi candle flips his way and the candle closes back on the right side of the level, with the 80 SMA agreeing; Daily / 4H / 1H trend for context. His TradingView S/R Watch streams every pair's distance to his levels into Edge: call edge_watch first to tell him clearly whether price has reached his zone or is nowhere near it. He uses fundamentals for a weekly BIAS only (edge_bias): with the bias = normal, against = smaller or skip; on Sundays go through edge_bias with him and save it (edge_bias_set). Guide him by voice, give honest feedback, and write what you see in his journal (edge_journal_write) and what you learn about him (edge_style_write). You can never place, change or close a trade." });
+    if (method === "initialize") return reply(res, id, { protocolVersion: PROTOCOL, capabilities: { tools: {} }, serverInfo: { name: "edge", version: "1.0.0" }, instructions: "Edge is Steve's trading co-pilot. Since 16 Nov 2026 he trades FOREX on MetaTrader 5 (prop firm Tradeify FX, Classic 5K: $500 static max loss, $150 daily loss) with the INEVITRADE playbook moved up a level: before the New York open he marks points of interest (previous day high / low, unfilled 1H fair value gaps, the 9:30 open) and checks red-folder news; he only trades after price reacts at one — a liquidity sweep and displacement, a 15m change of character, a limit at the midpoint of the 15m fair value gap (50–61.8%), stop past the move, target 1:3+ at the next gap or PDH / PDL, break-even once the move's high / low breaks. Bias = 4H / 1H trend + his weekly fundamental bias (edge_bias). His TradingView FX Playbook script sends setups to Edge; edge_mt5 shows his MT5 account, open trades, the prop-firm room left and the latest setups — call it first when he asks how he's doing or what's set up. Be honest: the playbook's rules alone backtested slightly negative on forex (2019–2026), so judge each setup on its quality and help him journal everything. Guide him by voice, give honest feedback, write what you see in his journal (edge_journal_write) and what you learn about him (edge_style_write). You can never place, change or close a trade — he sends trades himself from Edge (Send to MT5)." });
     if (method === "ping") return reply(res, id, {});
     if (method === "tools/list") return reply(res, id, { tools: TOOLS });
     if (method === "tools/call") {
       if (!TOOLS.some((t) => t.name === params.name)) return fail(res, id, -32602, "Unknown tool");
-      const light = ["edge_bias", "edge_bias_set", "edge_watch", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_style", "edge_style_write", "edge_watch_link"].includes(params.name) || (params.name === "edge_journal_write");
+      const light = ["edge_mt5", "edge_bias", "edge_bias_set", "edge_watch", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_style", "edge_style_write", "edge_watch_link"].includes(params.name) || (params.name === "edge_journal_write");
       const s = light ? null : await state(store, await brokerFor(store));
       const text = JSON.stringify(await run(params.name, params.arguments || {}, s, store));
       return reply(res, id, { content: [{ type: "text", text: text.length > 60000 ? text.slice(0, 60000) + " …(cut)" : text }] });

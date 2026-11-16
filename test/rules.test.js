@@ -16,7 +16,9 @@ test("TradingView symbols map to markets", () => {
   assert.equal(marketOf("OANDA:WTICOUSD"), "crude");
   assert.equal(marketOf("NYMEX:CL1!"), "crude");
   assert.equal(marketOf("TVC:USOIL"), "crude");
-  assert.equal(marketOf("OANDA:EURUSD"), "6e");
+  assert.equal(marketOf("OANDA:EURUSD"), "eurusd");
+  assert.equal(marketOf("FX:GBPJPY"), "gbpjpy");
+  assert.equal(marketOf("CME:6E1!"), "6e");
   assert.equal(marketOf("CME:6J1!"), "6j");
   assert.equal(marketOf("CME_MINI:M2K1!"), "rty");
   assert.equal(marketOf("CBOT:ZN1!"), "zn");

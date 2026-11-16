@@ -30,6 +30,11 @@ module.exports = async (req, res) => {
     if (req.method === "POST" && body.action === "changePassword") return res.status(200).json(await auth.changePassword(store, acct, body));
     if (req.method === "POST" && body.action === "davidKey") return res.status(200).json(await auth.newDavidKey(store));
     if (req.method === "POST" && body.action === "davidRevoke") return res.status(200).json(await auth.revokeDavidKey(store));
+    if (req.method === "POST" && body.action === "mt5Key") return res.status(200).json(await require("./_mt5").newKey(store));
+    if (req.method === "POST" && body.action === "mt5Revoke") return res.status(200).json(await require("./_mt5").revokeKey(store));
+    if (req.method === "POST" && body.action === "mt5Send") return res.status(200).json(await require("./_mt5").queue(store, body));
+    if (req.method === "POST" && body.action === "mt5Close") return res.status(200).json(await require("./_mt5").closeTicket(store, body.ticket, body.kind));
+    if (req.method === "POST" && body.action === "mt5Rules") return res.status(200).json(await require("./_mt5").setRules(store, body));
     if (req.method === "POST" && body.action === "newRecoveryCode") return res.status(200).json(await auth.newRecoveryCode(store, acct));
     if (req.method === "POST") return res.status(200).json(await action(store, await brokerFor(store), body));
     res.status(405).json({ error: "GET or POST" });

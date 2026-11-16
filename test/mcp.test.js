@@ -31,13 +31,13 @@ test("handshake, tool list; David reads, and writes only the journal, his notes 
   const { key } = await auth.newDavidKey(store);
   const init = await call({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } }, key);
   assert.equal(init.j.result.serverInfo.name, "edge");
-  assert.match(init.j.result.instructions, /support & resistance/);
+  assert.match(init.j.result.instructions, /FOREX on MetaTrader 5/);
   assert.equal((await call({ jsonrpc: "2.0", method: "notifications/initialized" }, key)).code, 202);
   const list = (await call({ jsonrpc: "2.0", id: 2, method: "tools/list" }, key)).j.result.tools.map((t) => t.name);
-  assert.deepEqual(list, ["edge_today", "edge_watch", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_journal", "edge_journal_write", "edge_style", "edge_style_write", "edge_watch_link", "edge_bias", "edge_bias_set", "edge_rules"]);
+  assert.deepEqual(list, ["edge_today", "edge_watch", "edge_market", "edge_scan", "edge_levels", "edge_levels_set", "edge_journal", "edge_journal_write", "edge_style", "edge_style_write", "edge_watch_link", "edge_bias", "edge_bias_set", "edge_mt5", "edge_rules"]);
   assert.ok(!list.some((n) => /order|trade_|close|place|stop_move/.test(n)), "no trading tools");
   for (const name of ["edge_today", "edge_journal", "edge_rules", "edge_levels", "edge_style"]) { const r = await tool(key, name); assert.ok(!r.err, name + ": " + r.err); }
-  assert.match(JSON.stringify((await tool(key, "edge_rules")).out.strategy), /Heikin Ashi/);
+  assert.match(JSON.stringify((await tool(key, "edge_rules")).out.strategy), /fair value gap/);
   // levels
   assert.deepEqual((await tool(key, "edge_levels_set", { market: "gold", levels: [2380, "2405.5", "x"] })).out.saved.levels, [2405.5, 2380]);
   assert.deepEqual((await tool(key, "edge_levels")).out.levels.gold, [2405.5, 2380]);
@@ -66,9 +66,9 @@ test("edge_market / edge_scan read a market his way: trends, 80 SMA, Heikin Ashi
   try {
     const { key } = await auth.newDavidKey(store);
     const price = bars[bars.length - 1][4];
-    await tool(key, "edge_levels_set", { market: "gold", levels: [price - 3, price + 5] });
-    const r = (await tool(key, "edge_market", { market: "gold" })).out;
-    assert.equal(r.market, "gold");
+    await tool(key, "edge_levels_set", { market: "eurusd", levels: [price - 3, price + 5] });
+    const r = (await tool(key, "edge_market", { market: "eurusd" })).out;
+    assert.equal(r.market, "eurusd");
     assert.equal(r.trend.daily, "up");
     assert.ok(["up", "down", "mixed"].includes(r.trend.h4) && ["up", "down", "mixed"].includes(r.trend.h1));
     assert.ok(/green|red/.test(r.m5.heikinAshi) && ["above", "below"].includes(r.m15.sma80));
@@ -76,7 +76,7 @@ test("edge_market / edge_scan read a market his way: trends, 80 SMA, Heikin Ashi
     assert.equal(r.last2h15m.length, 8);
     const scan = (await tool(key, "edge_scan")).out;
     assert.equal(scan.rows.length, 9);
-    assert.equal(scan.rows[0].market, "gold", "the market with levels saved comes first");
+    assert.equal(scan.rows[0].market, "eurusd", "the market with levels saved comes first");
     assert.ok(scan.rows.every((x) => !x.error));
   } finally { candles.load = real; }
 });
@@ -105,16 +105,16 @@ test("edge_watch: the S/R Watch status and touches from TradingView, in plain wo
 
 test("edge_bias / edge_bias_set: David goes through the week's bias with him", async () => {
   const { key } = await auth.newDavidKey(store);
-  await store.set("fundamentals", { at: Date.now(), errors: [], suggestions: { gold: { dxy: { value: 1, text: "Dollar −1.2%", auto: true } } } });
-  const r = (await tool(key, "edge_bias", { market: "gold" })).out;
+  await store.set("fundamentals", { at: Date.now(), errors: [], suggestions: { eurusd: { dxy: { value: 1, text: "Dollar −1.2%", auto: true } } } });
+  const r = (await tool(key, "edge_bias", { market: "eurusd" })).out;
   assert.equal(r.markets[0].source, "data");
   assert.equal(r.markets[0].factors.find((f) => f.id === "dxy").data.text, "Dollar −1.2%");
-  const s = (await tool(key, "edge_bias_set", { market: "gold", answers: { dxy: 1, fed: 1, cot: 0, yields: -1, risk: 1 }, note: "dollar weak" })).out.saved;
+  const s = (await tool(key, "edge_bias_set", { market: "eurusd", answers: { dxy: 1, fed: 1, ecb: 0, data: -1, cot: 1 }, note: "dollar weak" })).out.saved;
   assert.equal(s.bias, "bullish"); assert.equal(s.score, 2);
-  assert.equal((await tool(key, "edge_bias", { market: "gold" })).out.markets[0].source, "you");
+  assert.equal((await tool(key, "edge_bias", { market: "eurusd" })).out.markets[0].source, "you");
   // the S/R Watch line now says if a touch is with the bias
   const { handleHook } = require("../api/_core");
-  await handleHook(store, null, { secret: "s3cret", type: "sr", event: "status", chart: "GC1!", tf: "5", trend: {}, rows: [{ p: "GC1!", px: 2401, lv: 2400, sd: "S", d: 0.1, st: "touched", sma: "above", ha: "green" }] });
+  await handleHook(store, null, { secret: "s3cret", type: "sr", event: "status", chart: "EURUSD", tf: "15", trend: {}, rows: [{ p: "EURUSD", px: 2401, lv: 2400, sd: "S", d: 0.1, st: "touched", sma: "above", ha: "green" }] });
   const w = (await tool(key, "edge_watch")).out.tradingView.pairs[0];
   assert.equal(w.withBias, true); assert.match(w.say, /With your weekly bias \(bullish\)/);
 });

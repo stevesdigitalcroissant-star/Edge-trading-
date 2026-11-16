@@ -12,7 +12,7 @@
 // Cached for 6 hours. Each source fails on its own without breaking the others.
 
 const COT = { gold: "088691", crude: "067651", natgas: "023651", silver: "084691", copper: "085692" }; // CFTC disaggregated: COMEX gold, NYMEX WTI, Henry Hub, COMEX silver, COMEX copper
-const TFF = { "6e": "099741", "6j": "097741", "6a": "232741", nq: "209742", ym: "124603" }; // CFTC financial futures: euro, yen, Aussie, Nasdaq-100 mini, Dow $5
+const TFF = { "6e": "099741", "6j": "097741", "6a": "232741", "6b": "096742", "6c": "090741", "6s": "092741", "6n": "112741", nq: "209742", ym: "124603" }; // CFTC financial futures: euro, yen, Aussie, Nasdaq-100 mini, Dow $5
 const CACHE_MS = 6 * 3600e3;
 const DAY = 864e5;
 
@@ -140,6 +140,16 @@ function suggest(d) {
     "6e": { dxy: pick(d.dollar), fed: pick(d.fed), cot: pick(cot["6e"]) },
     "6a": { dxy: pick(d.dollar), risk: pick(d.vix), cot: pick(cot["6a"]) },
     "6j": { yields: pick(d.y10), risk: pick(d.vix, true), dxy: pick(d.dollar), cot: pick(cot["6j"]) }, // the yen is a safe haven: fear = bullish
+    // forex pairs: "dollar falling" / "Fed dovish" readings are bullish for XXX/USD and bearish for USD/XXX
+    eurusd: { dxy: pick(d.dollar), fed: pick(d.fed), cot: pick(cot["6e"]) },
+    gbpusd: { dxy: pick(d.dollar), fed: pick(d.fed), cot: pick(cot["6b"]) },
+    audusd: { dxy: pick(d.dollar), fed: pick(d.fed), risk: pick(d.vix), cot: pick(cot["6a"]) },
+    nzdusd: { dxy: pick(d.dollar), fed: pick(d.fed), risk: pick(d.vix), cot: pick(cot["6n"]) },
+    usdjpy: { dxy: pick(d.dollar, true), fed: pick(d.fed, true), yields: pick(d.y10, true), risk: pick(d.vix), cot: pick(cot["6j"], true) },
+    usdcad: { dxy: pick(d.dollar, true), fed: pick(d.fed, true), cot: pick(cot["6c"], true) },
+    usdchf: { dxy: pick(d.dollar, true), fed: pick(d.fed, true), risk: pick(d.vix), cot: pick(cot["6s"], true) },
+    gbpjpy: { risk: pick(d.vix) },
+    eurjpy: { risk: pick(d.vix) },
   };
   // silver follows gold: gold's measured lines decide
   const g = Object.values(out.gold).filter(Boolean).reduce((a, x) => a + x.value, 0);

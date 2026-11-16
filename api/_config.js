@@ -59,12 +59,22 @@ const MARKETS = {
     match: /^M?HG(\d|[FGHJKMNQUVXZ]\d|1!|2!)|COPPER|XCU/i,
     instrument: () => "XCU_USD",
   },
+  // Forex (Nov 2026: his main market now — Tradeify FX on MetaTrader 5). lot = 100,000 units of the first currency.
+  eurusd: { name: "EUR/USD", unit: "EUR", lot: 100000, fx: true, pip: 0.0001, mt5: "EURUSD", match: /^(FX:|OANDA:|FX_IDC:)?EURUSD/i, instrument: () => "EUR_USD" },
+  gbpusd: { name: "GBP/USD", unit: "GBP", lot: 100000, fx: true, pip: 0.0001, mt5: "GBPUSD", match: /^(FX:|OANDA:|FX_IDC:)?GBPUSD/i, instrument: () => "GBP_USD" },
+  usdjpy: { name: "USD/JPY", unit: "USD", lot: 100000, fx: true, pip: 0.01, mt5: "USDJPY", match: /^(FX:|OANDA:|FX_IDC:)?USDJPY/i, instrument: () => "USD_JPY" },
+  audusd: { name: "AUD/USD", unit: "AUD", lot: 100000, fx: true, pip: 0.0001, mt5: "AUDUSD", match: /^(FX:|OANDA:|FX_IDC:)?AUDUSD/i, instrument: () => "AUD_USD" },
+  usdcad: { name: "USD/CAD", unit: "USD", lot: 100000, fx: true, pip: 0.0001, mt5: "USDCAD", match: /^(FX:|OANDA:|FX_IDC:)?USDCAD/i, instrument: () => "USD_CAD" },
+  usdchf: { name: "USD/CHF", unit: "USD", lot: 100000, fx: true, pip: 0.0001, mt5: "USDCHF", match: /^(FX:|OANDA:|FX_IDC:)?USDCHF/i, instrument: () => "USD_CHF" },
+  nzdusd: { name: "NZD/USD", unit: "NZD", lot: 100000, fx: true, pip: 0.0001, mt5: "NZDUSD", match: /^(FX:|OANDA:|FX_IDC:)?NZDUSD/i, instrument: () => "NZD_USD" },
+  gbpjpy: { name: "GBP/JPY", unit: "GBP", lot: 100000, fx: true, pip: 0.01, mt5: "GBPJPY", match: /^(FX:|OANDA:|FX_IDC:)?GBPJPY/i, instrument: () => "GBP_JPY" },
+  eurjpy: { name: "EUR/JPY", unit: "EUR", lot: 100000, fx: true, pip: 0.01, mt5: "EURJPY", match: /^(FX:|OANDA:|FX_IDC:)?EURJPY/i, instrument: () => "EUR_JPY" },
   // the supply & demand scanner's other busy futures (futures only — no CFD instrument)
   rty: { name: "Russell 2000", unit: "points", lot: 50, match: /^(M2K|RTY)(\d|[FGHJKMNQUVXZ]\d|1!|2!)|US2000|RUT/i, instrument: () => "US2000_USD" },
-  "6e": { name: "Euro", unit: "EUR", lot: 125000, match: /^M?6E(\d|[FGHJKMNQUVXZ]\d|1!|2!)|^EURUSD/i, instrument: () => "EUR_USD" },
-  "6b": { name: "British pound", unit: "GBP", lot: 62500, match: /^M?6B(\d|[FGHJKMNQUVXZ]\d|1!|2!)|^GBPUSD/i, instrument: () => "GBP_USD" },
+  "6e": { name: "Euro", unit: "EUR", lot: 125000, match: /^M?6E(\d|[FGHJKMNQUVXZ]\d|1!|2!)/i, instrument: () => "EUR_USD" },
+  "6b": { name: "British pound", unit: "GBP", lot: 62500, match: /^M?6B(\d|[FGHJKMNQUVXZ]\d|1!|2!)/i, instrument: () => "GBP_USD" },
   "6j": { name: "Japanese yen", unit: "JPY", lot: 12500000, match: /^(6J|MJY)(\d|[FGHJKMNQUVXZ]\d|1!|2!)/i, instrument: () => "USD_JPY" },
-  "6a": { name: "Australian dollar", unit: "AUD", lot: 100000, match: /^M?6A(\d|[FGHJKMNQUVXZ]\d|1!|2!)|^AUDUSD/i, instrument: () => "AUD_USD" },
+  "6a": { name: "Australian dollar", unit: "AUD", lot: 100000, match: /^M?6A(\d|[FGHJKMNQUVXZ]\d|1!|2!)/i, instrument: () => "AUD_USD" },
   zn: { name: "10-year note", unit: "points", lot: 1000, match: /^ZN(\d|[FGHJKMNQUVXZ]\d|1!|2!)/i, instrument: () => "USB10Y_USD" },
   zb: { name: "30-year bond", unit: "points", lot: 1000, match: /^ZB(\d|[FGHJKMNQUVXZ]\d|1!|2!)/i, instrument: () => "USB30Y_USD" },
 };
@@ -110,9 +120,10 @@ function futuresSpec(symbol) {
 
 // Which market a TradingView symbol belongs to. Natural gas is checked first
 // so "NATGASUSD" never falls through to another pattern, silver before gold and crude.
+const FX = Object.keys(MARKETS).filter((m) => MARKETS[m].fx); // the pairs he trades, majors then yen crosses
 function marketOf(symbol) {
   const s = String(symbol || "").replace(/^[A-Z_]+:/i, "");
-  for (const id of ["natgas", "silver", "gold", "crude", "copper", "es", "nq", "ym", "rty", "6e", "6b", "6j", "6a", "zn", "zb"]) if (MARKETS[id].match.test(s)) return id;
+  for (const id of [...FX, "natgas", "silver", "gold", "crude", "copper", "es", "nq", "ym", "rty", "6e", "6b", "6j", "6a", "zn", "zb"]) if (MARKETS[id].match.test(s)) return id;
   return null;
 }
 
@@ -197,7 +208,7 @@ const DEFAULT_SETTINGS = {
 };
 
 // His markets, in his order (the Bias tab, David's edge_bias, the S/R alerts' bias line).
-const BIAS_MARKETS = ["gold", "silver", "copper", "natgas", "nq", "ym", "6e", "6a", "6j"];
+const BIAS_MARKETS = ["eurusd", "gbpusd", "usdjpy", "audusd", "usdcad", "usdchf", "nzdusd", "gbpjpy", "eurjpy"];
 
 // Weekly fundamentals: each factor is answered +1 (bullish), -1 (bearish) or 0 (neutral/unclear).
 // Score ≥ +2 → bullish bias, ≤ -2 → bearish, otherwise neutral.
@@ -258,6 +269,72 @@ const BIAS_FACTORS = {
     { id: "risk", label: "Risk mood (VIX)", hint: "VIX falling, growth optimism → bullish. Spiking → bearish." },
     { id: "cot", label: "COT: managed money", hint: "Net longs growing → bullish. Shrinking → bearish." },
   ],
+  // forex (Nov 2026)
+  eurusd: [
+    { id: "dxy", label: "US dollar (DXY)", hint: "Dollar falling → bullish. Rising → bearish." },
+    { id: "fed", label: "Fed tone (US 2-year yield)", hint: "Fed dovish, 2-year falling → bullish. Hawkish → bearish." },
+    { id: "ecb", label: "ECB tone", hint: "ECB hawkish / holding → bullish. Cutting → bearish." },
+    { id: "data", label: "euro vs US data (PMIs, jobs, inflation)", hint: "euro data beating the US → bullish. Worse → bearish." },
+    { id: "cot", label: "COT: hedge funds on the euro", hint: "Adding longs on the euro → bullish. Adding shorts → bearish." }
+  ],
+  gbpusd: [
+    { id: "dxy", label: "US dollar (DXY)", hint: "Dollar falling → bullish. Rising → bearish." },
+    { id: "fed", label: "Fed tone (US 2-year yield)", hint: "Fed dovish, 2-year falling → bullish. Hawkish → bearish." },
+    { id: "boe", label: "Bank of England tone", hint: "Bank of England hawkish / holding → bullish. Cutting → bearish." },
+    { id: "data", label: "pound vs US data (PMIs, jobs, inflation)", hint: "pound data beating the US → bullish. Worse → bearish." },
+    { id: "cot", label: "COT: hedge funds on the pound", hint: "Adding longs on the pound → bullish. Adding shorts → bearish." }
+  ],
+  audusd: [
+    { id: "dxy", label: "US dollar (DXY)", hint: "Dollar falling → bullish. Rising → bearish." },
+    { id: "fed", label: "Fed tone (US 2-year yield)", hint: "Fed dovish, 2-year falling → bullish. Hawkish → bearish." },
+    { id: "rba", label: "RBA tone", hint: "RBA hawkish / holding → bullish. Cutting → bearish." },
+    { id: "data", label: "Aussie vs US data (PMIs, jobs, inflation)", hint: "Aussie data beating the US → bullish. Worse → bearish." },
+    { id: "risk", label: "Risk mood (VIX)", hint: "Calm, VIX falling → bullish. Fear → bearish." },
+    { id: "china", label: "China demand / iron ore", hint: "Stronger → bullish. Weaker → bearish." },
+    { id: "cot", label: "COT: hedge funds on the Aussie", hint: "Adding longs on the Aussie → bullish. Adding shorts → bearish." }
+  ],
+  nzdusd: [
+    { id: "dxy", label: "US dollar (DXY)", hint: "Dollar falling → bullish. Rising → bearish." },
+    { id: "fed", label: "Fed tone (US 2-year yield)", hint: "Fed dovish, 2-year falling → bullish. Hawkish → bearish." },
+    { id: "rbnz", label: "RBNZ tone", hint: "RBNZ hawkish / holding → bullish. Cutting → bearish." },
+    { id: "data", label: "Kiwi vs US data (PMIs, jobs, inflation)", hint: "Kiwi data beating the US → bullish. Worse → bearish." },
+    { id: "risk", label: "Risk mood (VIX)", hint: "Calm, VIX falling → bullish. Fear → bearish." },
+    { id: "cot", label: "COT: hedge funds on the Kiwi", hint: "Adding longs on the Kiwi → bullish. Adding shorts → bearish." }
+  ],
+  usdjpy: [
+    { id: "dxy", label: "US dollar (DXY)", hint: "Dollar rising → bullish. Falling → bearish." },
+    { id: "fed", label: "Fed tone (US 2-year yield)", hint: "Fed hawkish, 2-year rising → bullish. Dovish → bearish." },
+    { id: "boj", label: "Bank of Japan tone", hint: "Bank of Japan hawkish → bearish. Dovish → bullish." },
+    { id: "yields", label: "US 10-year yield", hint: "Rising → bullish (the rate gap widens). Falling → bearish." },
+    { id: "risk", label: "Risk mood (VIX)", hint: "Calm → bullish (yen sold). Fear → bearish (yen bought)." },
+    { id: "cot", label: "COT: hedge funds on the yen", hint: "Adding longs on the yen → bearish for this pair. Adding shorts → bullish." }
+  ],
+  usdcad: [
+    { id: "dxy", label: "US dollar (DXY)", hint: "Dollar rising → bullish. Falling → bearish." },
+    { id: "fed", label: "Fed tone (US 2-year yield)", hint: "Fed hawkish, 2-year rising → bullish. Dovish → bearish." },
+    { id: "boc", label: "Bank of Canada tone", hint: "Bank of Canada hawkish → bearish. Dovish → bullish." },
+    { id: "oil", label: "Oil price", hint: "Oil rising → bearish (CAD stronger). Falling → bullish." },
+    { id: "cot", label: "COT: hedge funds on the Canadian dollar", hint: "Adding longs on the Canadian dollar → bearish for this pair. Adding shorts → bullish." }
+  ],
+  usdchf: [
+    { id: "dxy", label: "US dollar (DXY)", hint: "Dollar rising → bullish. Falling → bearish." },
+    { id: "fed", label: "Fed tone (US 2-year yield)", hint: "Fed hawkish, 2-year rising → bullish. Dovish → bearish." },
+    { id: "snb", label: "SNB tone", hint: "SNB hawkish → bearish. Dovish → bullish." },
+    { id: "risk", label: "Risk mood (VIX)", hint: "Calm → bullish (franc sold). Fear → bearish (franc bought)." },
+    { id: "cot", label: "COT: hedge funds on the Swiss franc", hint: "Adding longs on the Swiss franc → bearish for this pair. Adding shorts → bullish." }
+  ],
+  gbpjpy: [
+    { id: "risk", label: "Risk mood (VIX)", hint: "Calm, risk-on → bullish. Fear → bearish (yen bought)." },
+    { id: "boe", label: "Bank of England tone", hint: "Hawkish → bullish. Dovish → bearish." },
+    { id: "boj", label: "Bank of Japan tone / intervention", hint: "BoJ hiking or Japan intervening → bearish. Staying easy → bullish." },
+    { id: "gbp", label: "GBP/USD direction", hint: "Pound strong → bullish." }
+  ],
+  eurjpy: [
+    { id: "risk", label: "Risk mood (VIX)", hint: "Calm, risk-on → bullish. Fear → bearish (yen bought)." },
+    { id: "ecb", label: "ECB tone", hint: "Hawkish → bullish. Dovish → bearish." },
+    { id: "boj", label: "Bank of Japan tone / intervention", hint: "BoJ hiking or Japan intervening → bearish. Staying easy → bullish." },
+    { id: "eur", label: "EUR/USD direction", hint: "Euro strong → bullish." }
+  ],
   "6e": [
     { id: "dxy", label: "US dollar (DXY)", hint: "Dollar falling → bullish euro. Rising → bearish." },
     { id: "fed", label: "Fed tone & rate expectations (US 2-year yield)", hint: "Cuts / dovish, 2-year falling → bullish euro (dollar weakens). Hikes / hawkish, 2-year rising → bearish." },
@@ -307,4 +384,4 @@ const groupOf = (m) => Object.keys(GROUPS).find((g) => GROUPS[g].includes(m)) ||
 // US holidays / half days (New York dates): futures close early (13:00 New York or earlier) and the prop firm does NOT
 // auto-close on half days — Edge is out by 12:45 on these days.
 const EARLY_CLOSE = new Set(["2026-11-26", "2026-11-27", "2026-12-24", "2026-12-25", "2026-12-31", "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-11-26", "2027-12-24", "2027-12-31"]);
-module.exports = { EARLY_CLOSE, GROUPS, GROUP_NAMES, groupOf, MARKETS, FUTURES, futuresSpec, marketOf, STRATEGIES, strategyPlan, DEFAULT_SETTINGS, BIAS_FACTORS, BIAS_MARKETS, BIAS_MAX_AGE_DAYS, biasFromFactors, mergeSettings };
+module.exports = { FX, EARLY_CLOSE, GROUPS, GROUP_NAMES, groupOf, MARKETS, FUTURES, futuresSpec, marketOf, STRATEGIES, strategyPlan, DEFAULT_SETTINGS, BIAS_FACTORS, BIAS_MARKETS, BIAS_MAX_AGE_DAYS, biasFromFactors, mergeSettings };

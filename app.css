@@ -1292,3 +1292,13 @@ body.teach-on { overflow: hidden; }
 .ln-bias { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 99px; }
 .ln-bias.ok { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
 .ln-bias.no { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+
+/* 📤 MetaTrader 5 + TradingView setups */
+.pos-list { display: grid; gap: 8px; margin-top: 10px; }
+.pos-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line2); background: color-mix(in srgb, var(--text) 3%, transparent); margin-top: 8px; }
+.pos-row small { display: block; margin-top: 3px; }
+.pos-row b.good { color: var(--good); } .pos-row b.bad { color: var(--bad); }
+.mt5card .kpis { margin-top: 8px; }
+.mt5card .kpis b { font-size: 19px; }
+.mt5card .kpis > div { min-width: 0; }
+.mt5card .kpis small, .mt5card .kpis em { overflow-wrap: anywhere; }

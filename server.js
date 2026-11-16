@@ -23,8 +23,8 @@ const { getStore } = require("./api/_store");
 const { getBroker, brokerFor } = require("./api/_broker");
 const { syncTrades } = require("./api/_core");
 
-const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png", ".jpg": "image/jpeg" };
-const STATIC = new Set(["/pine/edge_sr_watch.pine", "/index.html", "/app.js", "/insights.js", "/playbook.js", "/prop.js", "/firms.js", "/sim.js", "/home.js", "/art3d.js", "/trend.js", "/sdchart.js", "/vendor/lightweight-charts.js", "/coach.js", "/reader.js", "/practice.js", "/engine.js", "/strategy15.js", "/replay.js", "/sw.js", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/app.css", "/icon.svg", "/manifest.webmanifest", "/img/rules-example.jpg"]);
+const TYPES = { ".txt": "text/plain; charset=utf-8", ".mq5": "text/plain; charset=utf-8", ".pine": "text/plain; charset=utf-8", ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png", ".jpg": "image/jpeg" };
+const STATIC = new Set(["/pine/edge_fx_playbook.pine", "/pine/fx_watchlist.txt", "/mt5/EdgeBridge.mq5", "/index.html", "/app.js", "/insights.js", "/playbook.js", "/prop.js", "/firms.js", "/sim.js", "/home.js", "/art3d.js", "/trend.js", "/sdchart.js", "/vendor/lightweight-charts.js", "/coach.js", "/reader.js", "/practice.js", "/engine.js", "/strategy15.js", "/replay.js", "/sw.js", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/app.css", "/icon.svg", "/manifest.webmanifest", "/img/rules-example.jpg"]);
 
 function wrap(res) {
   res.status = (c) => { res.statusCode = c; return res; };
@@ -35,12 +35,12 @@ function wrap(res) {
 http.createServer((req, res) => {
   wrap(res);
   const url = new URL(req.url, "http://x");
-  if (["/api/hook", "/api/app", "/api/coach", "/api/mcp"].includes(url.pathname)) {
+  if (["/api/hook", "/api/app", "/api/coach", "/api/mcp", "/api/mt5"].includes(url.pathname)) {
     let raw = "";
     req.on("data", (c) => { raw += c; if (raw.length > 1e6) req.destroy(); });
     req.on("end", () => {
       try { req.body = raw ? JSON.parse(raw) : {}; } catch { req.body = raw; }
-      ({ "/api/hook": hook, "/api/app": app, "/api/coach": coachApi, "/api/mcp": require("./api/mcp") })[url.pathname](req, res);
+      ({ "/api/hook": hook, "/api/app": app, "/api/coach": coachApi, "/api/mcp": require("./api/mcp"), "/api/mt5": require("./api/mt5") })[url.pathname](req, res);
     });
     return;
   }

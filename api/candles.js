@@ -3,6 +3,7 @@
 // Public market data, so no sign-in; cached at Vercel's edge for 30 minutes.
 const SYMBOLS = { gold: "GC=F", crude: "CL=F", natgas: "NG=F", silver: "SI=F", es: "ES=F", nq: "NQ=F", ym: "YM=F", copper: "HG=F" };
 // the trend board also watches these busy futures (trend only — no chart or sizing for them in Edge yet)
+const FXSYM = { eurusd: "EURUSD=X", gbpusd: "GBPUSD=X", usdjpy: "JPY=X", audusd: "AUDUSD=X", usdcad: "CAD=X", usdchf: "CHF=X", nzdusd: "NZDUSD=X", gbpjpy: "GBPJPY=X", eurjpy: "EURJPY=X" };
 const EXTRA = { rty: "RTY=F", "6e": "6E=F", "6b": "6B=F", "6j": "6J=F", "6a": "6A=F", zn: "ZN=F", zb: "ZB=F" };
 const BOARD = [["es", "S&P 500", "ES"], ["nq", "Nasdaq", "NQ"], ["ym", "Dow", "YM"], ["rty", "Russell", "RTY"], ["crude", "Crude", "CL"], ["natgas", "Nat gas", "NG"], ["gold", "Gold", "GC"], ["silver", "Silver", "SI"], ["copper", "Copper", "HG"], ["6e", "Euro", "6E"], ["6b", "Pound", "6B"], ["6j", "Yen", "6J"], ["6a", "Aussie", "6A"], ["zn", "10-yr note", "ZN"], ["zb", "30-yr bond", "ZB"]];
 
@@ -22,7 +23,7 @@ function parse(j) {
 const INTERVALS = { "5m": 59, "15m": 59, "60m": 729, "1d": 3650 }; // daily: 10 years, for the big picture (weekly / daily zones)
 
 async function load(market, days = 59, interval = "5m") {
-  const sym = SYMBOLS[market] || EXTRA[market];
+  const sym = SYMBOLS[market] || EXTRA[market] || FXSYM[market];
   if (!sym) throw new Error("Pick gold, crude, natgas, silver, es or nq");
   let last;
   for (const host of ["query1", "query2"]) {
@@ -46,7 +47,7 @@ module.exports = async (req, res) => {
     if (url.searchParams.get("status")) return res.status(200).json({ databento: !!db.key(), yahoo: true });
     // ?quote=nq — the latest price for an open trade's live P&L (Yahoo; CME futures there run a few minutes behind)
     if (url.searchParams.get("quote")) {
-      const mk = url.searchParams.get("quote"), sym = SYMBOLS[mk] || EXTRA[mk];
+      const mk = url.searchParams.get("quote"), sym = SYMBOLS[mk] || EXTRA[mk] || FXSYM[mk];
       if (!sym) return res.status(400).json({ error: "unknown market" });
       let last;
       for (const host of ["query1", "query2"]) {

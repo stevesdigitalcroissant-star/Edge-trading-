@@ -653,34 +653,17 @@
   // the three steps to get Edge working for you — ticks itself off as each one is done
   function getSetCard() {
     const push = !!pushSub || (S.push && S.push.devices.length > 0);
-    let hide = false, copied = false; try { hide = localStorage.getItem("edge.setupDone") === "1"; copied = localStorage.getItem("edge.srCopied") === "1"; } catch {}
-    if (hide || (copied && push)) return "";
+    let hide = false, copied = false; try { hide = localStorage.getItem("edge.setupDone") === "1"; copied = localStorage.getItem("edge.fxCopied") === "1"; } catch {}
+    const mt5 = !!(S.mt5 && S.mt5.connected);
+    if (hide || (copied && push && mt5)) return "";
     const row = (ok, n, title, text, btn, ic) => `<div class="su-row ${ok ? "ok" : ""}">${!ok && ic && window.EdgeArt ? window.EdgeArt.icon(ic) : `<i>${ok ? "✓" : n}</i>`}<div><b>${title}</b><p class="muted">${text}</p></div>${ok ? "" : btn}</div>`;
     return `<section class="card setup-steps" data-tour="getset"><div class="card-head"><h2>🚀 Get set up</h2><button type="button" class="link" data-suhide>Hide</button></div>
-      ${row(copied, 1, "S/R Watch in TradingView", "Your levels on every pair, watched for you. Copy it into TradingView on a computer (Settings has the steps).", `<button class="btn small" data-copypine="edge_sr_watch">Copy script</button>`, "paste")}
+      ${row(copied, 1, "FX Playbook in TradingView", "Marks your points of interest and the 15m entries on every pair, and sends setups to Edge. Copy it into TradingView on a computer (Settings has the steps).", `<button class="btn small" data-copypine="edge_fx_playbook">Copy script</button>`, "paste")}
+      ${row(mt5, 3, "MetaTrader 5 connected", "Add the EdgeBridge EA to MT5 so “Send to MT5” places your trades with the stop and target (Settings → MetaTrader 5).", `<button class="btn small" data-gotab="rules">Set up</button>`, "push")}
       ${row(push, 2, "Notifications on this phone", push ? "Fills, results and David's notes reach you anywhere." : "Fills and results reach you anywhere.", pushCapable && Notification.permission !== "denied" ? `<button class="btn small" data-pushon>Turn on</button>` : "", "push")}
     </section>`;
   }
 
-
-  // Your levels right now, from the S/R Watch in TradingView — the same picture David reads (edge_watch)
-  function levelsCard() {
-    const w = S.sr;
-    if (!w || !w.live && !(w.pairs || []).length) return `<section class="card slim levelsnow" data-tour="levels"><div class="card-head"><h2>📍 Your levels now</h2></div>
-      <p class="muted">Not connected yet. In TradingView, give the S/R Watch alert Edge's webhook URL (Settings → TradingView) — then you and David see every pair's distance to your levels here.</p></section>`;
-    const tone = (p) => (p.state === "entry" ? "good" : p.state === "touched" || p.closeness === "AT the level" ? "hot" : p.closeness === "close" ? "warm" : "");
-    const label = (p) => (p.state === "entry" ? "✅ Entry" : p.state === "touched" ? "🔔 At level" : p.closeness === "close" ? "Close" : p.closeness === "on its way" ? "On its way" : "Far");
-    const tr = (k, v) => `<span class="tr ${v}">${k} ${v === "up" ? "▲" : v === "down" ? "▼" : "◆"}</span>`;
-    const t = w.trend || {};
-    const near = w.pairs.filter((p) => p.state !== "armed" || p.closeness !== "far").length;
-    return `<section class="card levelsnow" data-tour="levels"><div class="card-head"><h2>📍 Your levels now</h2>
-        <span class="muted">${w.live ? `${w.updatedMinAgo ? w.updatedMinAgo + " min ago" : "live"}` : "not live"} · ${tr("D", t.daily)}${tr("4H", t.h4)}${tr("1H", t.h1)}</span></div>
-      ${w.warning ? `<p class="muted">⏸ ${esc(w.warning)}</p>` : ""}
-      <p class="ln-sum">${near ? `${near} pair${near > 1 ? "s" : ""} near your levels — ask David “what's going on?”` : "Nothing near your levels — no need to watch the charts. 🌿"}</p>
-      <div class="ln-list">${w.pairs.map((p) => `<div class="ln-row ${tone(p)}"><div class="ln-top"><b>${esc(p.pair)}</b><span class="ln-chip">${label(p)}</span>
-        ${p.withBias === true ? `<span class="ln-bias ok">with bias</span>` : p.withBias === false ? `<span class="ln-bias no">against bias</span>` : ""}<span class="num muted">${esc(p.side === "support" ? "S" : "R")} ${esc(p.level)} · ${p.distanceATR ?? "?"}× ATR</span></div><small>${esc(p.say)}</small></div>`).join("")}</div>
-    </section>`;
-  }
 
   // This week's bias, one chip per market (yours if you checked it this week, else the data's, marked "data")
   function biasStrip() {
@@ -690,6 +673,67 @@
     return `<section class="card slim biasstrip" data-tour="biasstrip"><div class="card-head"><h2>🧭 This week's bias</h2><button type="button" class="link" data-gotab="bias">${any ? "Open" : "Check it"}</button></div>
       <div class="bs-chips">${ms.map((m) => { const b = S.biasNow[m], d = b.dir; return `<span class="bs ${d === "long" ? "up" : d === "short" ? "down" : ""} ${b.source !== "you" ? "data" : ""}" title="${b.source === "you" ? "you set it" : b.source === "data" ? "from the data, not checked yet" : "not set"}"><b>${esc(mname(m))}</b> ${d === "long" ? "▲ bullish" : d === "short" ? "▼ bearish" : d === "neutral" ? "◆ neutral" : "— not set"}</span>`; }).join("")}</div>
       ${any ? "" : `<p class="muted" style="margin:8px 0 0">Faded = from the data, not checked yet. Ask David “let's do my bias”.</p>`}</section>`;
+  }
+
+  // ---------- MetaTrader 5 (the EdgeBridge EA on his computer places what he sends from here)
+  const pipOf = (m) => (/jpy$/.test(m) ? 0.01 : 0.0001);
+  const pipUsd = (m, px) => (/usd$/.test(m) ? 10 : /jpy$/.test(m) ? 1000 / (m === "usdjpy" && px ? px : 150) : 10 / (px || 1)); // $ per pip on 1 lot (≈)
+  const fxp = (m, v) => (v == null ? "—" : Number(v).toFixed(/jpy$/.test(m) ? 3 : 5));
+  function mt5Card() {
+    const M = S.mt5;
+    if (!M || !M.keySet) return `<section class="card slim"><div class="card-head"><h2>📤 MetaTrader 5</h2><button type="button" class="link" data-gotab="rules">Connect</button></div><p class="muted">Connect MT5 once (Settings → MetaTrader 5) and “Send to MT5” places your trades with the stop, target and lot size worked out for you.</p></section>`;
+    const a = M.account || {}, r = M.room || {}, money = (v) => (v == null ? "—" : `$${Number(v).toFixed(2)}`);
+    const pos = M.positions.map((p) => `<div class="pos-row"><div><b>${esc(mname(p.market) || p.symbol)}</b> <span class="pill ${p.dir === "long" ? "good" : "bad"}">${p.dir === "long" ? "BUY" : "SELL"} ${p.volume}</span>
+        <small class="muted">in ${fxp(p.market, p.open)} · stop ${fxp(p.market, p.sl)} · target ${fxp(p.market, p.tp)}</small></div>
+        <b class="${p.profit >= 0 ? "good" : "bad"}">${p.profit >= 0 ? "+" : ""}${money(p.profit)}</b><button class="btn small" data-mt5close="${esc(p.ticket)}">Close</button></div>`).join("");
+    const ord = M.orders.map((o) => `<div class="pos-row"><div><b>${esc(mname(o.market) || o.symbol)}</b> <span class="pill warn">${o.dir === "long" ? "BUY" : "SELL"} limit ${o.volume}</span>
+        <small class="muted">at ${fxp(o.market, o.price)} · stop ${fxp(o.market, o.sl)} · target ${fxp(o.market, o.tp)}</small></div><span></span><button class="btn small" data-mt5cancel="${esc(o.ticket)}">Cancel</button></div>`).join("");
+    const errs = M.recent.filter((c) => c.status === "error" && S.now - c.at < 6 * 3600e3).slice(0, 2).map((c) => `<p class="err">⚠️ ${esc(mname(c.market) || "")} ${esc(c.side || c.type)}: ${esc(c.error || "")}</p>`).join("");
+    const waiting = M.recent.filter((c) => c.status === "pending" || c.status === "sent").length;
+    return `<section class="card mt5card" data-tour="mt5"><div class="card-head"><h2>📤 MetaTrader 5</h2>
+        <span class="pill ${M.connected ? "good" : "warn"}">${M.connected ? "● connected" : M.lastSeenSec != null ? `last seen ${Math.round(M.lastSeenSec / 60)} min ago` : "not connected yet"}</span></div>
+      ${M.connected ? `<div class="kpis"><div><small>Equity</small><b>${money(a.equity)}</b><em>balance ${money(a.balance)}</em></div><div><small>Today</small><b class="${(a.dayPnl || 0) >= 0 ? "good" : "bad"}">${money(a.dayPnl)}</b><em>${money(r.dayLeft)} left of $${M.rules.daily}</em></div><div><small>To max loss</small><b>${money(r.toFloor)}</b><em>${r.tradesLeft} trade${r.tradesLeft === 1 ? "" : "s"} left today</em></div></div>`
+        : `<p class="muted">Open MT5 on your computer with the <b>EdgeBridge</b> EA on any chart — Edge sees it within seconds.</p>`}
+      ${errs}${waiting ? `<p class="muted">⏳ ${waiting} order${waiting > 1 ? "s" : ""} on the way to MT5…</p>` : ""}
+      ${pos || ord ? `<div class="pos-list">${pos}${ord}</div>` : ""}
+      <div class="row" style="margin-top:10px"><button class="btn primary" data-mt5new>＋ New trade</button></div></section>`;
+  }
+  function fxSetupsCard() {
+    const L = S.fxSetups || [];
+    if (!L.length) return "";
+    const ar = (v) => (v > 0 ? "▲" : v < 0 ? "▼" : "◆");
+    return `<section class="card" data-tour="fxsetups"><div class="card-head"><h2>📣 Setups from TradingView</h2><span class="muted">check the chart first</span></div>
+      ${L.slice(0, 5).map((x) => `<div class="pos-row"><div><b>${esc(mname(x.market))}</b> <span class="pill ${x.side === "buy" ? "good" : "bad"}">${x.side === "buy" ? "BUY" : "SELL"} limit</span> <small class="muted">${time(x.at)} · D${ar(x.trend.d)} 4H${ar(x.trend.h4)} 1H${ar(x.trend.h1)}</small>
+        <small class="muted">entry ${fxp(x.market, x.entry)} · stop ${fxp(x.market, x.sl)} · target ${fxp(x.market, x.tp)} · 1:${x.rr}</small></div><span></span><button class="btn small primary" data-mt5send="${esc(x.id)}">Send to MT5</button></div>`).join("")}</section>`;
+  }
+  // the playbook checklist, ticked while the trade is planned (his rule: journal in real time, not afterwards)
+  const FXCHECKS = [["poi", "Price reacted at a point of interest (PDH / PDL or a 1H gap)"], ["sweep", "Liquidity swept, then a strong move away"], ["choch", "15m change of character"], ["mid", "Entry at the midpoint of the 15m gap"], ["stop", "Stop past the low / high of the move"], ["target", "Target 1:3 or more, at the next gap or PDH / PDL"], ["trend", "4H + 1H trend agree"], ["news", "No red-folder news in the next 30 min"]];
+  function mt5TradeDialog(pref = {}) {
+    const body = $("#modalBody"), m0 = pref.market || (S.fx || [])[0];
+    body.innerHTML = `<h3>📤 Send a trade to MT5</h3>
+      <div class="grid2"><label class="f">Pair<select id="tPair">${(S.fx || []).map((m) => `<option value="${m}" ${m === m0 ? "selected" : ""}>${esc(mname(m))}</option>`).join("")}</select></label>
+        <label class="f">Direction<select id="tSide"><option value="buy" ${pref.side !== "sell" ? "selected" : ""}>Buy</option><option value="sell" ${pref.side === "sell" ? "selected" : ""}>Sell</option></select></label>
+        <label class="f">Order<select id="tType"><option value="limit">Limit (at your entry)</option><option value="market">Market (now)</option></select></label>
+        <label class="f">Entry<input id="tEntry" inputmode="decimal" value="${pref.entry ?? ""}"></label>
+        <label class="f">Stop loss<input id="tSL" inputmode="decimal" value="${pref.sl ?? ""}"></label>
+        <label class="f">Take profit<input id="tTP" inputmode="decimal" value="${pref.tp ?? ""}"></label>
+        <label class="f">Risk ($)<input id="tRisk" type="number" step="5" value="${riskNow()}"></label></div>
+      <p class="muted" id="tCalc"></p>
+      <details class="checkwrap" open><summary><b>Your checklist</b> <span class="muted">— tick what's true</span></summary>${FXCHECKS.map(([k, l]) => `<label class="f" style="flex-direction:row;display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" data-fxchk="${k}" style="width:auto"> ${l}</label>`).join("")}</details>
+      <div class="row" style="margin-top:10px"><button class="btn primary" type="button" id="tSend">Send to MT5</button><button class="btn" value="cancel">Cancel</button></div>`;
+    const calc = () => { const m = $("#tPair").value, e = Number($("#tEntry").value), sl = Number($("#tSL").value), tp = Number($("#tTP").value), risk = Number($("#tRisk").value);
+      if (!(e && sl && risk)) { $("#tCalc").textContent = "Fill in entry, stop and risk — the EA works out the exact lot size."; return; }
+      const pips = Math.abs(e - sl) / pipOf(m), lots = risk / (pips * pipUsd(m, e)), rr = tp ? Math.abs(tp - e) / Math.abs(e - sl) : null;
+      $("#tCalc").innerHTML = `Stop ${pips.toFixed(1)} pips · about <b>${lots.toFixed(2)} lots</b>${rr ? ` · reward 1:${rr.toFixed(1)}${rr < 3 ? " — under your 1:3" : ""}` : ""} <small>(the EA sizes it exactly from MT5)</small>`; };
+    body.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", calc)); calc();
+    $("#tSend").addEventListener("click", async () => {
+      const ticks = [...body.querySelectorAll("[data-fxchk]")].filter((x) => x.checked).map((x) => x.dataset.fxchk);
+      if (ticks.length < FXCHECKS.length && !confirm(`Only ${ticks.length} of ${FXCHECKS.length} checklist points ticked. Send it anyway?`)) return;
+      const r = await act({ action: "mt5Send", market: $("#tPair").value, side: $("#tSide").value, type: $("#tType").value, entry: $("#tEntry").value, sl: $("#tSL").value, tp: $("#tTP").value, riskUSD: Number($("#tRisk").value),
+        note: `checklist ${ticks.length}/${FXCHECKS.length}${ticks.length < FXCHECKS.length ? " — missing: " + FXCHECKS.filter(([k]) => !ticks.includes(k)).map(([, l]) => l).join("; ") : ""}` }, "Sent — MT5 places it within a few seconds.");
+      if (r) $("#modal").close();
+    });
+    $("#modal").showModal();
   }
 
   // a warm hello and one short mindset line a day (same line all day, a new one tomorrow)
@@ -735,7 +779,7 @@
       ${tile("shot", "Log a trade", "upload a screenshot", "data-shot")}
       ${setupShown || ps.on ? "" : tile("push", "Alerts on", pushOk ? "to this phone" : "how to turn on", pushOk ? "data-pushon" : `data-pushhelp="${esc(ps.text)}"`, "push")}
     </section>`;
-    return `${pend}${getSet}${hero}${openCard}${levelsCard()}${biasStrip()}${tiles}${stats}${news}`;
+    return `${pend}${getSet}${hero}${openCard}${mt5Card()}${fxSetupsCard()}${biasStrip()}${tiles}${stats}${news}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -1424,11 +1468,11 @@
   function viewRules() {
     const s = S.settings;
     const n = (k, label, step = "1") => `<label class="f">${label}<input data-set="${k}" type="number" step="${step}" value="${s[k]}"></label>`;
-    const sess = Object.keys(S.markets).map((m) => `<label class="f">${esc(S.markets[m].name)} hours (${esc(s.tz)})<input data-sess="${m}" value="${esc(s.sessions[m].join("-"))}" placeholder="08:00-14:30"></label>`).join("");
+    const sess = Object.keys(S.markets).map((m) => `<label class="f">${esc(S.markets[m].name)} hours (${esc(s.tz)})<input data-sess="${m}" value="${esc((s.sessions[m] || []).join("-"))}" placeholder="08:00-14:30"></label>`).join("");
     const ok = (b) => (b ? `<span class="pill good">on</span>` : `<span class="pill warn">off</span>`);
     const hook = `${location.origin}/api/hook`;
     const ps = pushStatus();
-    const kinds = [["level", "Price at one of your levels"], ["setup", "BUY / SELL setups at your levels"], ["closed", "Trade closed + result"], ["warn", "Stop moved or missing on an open trade"], ["news", "Big news coming"], ["info", "Other (David, journal)"]];
+    const kinds = [["setup", "BUY / SELL setups from TradingView (FX Playbook)"], ["level", "Price at one of your levels"], ["closed", "Trade closed + result"], ["warn", "Stop moved or missing on an open trade"], ["news", "Big news coming"], ["info", "Other (David, journal)"]];
     const notifCard = `<section class="card"><h2>Notifications</h2>
         <div class="row between"><span class="pill ${ps.on ? "good" : "warn"}" style="white-space:normal;max-width:100%">${esc(ps.text)}</span>
           ${ps.on ? `<span class="row"><button class="btn small" data-testalert>Send a test</button><button class="btn small danger" data-pushoff>Turn off here</button></span>` : pushCapable && Notification.permission !== "denied" ? `<button class="btn small primary" data-pushon>Turn on for this device</button>` : ""}</div>
@@ -1436,21 +1480,37 @@
         <p class="muted">Devices receiving alerts: ${S.push.devices.length ? S.push.devices.map((d) => esc(d.label || "device")).join(", ") : "none yet"}. Turn it on on each phone, iPad or computer you want alerts on.</p>
         <div class="grid2">${kinds.map(([k, l]) => `<label class="f" style="flex-direction:row;display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" data-notify="${k}" style="width:auto" ${s.notify[k] ? "checked" : ""}> ${l}</label>`).join("")}</div>
       </section>`;
-    const tvCard = `<section class="card"><h2>TradingView: S/R Watch</h2>
-        <p class="muted" style="margin-top:0">Your levels on up to 15 pairs, watched for you: one alert when price comes to a level (then it has to leave first), one when the entry lines up — Heikin Ashi turns your way, the candle closes back, the 80 SMA agrees. Daily / 4H / 1H trend in the top-right corner.</p>
-        <div class="row"><button class="btn small primary" data-copypine="edge_sr_watch">Copy S/R Watch</button></div>
+    const tvCard = `<section class="card"><h2>TradingView: FX Playbook</h2>
+        <p class="muted" style="margin-top:0">Marks your points of interest — previous day high / low, the New York open, 1H fair value gaps — and the 15m entry when price reacts there: change of character, limit at the 15m gap midpoint, stop past the move, target 1:3 or the previous day high / low. Daily / 4H / 1H trend top right. Each setup lands here with a “Send to MT5” button.</p>
+        <div class="row"><button class="btn small primary" data-copypine="edge_fx_playbook">Copy FX Playbook</button><a class="btn small" href="/pine/fx_watchlist.txt" download>Download the watchlist</a><button class="btn small" id="copyHook">Copy webhook URL</button></div>
         <ol class="steps">
-          <li>Tap <b>Copy S/R Watch</b>, then on a computer open TradingView on a <b>5-minute</b> chart.</li>
-          <li>Bottom panel → <b>Pine Editor</b> → delete everything there (Ctrl+A / ⌘A, Delete), paste → <b>Save</b> → <b>Add to chart</b>.</li>
-          <li>The script's settings → type your levels, one pair per line: <code>OANDA:XAUUSD = 2405.5, 2380</code>.</li>
-          <li><b>Alert</b> (clock icon) → Condition: <b>Edge · S/R Watch</b> → <b>Any alert() function call</b> → <b>Once per bar close</b> → turn on app notifications → Create. One alert covers every pair.</li>
+          <li><b>Watchlist:</b> in TradingView, the watchlist menu (⋯) → <b>Import list…</b> → pick <code>fx_watchlist.txt</code>. Majors and yen crosses, in two sections.</li>
+          <li>Tap <b>Copy FX Playbook</b>, then on a computer: a <b>15-minute</b> chart → <b>Pine Editor</b> → select all, delete, paste → <b>Save</b> → <b>Add to chart</b>.</li>
+          <li>One <b>alert per pair</b> (open each pair, clock icon) → Condition: <b>Edge · FX Playbook</b> → <b>Any alert() function call</b> → Notifications: <b>Webhook URL</b> = <code>${esc(hook)}</code>, untick the app notification (Edge sends it).</li>
         </ol>
+      </section>`;
+    const M = S.mt5 || {}, R = M.rules || {};
+    const mt5Card = `<section class="card"><h2>MetaTrader 5</h2>
+        <p class="muted" style="margin-top:0">Edge never logs in to your broker. A small EA you add to MT5 on your computer (or a VPS) asks Edge every 2 seconds for the trades you sent, places them with the stop and target, sizes the lots from your risk, and reports your account and closed trades back to your journal. MT5 has to be open for it to work.</p>
+        <p><span class="pill ${M.connected ? "good" : "warn"}">${M.connected ? `● connected · ${esc((M.account || {}).server || "")} #${esc((M.account || {}).login || "")}` : M.keySet ? "key made — waiting for the EA" : "not set up"}</span></p>
+        <ol class="steps">
+          <li>Tap <b>Make MT5 key</b> and copy it (it's shown once).</li>
+          <li><a href="/mt5/EdgeBridge.mq5" download>Download EdgeBridge.mq5</a>. In MT5: <b>File → Open Data Folder → MQL5 → Experts</b>, put it there, then in MT5's Navigator right-click <b>Expert Advisors → Refresh</b>.</li>
+          <li><b>Tools → Options → Expert Advisors</b>: tick <b>Allow algorithmic trading</b> and <b>Allow WebRequest for listed URL</b>, add <code>${esc(location.origin)}</code>.</li>
+          <li>Drag <b>EdgeBridge</b> onto any one chart → Inputs: paste the key (and your broker's symbol suffix if it has one, like <code>.x</code>) → OK. Turn on <b>Algo Trading</b> in the toolbar.</li>
+        </ol>
+        <div class="row"><button class="btn small primary" id="mt5Key">${M.keySet ? "Make a new MT5 key" : "Make MT5 key"}</button>${M.keySet ? `<button class="btn small danger" id="mt5Revoke">Disconnect MT5</button>` : ""}</div>
+        <h3 style="margin-top:16px">Prop firm rules Edge checks before sending</h3>
+        <div class="grid2"><label class="f">Account size ($)<input id="pSize" type="number" value="${R.size ?? 5000}"></label><label class="f">Max loss floor — equity never below ($)<input id="pFloor" type="number" value="${R.floor ?? 4500}"></label>
+          <label class="f">Daily loss limit ($)<input id="pDaily" type="number" value="${R.daily ?? 150}"></label><label class="f">Max trades a day<input id="pMax" type="number" value="${R.maxTrades ?? 3}"></label></div>
+        <p class="muted">Set for ${esc(R.firm || "Tradeify FX · Classic 5K")}: $500 static max loss, $150 a day. Funded accounts: no trading 10 minutes either side of red-folder news.</p>
+        <div class="row"><button class="btn small" id="mt5Rules">Save rules</button></div>
       </section>`;
     const stratCard = `<section class="card"><h2>💵 Your risk</h2>
         <p class="muted" style="margin-top:0">What one trade risks — your journal turns every result into dollars with it.</p>
         <div class="grid2"><label class="f">Risk per trade ($)<input id="riskUsd" type="number" step="10" value="${riskNow()}"></label></div>
         <div class="row" style="margin-top:12px"><button class="btn primary" data-saverules>Save</button></div></section>`;
-    return `${rulesCard()}${stratCard}${tvCard}${notifCard}
+    return `${rulesCard()}${stratCard}${mt5Card}${tvCard}${notifCard}
       <section class="card"><h2>Account</h2>
         <div class="acct"><div class="avatar">${esc((S.account && S.account.email || "?")[0].toUpperCase())}</div>
           <div><b>${esc(S.account ? S.account.email : "")}</b><small class="muted">Member since ${S.account ? new Date(S.account.created).toLocaleDateString([], { month: "long", year: "numeric" }) : ""}</small></div></div>
@@ -1550,12 +1610,22 @@
       try {
         const [{ secret }, src] = await Promise.all([api("POST", { action: "tvSetup" }), fetch(`/pine/${cpn.dataset.copypine}.pine`, { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("Couldn't load the script"); return r.text(); })]);
         const code = secret ? src.replace('input.string("change-me"', `input.string(${JSON.stringify(secret)}`) : src;
-        await navigator.clipboard.writeText(code); if (cpn.dataset.copypine === "edge_sr_watch") { try { localStorage.setItem("edge.srCopied", "1"); } catch {} }
+        await navigator.clipboard.writeText(code); if (cpn.dataset.copypine === "edge_fx_playbook") { try { localStorage.setItem("edge.fxCopied", "1"); } catch {} }
         toast(secret ? "Script copied — with your secret inside. In TradingView's Pine Editor press Ctrl+A (⌘A on Mac), Delete, then paste." : "Script copied. Set EDGE_HOOK_SECRET in Vercel, then put it in the script's settings.", 6000);
       } catch (e) { toast(e.message || "Couldn't copy — open it on a computer and try again.", 6000); }
     }));
     const chk = $("#copyHook"); if (chk) chk.addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.origin + "/api/hook"); toast("Webhook URL copied."); } catch { toast(location.origin + "/api/hook", 8000); } });
     const lt = $("#logTrade"); if (lt) lt.addEventListener("click", logTradeDialog);
+    v.querySelectorAll("[data-mt5new]").forEach((b) => b.addEventListener("click", () => mt5TradeDialog()));
+    v.querySelectorAll("[data-mt5send]").forEach((b) => b.addEventListener("click", () => mt5TradeDialog((S.fxSetups || []).find((x) => x.id === b.dataset.mt5send) || {})));
+    v.querySelectorAll("[data-mt5close]").forEach((b) => b.addEventListener("click", () => { if (confirm("Close this trade at the market price now?")) act({ action: "mt5Close", ticket: b.dataset.mt5close }, "Closing it in MT5…"); }));
+    v.querySelectorAll("[data-mt5cancel]").forEach((b) => b.addEventListener("click", () => act({ action: "mt5Close", ticket: b.dataset.mt5cancel, kind: "cancel" }, "Cancelling the order in MT5…")));
+    const mk = $("#mt5Key"); if (mk) mk.addEventListener("click", async () => {
+      if (S.mt5 && S.mt5.keySet && !confirm("Make a new key? The EA with the old key stops working until you paste the new one.")) return;
+      try { const r = await api("POST", { action: "mt5Key" }); try { await navigator.clipboard.writeText(r.key); } catch {}
+        prompt("Your MT5 key (copied) — paste it into the EdgeBridge EA's inputs. It's shown only once:", r.key); refresh(); } catch (e) { toast(e.message, 6000); } });
+    const mr = $("#mt5Revoke"); if (mr) mr.addEventListener("click", () => { if (confirm("Disconnect MT5? The EA stops getting orders until you make a new key.")) act({ action: "mt5Revoke" }, "MT5 disconnected."); });
+    const ms = $("#mt5Rules"); if (ms) ms.addEventListener("click", () => act({ action: "mt5Rules", size: $("#pSize").value, floor: $("#pFloor").value, daily: $("#pDaily").value, maxTrades: $("#pMax").value }, "Prop rules saved."));
     v.querySelectorAll("[data-tvconnect]").forEach((b) => b.addEventListener("click", tradovateConnect));
     v.querySelectorAll("[data-tvdisconnect]").forEach((b) => b.addEventListener("click", async () => { if (confirm("Disconnect Tradovate? Edge stops placing orders for you (open positions stay on Tradovate).")) act({ action: "tradovateDisconnect" }, "Tradovate disconnected."); }));
     v.querySelectorAll("[data-testalert]").forEach((b) => b.addEventListener("click", async () => { const r = await act({ action: "testAlert" }); if (r) toast(r.sent ? "Sent — check your phone." : "No device has notifications on yet — tap Turn on first."); }));
