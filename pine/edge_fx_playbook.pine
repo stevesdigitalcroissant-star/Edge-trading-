@@ -137,7 +137,7 @@ if not na(pl)
 f_q(string s) => "\"" + s + "\""
 f_p(float v) => str.tostring(v, format.mintick)
 f_msg(string side, float e, float s, float t, string why) =>
-    "{\"secret\":" + f_q(secret) + ",\"type\":\"fx\",\"pair\":" + f_q(syminfo.ticker) + ",\"tv\":" + f_q(syminfo.tickerid) + ",\"side\":" + f_q(side) + ",\"entry\":" + f_p(e) + ",\"sl\":" + f_p(s) + ",\"tp\":" + f_p(t) + ",\"lots\":" + str.tostring(f_lots(e, s)) + ",\"tf\":" + f_q(timeframe.period) + ",\"trend\":{\"d\":" + str.tostring(trD) + ",\"h4\":" + str.tostring(tr4) + ",\"h1\":" + str.tostring(tr1) + "},\"why\":" + f_q(why) + "}"
+    "{\"secret\":" + f_q(secret) + ",\"type\":\"fx\",\"pair\":" + f_q(syminfo.ticker) + ",\"tv\":" + f_q(syminfo.tickerid) + ",\"side\":" + f_q(side) + ",\"entry\":" + f_p(e) + ",\"sl\":" + f_p(s) + ",\"tp\":" + f_p(t) + ",\"lots\":" + (na(f_lots(e, s)) ? "null" : str.tostring(f_lots(e, s))) + ",\"tf\":" + f_q(timeframe.period) + ",\"trend\":{\"d\":" + str.tostring(trD) + ",\"h4\":" + str.tostring(tr4) + ",\"h1\":" + str.tostring(tr1) + "},\"why\":" + f_q(why) + "}"
 
 f_draw(int dir, float e, float s, float t) =>
     c = dir > 0 ? color.green : color.red
