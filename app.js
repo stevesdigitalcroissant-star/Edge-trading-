@@ -698,6 +698,36 @@
       ${pos || ord ? `<div class="pos-list">${pos}${ord}</div>` : ""}
       <div class="row" style="margin-top:10px"><button class="btn primary" data-mt5new>＋ New trade</button></div></section>`;
   }
+  // today's USD/JPY, USD/CAD or USD/CHF when a pair's quote currency isn't the dollar (cached a minute)
+  const RATES = {};
+  async function usdRate(m) {
+    const L = window.EdgeLots, q = L.QUOTE[m]; if (!q || q === "USD" || m.startsWith("usd")) return null;
+    const pair = L.RATE_PAIR[q], c = RATES[pair]; if (c && Date.now() - c.at < 60e3) return c.v;
+    try { const r = await fetch(`/api/candles?quote=${pair}`).then((x) => x.json()); if (r.price > 0) { RATES[pair] = { v: r.price, at: Date.now() }; return r.price; } } catch {}
+    return null;
+  }
+  // 🧮 exact lot size before any trade (also inside "Send to MT5")
+  function lotCard() {
+    let last = {}; try { last = JSON.parse(localStorage.getItem("edge.lotcalc") || "{}"); } catch {}
+    const m0 = last.m || (S.fx || [])[0];
+    return `<section class="card lotcard" data-tour="lots"><div class="card-head"><h2>🧮 Lot size</h2><span class="muted">exact, rounded down</span></div>
+      <div class="grid4"><label class="f"><small>Pair</small><select id="lcPair">${(S.fx || []).map((m) => `<option value="${m}" ${m === m0 ? "selected" : ""}>${esc(mname(m))}</option>`).join("")}</select></label>
+        <label class="f"><small>Entry</small><input id="lcEntry" inputmode="decimal" value="${esc(last.e || "")}"></label>
+        <label class="f"><small>Stop</small><input id="lcStop" inputmode="decimal" value="${esc(last.s || "")}"></label>
+        <label class="f"><small>Risk ($)</small><input id="lcRisk" inputmode="decimal" value="${esc(last.r || riskNow())}"></label></div>
+      <div class="lc-out" id="lcOut"><span class="muted">Type the entry and stop.</span></div></section>`;
+  }
+  async function lotCalc() {
+    const o = $("#lcOut"); if (!o) return;
+    const m = $("#lcPair").value, e = $("#lcEntry").value, st = $("#lcStop").value, rk = $("#lcRisk").value;
+    try { localStorage.setItem("edge.lotcalc", JSON.stringify({ m, e, s: st, r: rk })); } catch {}
+    if (!(Number(e) && Number(st) && Number(rk))) { o.innerHTML = `<span class="muted">Type the entry and stop.</span>`; return; }
+    const r = window.EdgeLots.lots({ market: m, entry: e, stop: st, risk: rk, usdxxx: await usdRate(m) });
+    if (!r) { o.innerHTML = `<span class="err">Couldn't get today's rate for ${esc(mname(m))} — try again in a moment.</span>`; return; }
+    const dir = Number(st) < Number(e) ? 1 : -1, tp = Number(e) + dir * 3 * Math.abs(Number(e) - Number(st));
+    o.innerHTML = r.tooWide ? `<b class="bad">Stop too wide</b> <span class="muted">— even 0.01 lots risks $${(r.perLot / 100).toFixed(2)}.</span>`
+      : `<div class="lc-big">${r.lots.toFixed(2)} <small>lots</small></div><div class="muted">${r.pips} pips · $${r.pipUsdPerLot} a pip per lot · <b>$${r.riskAtLots}</b> at risk · 1:3 target ${fxp(m, tp)}</div>`;
+  }
   function fxSetupsCard() {
     const L = S.fxSetups || [];
     if (!L.length) return "";
@@ -721,10 +751,10 @@
       <p class="muted" id="tCalc"></p>
       <details class="checkwrap" open><summary><b>Your checklist</b> <span class="muted">— tick what's true</span></summary>${FXCHECKS.map(([k, l]) => `<label class="f" style="flex-direction:row;display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" data-fxchk="${k}" style="width:auto"> ${l}</label>`).join("")}</details>
       <div class="row" style="margin-top:10px"><button class="btn primary" type="button" id="tSend">Send to MT5</button><button class="btn" value="cancel">Cancel</button></div>`;
-    const calc = () => { const m = $("#tPair").value, e = Number($("#tEntry").value), sl = Number($("#tSL").value), tp = Number($("#tTP").value), risk = Number($("#tRisk").value);
-      if (!(e && sl && risk)) { $("#tCalc").textContent = "Fill in entry, stop and risk — the EA works out the exact lot size."; return; }
-      const pips = Math.abs(e - sl) / pipOf(m), lots = risk / (pips * pipUsd(m, e)), rr = tp ? Math.abs(tp - e) / Math.abs(e - sl) : null;
-      $("#tCalc").innerHTML = `Stop ${pips.toFixed(1)} pips · about <b>${lots.toFixed(2)} lots</b>${rr ? ` · reward 1:${rr.toFixed(1)}${rr < 3 ? " — under your 1:3" : ""}` : ""} <small>(the EA sizes it exactly from MT5)</small>`; };
+    const calc = async () => { const m = $("#tPair").value, e = Number($("#tEntry").value), sl = Number($("#tSL").value), tp = Number($("#tTP").value), risk = Number($("#tRisk").value);
+      if (!(e && sl && risk)) { $("#tCalc").textContent = "Fill in entry, stop and risk — you'll see the exact lot size."; return; }
+      const r = window.EdgeLots.lots({ market: m, entry: e, stop: sl, risk, usdxxx: await usdRate(m) }), rr = tp ? Math.abs(tp - e) / Math.abs(e - sl) : null;
+      $("#tCalc").innerHTML = !r ? "Couldn't get today's rate for this pair — the EA still sizes it exactly." : `Stop ${r.pips} pips · <b>${r.tooWide ? "stop too wide for this risk" : r.lots.toFixed(2) + " lots"}</b> = $${r.riskAtLots} at risk${rr ? ` · reward 1:${rr.toFixed(1)}${rr < 3 ? " — under your 1:3" : ""}` : ""} <small>(the EA re-checks it with your broker's exact values)</small>`; };
     body.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", calc)); calc();
     $("#tSend").addEventListener("click", async () => {
       const ticks = [...body.querySelectorAll("[data-fxchk]")].filter((x) => x.checked).map((x) => x.dataset.fxchk);
@@ -779,7 +809,7 @@
       ${tile("shot", "Log a trade", "upload a screenshot", "data-shot")}
       ${setupShown || ps.on ? "" : tile("push", "Alerts on", pushOk ? "to this phone" : "how to turn on", pushOk ? "data-pushon" : `data-pushhelp="${esc(ps.text)}"`, "push")}
     </section>`;
-    return `${pend}${getSet}${hero}${openCard}${mt5Card()}${fxSetupsCard()}${biasStrip()}${tiles}${stats}${news}`;
+    return `${pend}${getSet}${hero}${openCard}${mt5Card()}${fxSetupsCard()}${lotCard()}${biasStrip()}${tiles}${stats}${news}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -1499,6 +1529,7 @@
           <li><b>Tools → Options → Expert Advisors</b>: tick <b>Allow algorithmic trading</b> and <b>Allow WebRequest for listed URL</b>, add <code>${esc(location.origin)}</code>.</li>
           <li>Drag <b>EdgeBridge</b> onto any one chart → Inputs: paste the key (and your broker's symbol suffix if it has one, like <code>.x</code>) → OK. Turn on <b>Algo Trading</b> in the toolbar.</li>
         </ol>
+        <p class="muted">Lot calculator inside MT5: <a href="/mt5/EdgeLots.mq5" download>download EdgeLots.mq5</a> → put it in <b>MQL5 → Indicators</b> → Refresh → drag onto a chart, then drag its blue ENTRY and red STOP lines. It reads your broker's exact values, so the lots are exact on every pair.</p>
         <div class="row"><button class="btn small primary" id="mt5Key">${M.keySet ? "Make a new MT5 key" : "Make MT5 key"}</button>${M.keySet ? `<button class="btn small danger" id="mt5Revoke">Disconnect MT5</button>` : ""}</div>
         <h3 style="margin-top:16px">Prop firm rules Edge checks before sending</h3>
         <div class="grid2"><label class="f">Account size ($)<input id="pSize" type="number" value="${R.size ?? 5000}"></label><label class="f">Max loss floor — equity never below ($)<input id="pFloor" type="number" value="${R.floor ?? 4500}"></label>
@@ -1616,6 +1647,7 @@
     }));
     const chk = $("#copyHook"); if (chk) chk.addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.origin + "/api/hook"); toast("Webhook URL copied."); } catch { toast(location.origin + "/api/hook", 8000); } });
     const lt = $("#logTrade"); if (lt) lt.addEventListener("click", logTradeDialog);
+    ["lcPair", "lcEntry", "lcStop", "lcRisk"].forEach((id) => { const el = $("#" + id); if (el) el.addEventListener("input", lotCalc); }); if ($("#lcOut")) lotCalc();
     v.querySelectorAll("[data-mt5new]").forEach((b) => b.addEventListener("click", () => mt5TradeDialog()));
     v.querySelectorAll("[data-mt5send]").forEach((b) => b.addEventListener("click", () => mt5TradeDialog((S.fxSetups || []).find((x) => x.id === b.dataset.mt5send) || {})));
     v.querySelectorAll("[data-mt5close]").forEach((b) => b.addEventListener("click", () => { if (confirm("Close this trade at the market price now?")) act({ action: "mt5Close", ticket: b.dataset.mt5close }, "Closing it in MT5…"); }));

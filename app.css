@@ -1302,3 +1302,8 @@ body.teach-on { overflow: hidden; }
 .mt5card .kpis b { font-size: 19px; }
 .mt5card .kpis > div { min-width: 0; }
 .mt5card .kpis small, .mt5card .kpis em { overflow-wrap: anywhere; }
+
+/* 🧮 lot size */
+.lc-out { margin-top: 10px; padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.lc-big { font-size: 34px; font-weight: 800; letter-spacing: -.02em; }
+.lc-big small { font-size: 16px; font-weight: 700; color: var(--muted); }

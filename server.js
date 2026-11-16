@@ -24,7 +24,7 @@ const { getBroker, brokerFor } = require("./api/_broker");
 const { syncTrades } = require("./api/_core");
 
 const TYPES = { ".txt": "text/plain; charset=utf-8", ".mq5": "text/plain; charset=utf-8", ".pine": "text/plain; charset=utf-8", ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png", ".jpg": "image/jpeg" };
-const STATIC = new Set(["/pine/edge_fx_playbook.pine", "/pine/fx_watchlist.txt", "/mt5/EdgeBridge.mq5", "/index.html", "/app.js", "/insights.js", "/playbook.js", "/prop.js", "/firms.js", "/sim.js", "/home.js", "/art3d.js", "/trend.js", "/sdchart.js", "/vendor/lightweight-charts.js", "/coach.js", "/reader.js", "/practice.js", "/engine.js", "/strategy15.js", "/replay.js", "/sw.js", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/app.css", "/icon.svg", "/manifest.webmanifest", "/img/rules-example.jpg"]);
+const STATIC = new Set(["/pine/edge_fx_playbook.pine", "/pine/fx_watchlist.txt", "/mt5/EdgeBridge.mq5", "/index.html", "/app.js", "/insights.js", "/playbook.js", "/lots.js", "/mt5/EdgeLots.mq5", "/prop.js", "/firms.js", "/sim.js", "/home.js", "/art3d.js", "/trend.js", "/sdchart.js", "/vendor/lightweight-charts.js", "/coach.js", "/reader.js", "/practice.js", "/engine.js", "/strategy15.js", "/replay.js", "/sw.js", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/app.css", "/icon.svg", "/manifest.webmanifest", "/img/rules-example.jpg"]);
 
 function wrap(res) {
   res.status = (c) => { res.statusCode = c; return res; };

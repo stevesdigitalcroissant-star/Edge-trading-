@@ -32,6 +32,14 @@ nyOnly    = input.bool(false, "Only 8:00–11:30 New York time", group = "Entry"
 toEdge    = input.bool(true, "Send setups to Edge (webhook)", group = "Edge")
 secret    = input.string("change-me", "Edge secret (filled in when you copy the script from Edge)", group = "Edge")
 showPanel = input.bool(true, "Trend panel (top right)", group = "Panel")
+riskUsd   = input.float(25, "Risk per trade ($) — the label shows the lots for it", minval = 1, step = 5, group = "Size")
+lotUnits  = input.int(100000, "Units in 1 lot (100,000 on MT5 forex)", minval = 1, group = "Size")
+
+// dollars per 1.0 of this pair's quote currency (1 for …/USD; e.g. 1 / USDJPY for …/JPY) — for the lot size
+usdPerQuote = syminfo.currency == "USD" ? 1.0 : request.currency_rate(syminfo.currency, "USD", ignore_invalid_currency = true)
+f_lots(float e, float s) =>
+    lossPerLot = math.abs(e - s) * lotUnits * usdPerQuote
+    na(lossPerLot) or lossPerLot <= 0 ? na : math.floor(riskUsd / lossPerLot * 100) / 100
 
 // ---------------------------------------------------------------------------------------------------- higher timeframes (no repainting: last closed candle)
 f_lineup() =>
@@ -129,14 +137,14 @@ if not na(pl)
 f_q(string s) => "\"" + s + "\""
 f_p(float v) => str.tostring(v, format.mintick)
 f_msg(string side, float e, float s, float t, string why) =>
-    "{\"secret\":" + f_q(secret) + ",\"type\":\"fx\",\"pair\":" + f_q(syminfo.ticker) + ",\"tv\":" + f_q(syminfo.tickerid) + ",\"side\":" + f_q(side) + ",\"entry\":" + f_p(e) + ",\"sl\":" + f_p(s) + ",\"tp\":" + f_p(t) + ",\"tf\":" + f_q(timeframe.period) + ",\"trend\":{\"d\":" + str.tostring(trD) + ",\"h4\":" + str.tostring(tr4) + ",\"h1\":" + str.tostring(tr1) + "},\"why\":" + f_q(why) + "}"
+    "{\"secret\":" + f_q(secret) + ",\"type\":\"fx\",\"pair\":" + f_q(syminfo.ticker) + ",\"tv\":" + f_q(syminfo.tickerid) + ",\"side\":" + f_q(side) + ",\"entry\":" + f_p(e) + ",\"sl\":" + f_p(s) + ",\"tp\":" + f_p(t) + ",\"lots\":" + str.tostring(f_lots(e, s)) + ",\"tf\":" + f_q(timeframe.period) + ",\"trend\":{\"d\":" + str.tostring(trD) + ",\"h4\":" + str.tostring(tr4) + ",\"h1\":" + str.tostring(tr1) + "},\"why\":" + f_q(why) + "}"
 
 f_draw(int dir, float e, float s, float t) =>
     c = dir > 0 ? color.green : color.red
     line.new(bar_index, e, bar_index + 20, e, color = color.new(color.blue, 0), width = 2)
     line.new(bar_index, s, bar_index + 20, s, color = color.new(color.red, 0), style = line.style_dashed)
     line.new(bar_index, t, bar_index + 20, t, color = color.new(color.green, 0), style = line.style_dashed)
-    label.new(bar_index, s, (dir > 0 ? "BUY" : "SELL") + " limit " + f_p(e) + "\nstop " + f_p(s) + " · target " + f_p(t) + "\n1:" + str.tostring(math.abs(t - e) / math.abs(e - s), "#.0"), style = dir > 0 ? label.style_label_up : label.style_label_down, color = color.new(c, 15), textcolor = color.white, size = size.small)
+    label.new(bar_index, s, (dir > 0 ? "BUY" : "SELL") + " limit " + f_p(e) + "\nstop " + f_p(s) + " · target " + f_p(t) + "\n1:" + str.tostring(math.abs(t - e) / math.abs(e - s), "#.0") + " · " + str.tostring(f_lots(e, s), "#.00") + " lots for $" + str.tostring(riskUsd), style = dir > 0 ? label.style_label_up : label.style_label_down, color = color.new(c, 15), textcolor = color.white, size = size.small)
 
 if barstate.isconfirmed and not na(lastPH) and not phUsed and close > lastPH
     phUsed := true
