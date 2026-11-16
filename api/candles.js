@@ -3,7 +3,7 @@
 // Public market data, so no sign-in; cached at Vercel's edge for 30 minutes.
 const SYMBOLS = { gold: "GC=F", crude: "CL=F", natgas: "NG=F", silver: "SI=F", es: "ES=F", nq: "NQ=F", ym: "YM=F", copper: "HG=F" };
 // the trend board also watches these busy futures (trend only — no chart or sizing for them in Edge yet)
-const FXSYM = { eurusd: "EURUSD=X", gbpusd: "GBPUSD=X", usdjpy: "JPY=X", audusd: "AUDUSD=X", usdcad: "CAD=X", usdchf: "CHF=X", nzdusd: "NZDUSD=X", gbpjpy: "GBPJPY=X", eurjpy: "EURJPY=X" };
+const FXSYM = { eurusd: "EURUSD=X", gbpusd: "GBPUSD=X", usdjpy: "JPY=X", audusd: "AUDUSD=X", usdcad: "CAD=X", usdchf: "CHF=X", nzdusd: "NZDUSD=X", gbpjpy: "GBPJPY=X", eurjpy: "EURJPY=X", eurgbp: "EURGBP=X" };
 const EXTRA = { rty: "RTY=F", "6e": "6E=F", "6b": "6B=F", "6j": "6J=F", "6a": "6A=F", zn: "ZN=F", zb: "ZB=F" };
 const BOARD = [["es", "S&P 500", "ES"], ["nq", "Nasdaq", "NQ"], ["ym", "Dow", "YM"], ["rty", "Russell", "RTY"], ["crude", "Crude", "CL"], ["natgas", "Nat gas", "NG"], ["gold", "Gold", "GC"], ["silver", "Silver", "SI"], ["copper", "Copper", "HG"], ["6e", "Euro", "6E"], ["6b", "Pound", "6B"], ["6j", "Yen", "6J"], ["6a", "Aussie", "6A"], ["zn", "10-yr note", "ZN"], ["zb", "30-yr bond", "ZB"]];
 

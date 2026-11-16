@@ -9,7 +9,7 @@
   let S = null, tab = "now", busy = false, lastSig = "", renderedTab = "";
   try { tab = localStorage.getItem("edge.tab") || "now"; } catch {}
   if (["coach", "learn", "watch", "test"].includes(tab)) tab = "now"; // the training screens are gone: David coaches you now
-  if (!["now", "journal", "rules", "bias"].includes(tab)) tab = "now";
+  if (!["now", "journal", "rules", "bias", "lots"].includes(tab)) tab = "now";
 
   async function api(method, body) {
     const r = await fetch("/api/app", { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: body ? JSON.stringify(body) : undefined });
@@ -27,7 +27,7 @@
   window.Edge = { token: () => token, state: () => S, toast, api: (body) => api("POST", body), refresh: () => refresh(), go: (t) => { tab = t; try { localStorage.setItem("edge.tab", tab); } catch {} history.replaceState(null, "", "#" + tab); refresh(); scrollTo(0, 0); } };
 
   // ---------- notifications on this device (Web Push; iPhone/iPad need Edge on the Home Screen)
-  const TABS = ["now", "journal", "rules", "bias"];
+  const TABS = ["now", "journal", "rules", "bias", "lots"];
   const ALIAS = { setups: "now", learn: "now", coach: "now", watch: "now", test: "now" }; // old links still land somewhere sensible
   // a link like …/#sim-gold opens the simulator straight away (bookmark it on the laptop / iPad)
   setTimeout(() => { const m = /^#(sim|lab)-(gold|crude|silver|natgas|nq|es|ym|copper)$/.exec(location.hash); if (m && window.EdgeSim) window.EdgeSim[m[1] === "sim" ? "open" : "openLab"](m[2]); }, 1500);
@@ -215,7 +215,7 @@
     const view = $("#view"), fresh = renderedTab !== tab;
     // keep what you had open (alerts, advanced settings, playbook steps) and where you were in the page
     const open = new Set([...view.querySelectorAll("details[open]")].map((d, i) => d.dataset.keep || `#${i}`)), y = scrollY;
-    view.innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias })[tab]();
+    view.innerHTML = ({ now: viewNow, coach: viewCoach, journal: viewJournal, rules: viewRules, bias: viewBias, lots: viewLots })[tab]();
     if (!fresh) { [...view.querySelectorAll("details")].forEach((d, i) => { if (open.has(d.dataset.keep || `#${i}`)) d.open = true; }); if (Math.abs(scrollY - y) > 1) scrollTo(0, y); }
     view.classList.toggle("enter", fresh); if (fresh) setTimeout(() => view.classList.remove("enter"), 700);
     renderedTab = tab;
@@ -706,27 +706,43 @@
     try { const r = await fetch(`/api/candles?quote=${pair}`).then((x) => x.json()); if (r.price > 0) { RATES[pair] = { v: r.price, at: Date.now() }; return r.price; } } catch {}
     return null;
   }
-  // 🧮 exact lot size before any trade (also inside "Send to MT5")
-  function lotCard() {
-    let last = {}; try { last = JSON.parse(localStorage.getItem("edge.lotcalc") || "{}"); } catch {}
-    const m0 = last.m || (S.fx || [])[0];
-    return `<section class="card lotcard" data-tour="lots"><div class="card-head"><h2>🧮 Lot size</h2><span class="muted">exact, rounded down</span></div>
-      <div class="grid4"><label class="f"><small>Pair</small><select id="lcPair">${(S.fx || []).map((m) => `<option value="${m}" ${m === m0 ? "selected" : ""}>${esc(mname(m))}</option>`).join("")}</select></label>
-        <label class="f"><small>Entry</small><input id="lcEntry" inputmode="decimal" value="${esc(last.e || "")}"></label>
-        <label class="f"><small>Stop</small><input id="lcStop" inputmode="decimal" value="${esc(last.s || "")}"></label>
-        <label class="f"><small>Risk ($)</small><input id="lcRisk" inputmode="decimal" value="${esc(last.r || riskNow())}"></label></div>
-      <div class="lc-out" id="lcOut"><span class="muted">Type the entry and stop.</span></div></section>`;
+  // ---------- 🧮 LOTS: the exact lot size before he enters a trade by hand (his 10 pairs, in his watchlist order)
+  const LOT_PAIRS = ["usdjpy", "eurusd", "audusd", "eurgbp", "gbpusd", "gbpjpy", "usdcad", "usdchf", "nzdusd", "eurjpy"];
+  const lpState = () => { let v = {}; try { v = JSON.parse(localStorage.getItem("edge.lotcalc") || "{}"); } catch {} return { m: LOT_PAIRS.includes(v.m) ? v.m : "usdjpy", e: v.e || "", s: v.s || "", r: v.r || String(riskNow()), rr: v.rr || "3" }; };
+  const acctSize = () => { const M = S.mt5 || {}; return (M.connected && M.account && M.account.balance) || (M.rules && M.rules.size) || 5000; };
+  function viewLots() {
+    const st = lpState();
+    return `<section class="card lotpage" data-tour="lots"><div class="card-head"><h2>🧮 Lot size</h2><span class="muted">exact · rounded down</span></div>
+      <p class="muted" style="margin-top:0">Pick the pair, type your entry and stop — the lots for your risk, so the stop never costs more than you set.</p>
+      <div class="lp-pairs">${LOT_PAIRS.map((m) => `<button type="button" data-lpair="${m}" class="${m === st.m ? "on" : ""}">${esc(mname(m))}</button>`).join("")}</div>
+      <div class="lp-grid">
+        <label class="f"><small>Entry</small><span class="lp-entry"><input id="lpEntry" inputmode="decimal" value="${esc(st.e)}" placeholder="e.g. 159.602"><button type="button" class="btn small" id="lpNow" title="Fill in the latest price (a few seconds behind MT5)">Now</button></span></label>
+        <label class="f"><small>Stop loss</small><input id="lpStop" inputmode="decimal" value="${esc(st.s)}" placeholder="e.g. 159.511"></label>
+        <label class="f"><small>Risk ($)</small><input id="lpRisk" inputmode="decimal" value="${esc(st.r)}"></label>
+        <label class="f"><small>Target (R)</small><input id="lpRR" inputmode="decimal" value="${esc(st.rr)}"></label>
+      </div>
+      <div class="lp-res" id="lpOut"><span class="muted">Type the entry and stop.</span></div>
+      <p class="muted" style="margin-top:10px">1 lot = 100,000 units. Yen, CAD, CHF and GBP pairs are converted to dollars with today's rate. The EdgeLots indicator in MT5 (Settings → MetaTrader 5) does the same with your broker's own values.</p></section>`;
   }
-  async function lotCalc() {
-    const o = $("#lcOut"); if (!o) return;
-    const m = $("#lcPair").value, e = $("#lcEntry").value, st = $("#lcStop").value, rk = $("#lcRisk").value;
-    try { localStorage.setItem("edge.lotcalc", JSON.stringify({ m, e, s: st, r: rk })); } catch {}
+  async function lotsCalc() {
+    const o = $("#lpOut"); if (!o) return;
+    const m = (document.querySelector("[data-lpair].on") || {}).dataset?.lpair || "usdjpy", e = $("#lpEntry").value.trim(), st = $("#lpStop").value.trim(), rk = $("#lpRisk").value.trim(), rr = Number($("#lpRR").value) || 3;
+    try { localStorage.setItem("edge.lotcalc", JSON.stringify({ m, e, s: st, r: rk, rr: String(rr) })); } catch {}
     if (!(Number(e) && Number(st) && Number(rk))) { o.innerHTML = `<span class="muted">Type the entry and stop.</span>`; return; }
+    if (Number(e) === Number(st)) { o.innerHTML = `<span class="err">The stop can't be at the entry.</span>`; return; }
+    o.innerHTML = `<span class="muted">Working it out…</span>`;
     const r = window.EdgeLots.lots({ market: m, entry: e, stop: st, risk: rk, usdxxx: await usdRate(m) });
-    if (!r) { o.innerHTML = `<span class="err">Couldn't get today's rate for ${esc(mname(m))} — try again in a moment.</span>`; return; }
-    const dir = Number(st) < Number(e) ? 1 : -1, tp = Number(e) + dir * 3 * Math.abs(Number(e) - Number(st));
-    o.innerHTML = r.tooWide ? `<b class="bad">Stop too wide</b> <span class="muted">— even 0.01 lots risks $${(r.perLot / 100).toFixed(2)}.</span>`
-      : `<div class="lc-big">${r.lots.toFixed(2)} <small>lots</small></div><div class="muted">${r.pips} pips · $${r.pipUsdPerLot} a pip per lot · <b>$${r.riskAtLots}</b> at risk · 1:3 target ${fxp(m, tp)}</div>`;
+    if (!r) { o.innerHTML = `<span class="err">Couldn't get today's rate for ${esc(mname(m))} — check your connection and try again.</span>`; return; }
+    const buy = Number(st) < Number(e), dist = Math.abs(Number(e) - Number(st)), tp = Number(e) + (buy ? 1 : -1) * rr * dist, acct = acctSize();
+    if (r.tooWide) { o.innerHTML = `<b class="bad">Stop too wide for $${esc(rk)}</b><div class="muted">Even the smallest size (0.01 lots) would risk $${(r.perLot / 100).toFixed(2)} on this stop.</div>`; return; }
+    o.innerHTML = `<div class="row between"><div class="lc-big">${r.lots.toFixed(2)} <small>lots</small></div><span class="pill ${buy ? "good" : "bad"}">${buy ? "BUY" : "SELL"}</span></div>
+      <div class="lp-rows"><span>Stop</span><b>${r.pips} pips</b>
+        <span>$ per pip (1 lot)</span><b>$${r.pipUsdPerLot.toFixed(2)}</b>
+        <span>Real risk at ${r.lots.toFixed(2)} lots</span><b>$${r.riskAtLots.toFixed(2)} · ${((r.riskAtLots / acct) * 100).toFixed(2)}% of $${Math.round(acct).toLocaleString()}</b>
+        <span>Take profit at 1:${rr}</span><b>${fxp(m, tp)}</b>
+        <span>If it hits</span><b class="good">+$${(r.riskAtLots * rr).toFixed(2)}</b></div>
+      <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="lpCopy">Copy ${r.lots.toFixed(2)}</button></div>`;
+    const cp = $("#lpCopy"); if (cp) cp.addEventListener("click", async () => { try { await navigator.clipboard.writeText(r.lots.toFixed(2)); toast("Lots copied — paste them into MT5's Volume."); } catch { toast(r.lots.toFixed(2), 4000); } });
   }
   function fxSetupsCard() {
     const L = S.fxSetups || [];
@@ -809,7 +825,7 @@
       ${tile("shot", "Log a trade", "upload a screenshot", "data-shot")}
       ${setupShown || ps.on ? "" : tile("push", "Alerts on", pushOk ? "to this phone" : "how to turn on", pushOk ? "data-pushon" : `data-pushhelp="${esc(ps.text)}"`, "push")}
     </section>`;
-    return `${pend}${getSet}${hero}${openCard}${mt5Card()}${fxSetupsCard()}${lotCard()}${biasStrip()}${tiles}${stats}${news}`;
+    return `${pend}${getSet}${hero}${openCard}${mt5Card()}${fxSetupsCard()}${biasStrip()}${tiles}${stats}${news}`;
   }
 
   // A trade Edge recorded by itself when your planned order filled: check the numbers in one tap
@@ -1647,7 +1663,10 @@
     }));
     const chk = $("#copyHook"); if (chk) chk.addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.origin + "/api/hook"); toast("Webhook URL copied."); } catch { toast(location.origin + "/api/hook", 8000); } });
     const lt = $("#logTrade"); if (lt) lt.addEventListener("click", logTradeDialog);
-    ["lcPair", "lcEntry", "lcStop", "lcRisk"].forEach((id) => { const el = $("#" + id); if (el) el.addEventListener("input", lotCalc); }); if ($("#lcOut")) lotCalc();
+    ["lpEntry", "lpStop", "lpRisk", "lpRR"].forEach((id) => { const el = $("#" + id); if (el) el.addEventListener("input", lotsCalc); });
+    v.querySelectorAll("[data-lpair]").forEach((b) => b.addEventListener("click", () => { v.querySelectorAll("[data-lpair]").forEach((x) => x.classList.toggle("on", x === b)); lotsCalc(); }));
+    const ln = $("#lpNow"); if (ln) ln.addEventListener("click", async () => { const m = (document.querySelector("[data-lpair].on") || {}).dataset?.lpair; try { const r = await fetch(`/api/candles?quote=${m}`).then((x) => x.json()); if (r.price > 0) { $("#lpEntry").value = fxp(m, r.price); lotsCalc(); } else throw 0; } catch { toast("Couldn't get the price — type it from MT5."); } });
+    if ($("#lpOut")) lotsCalc();
     v.querySelectorAll("[data-mt5new]").forEach((b) => b.addEventListener("click", () => mt5TradeDialog()));
     v.querySelectorAll("[data-mt5send]").forEach((b) => b.addEventListener("click", () => mt5TradeDialog((S.fxSetups || []).find((x) => x.id === b.dataset.mt5send) || {})));
     v.querySelectorAll("[data-mt5close]").forEach((b) => b.addEventListener("click", () => { if (confirm("Close this trade at the market price now?")) act({ action: "mt5Close", ticket: b.dataset.mt5close }, "Closing it in MT5…"); }));

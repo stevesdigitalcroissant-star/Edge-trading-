@@ -68,6 +68,7 @@ const MARKETS = {
   usdchf: { name: "USD/CHF", unit: "USD", lot: 100000, fx: true, pip: 0.0001, mt5: "USDCHF", match: /^(FX:|OANDA:|FX_IDC:)?USDCHF/i, instrument: () => "USD_CHF" },
   nzdusd: { name: "NZD/USD", unit: "NZD", lot: 100000, fx: true, pip: 0.0001, mt5: "NZDUSD", match: /^(FX:|OANDA:|FX_IDC:)?NZDUSD/i, instrument: () => "NZD_USD" },
   gbpjpy: { name: "GBP/JPY", unit: "GBP", lot: 100000, fx: true, pip: 0.01, mt5: "GBPJPY", match: /^(FX:|OANDA:|FX_IDC:)?GBPJPY/i, instrument: () => "GBP_JPY" },
+  eurgbp: { name: "EUR/GBP", unit: "EUR", lot: 100000, fx: true, pip: 0.0001, mt5: "EURGBP", match: /^(FX:|OANDA:|FX_IDC:)?EURGBP/i, instrument: () => "EUR_GBP" },
   eurjpy: { name: "EUR/JPY", unit: "EUR", lot: 100000, fx: true, pip: 0.01, mt5: "EURJPY", match: /^(FX:|OANDA:|FX_IDC:)?EURJPY/i, instrument: () => "EUR_JPY" },
   // the supply & demand scanner's other busy futures (futures only — no CFD instrument)
   rty: { name: "Russell 2000", unit: "points", lot: 50, match: /^(M2K|RTY)(\d|[FGHJKMNQUVXZ]\d|1!|2!)|US2000|RUT/i, instrument: () => "US2000_USD" },

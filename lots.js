@@ -1,16 +1,17 @@
 // Exact forex lot size for a dollar risk — the same maths the EdgeBridge EA does with MT5's tick values.
 // 1 standard lot = 100,000 units of the first currency. Loss at the stop = |entry − stop| × 100,000 × (USD per 1 unit of the
-// quote currency): 1 for …/USD pairs, 1 / USDJPY for …/JPY, 1 / USDCAD for USD/CAD, 1 / USDCHF for USD/CHF.
+// quote currency): 1 for …/USD pairs, 1 / USDJPY for …/JPY, 1 / USDCAD for USD/CAD, 1 / USDCHF for USD/CHF, GBPUSD for EUR/GBP.
 // Lots are rounded DOWN to 0.01 so the real risk never goes over what you set. Browser (window.EdgeLots) and Node.
 (function (root) {
-  const QUOTE = { eurusd: "USD", gbpusd: "USD", audusd: "USD", nzdusd: "USD", usdjpy: "JPY", gbpjpy: "JPY", eurjpy: "JPY", usdcad: "CAD", usdchf: "CHF" };
-  const RATE_PAIR = { JPY: "usdjpy", CAD: "usdcad", CHF: "usdchf" }; // the USD/xxx price that turns the quote currency into dollars
+  const QUOTE = { eurusd: "USD", gbpusd: "USD", audusd: "USD", nzdusd: "USD", usdjpy: "JPY", gbpjpy: "JPY", eurjpy: "JPY", usdcad: "CAD", usdchf: "CHF", eurgbp: "GBP" };
+  const RATE_PAIR = { JPY: "usdjpy", CAD: "usdcad", CHF: "usdchf", GBP: "gbpusd" }; // the USD/xxx price that turns the quote currency into dollars
   const pipOf = (m) => (QUOTE[m] === "JPY" ? 0.01 : 0.0001);
   // usdPerQuote: dollars per 1 unit of the quote currency (1 for …/USD). For USD/JPY, USD/CAD, USD/CHF the entry price itself works.
   function usdPerQuote(m, entry, usdxxx) {
     const q = QUOTE[m];
     if (!q) return null;
     if (q === "USD") return 1;
+    if (q === "GBP") return usdxxx > 0 ? usdxxx : null; // EUR/GBP: dollars per pound = today's GBP/USD
     const rate = m.startsWith("usd") ? entry : usdxxx; // e.g. GBP/JPY needs today's USD/JPY
     return rate > 0 ? 1 / rate : null;
   }

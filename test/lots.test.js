@@ -19,3 +19,9 @@ test("USD/CAD, USD/CHF; never over the risk; too-wide stops say so", () => {
   assert.equal(c.lots, 0.11); assert.ok(c.riskAtLots <= 25);
   assert.equal(L.lots({ market: "eurusd", entry: 1.1, stop: 1.0, risk: 25 }).tooWide, true);
 });
+
+test("EUR/GBP uses today's GBP/USD", () => {
+  const r = L.lots({ market: "eurgbp", entry: 0.8345, stop: 0.8330, risk: 25, usdxxx: 1.3195 }); // 15 pips at $13.20
+  assert.ok(Math.abs(r.pipUsdPerLot - 13.195) < 0.01); assert.equal(r.lots, 0.12); assert.ok(r.riskAtLots <= 25);
+  assert.equal(L.lots({ market: "eurgbp", entry: 0.8345, stop: 0.833, risk: 25 }), null);
+});
